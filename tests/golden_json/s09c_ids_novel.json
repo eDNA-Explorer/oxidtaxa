@@ -1,0 +1,14 @@
+{
+  "random1": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [5.1351007536427709, 5.1351007536427709]
+  },
+  "random2": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [9.1236528575947258, 9.1236528575947258]
+  },
+  "random3": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [7.5144487992054296, 7.5144487992054296]
+  }
+}

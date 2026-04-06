@@ -1,0 +1,152 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/ryanmartin/idtaxa-optim && poetry run python .claude/hooks/approve-variants.py"
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/ryanmartin/idtaxa-optim && poetry run python .claude/hooks/on-user-question.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file_path=$(jq -r '.tool_input.file_path'); if echo \"$file_path\" | grep -q '\\.py$'; then poetry run ruff format \"$file_path\" && poetry run ruff check --fix \"$file_path\" && poetry run ruff check \"$file_path\"; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/ryanmartin/idtaxa-optim && poetry run python .claude/hooks/on-stop.py"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "WebFetch",
+      "WebSearch",
+      "Bash(gh:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh repo:*)",
+      "Bash(gh workflow:*)",
+      "Bash(gh api:*)",
+      "Bash(git *)",
+      "Bash(git commit:*)",
+      "Bash(SKIP=no-commit-to-branch *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(poetry *)",
+      "Bash(poetry run:*)",
+      "Bash(poetry run python:*)",
+      "Bash(poetry run python3:*)",
+      "Bash(poetry run git *)",
+      "Bash(cargo *)",
+      "Bash(go *)",
+      "Bash(node *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(make *)",
+      "Bash(docker *)",
+      "Bash(docker-compose *)",
+      "Bash(ruff:*)",
+      "Bash(ruff check:*)",
+      "Bash(ls *)",
+      "Bash(cd *)",
+      "Bash(pwd)",
+      "Bash(mkdir *)",
+      "Bash(touch *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(which *)",
+      "Bash(echo:*)",
+      "Bash(test:*)",
+      "Bash(sort:*)",
+      "Bash(wc:*)",
+      "Bash(tee:*)",
+      "Bash(awk:*)",
+      "Bash(xargs:*)",
+      "Bash(du:*)",
+      "Bash(tree:*)",
+      "Bash(jq:*)",
+      "Bash(curl:*)",
+      "Bash(unzip:*)",
+      "Bash(xxd:*)",
+      "Bash(ps:*)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)",
+      "Bash(pkill:*)",
+      "Bash(source:*)",
+      "Bash(set -a)",
+      "Bash(source .env)",
+      "Bash(set +a)",
+      "Bash(unset:*)",
+      "Bash(bash -n:*)",
+      "Bash(bash *)",
+      "Bash(script:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(jupyter:*)",
+      "Bash(jupyter nbconvert:*)",
+      "Bash(pandoc:*)",
+      "Bash(pre-commit clean:*)",
+      "Bash(gsutil:*)",
+      "Bash(gcloud *)",
+      "Bash(dvc *)",
+      "Bash(brew install:*)",
+      "Bash(claude mcp list:*)",
+      "Bash(R:*)",
+      "Bash(Rscript:*)",
+      "Bash(for:*)",
+      "Bash(while read *)",
+      "Bash(DATABASE_URL=*)",
+      "Bash(STAGE=*)",
+      "Bash(PYTHONUNBUFFERED=*)",
+      "mcp__ide__executeCode",
+      "mcp__ide__getDiagnostics",
+      "mcp__linear-server__get_issue",
+      "mcp__linear-server__list_issues",
+      "mcp__linear-server__list_comments",
+      "mcp__linear-server__create_comment",
+      "Skill(linear)",
+      "Skill(research_codebase)",
+      "Skill(create_plan)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(sudo *)",
+      "Bash(chmod *)",
+      "Bash(chown *)"
+    ]
+  }
+}

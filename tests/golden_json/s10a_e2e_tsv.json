@@ -1,0 +1,77 @@
+[
+  {
+    "read_id": "query_001",
+    "taxonomic_path": "Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis;Canis_lupus",
+    "confidence": 74.12922579560805
+  },
+  {
+    "read_id": "query_002",
+    "taxonomic_path": "Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis;Canis_lupus",
+    "confidence": 66.448970126771783
+  },
+  {
+    "read_id": "query_003",
+    "taxonomic_path": "Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Vulpes;Vulpes_vulpes",
+    "confidence": 66.502623728885993
+  },
+  {
+    "read_id": "query_004",
+    "taxonomic_path": "Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Vulpes;Vulpes_vulpes",
+    "confidence": 67.612622790878618
+  },
+  {
+    "read_id": "query_005",
+    "taxonomic_path": "Eukaryota;Chordata;Mammalia;Carnivora;Felidae;Felis;Felis_catus",
+    "confidence": 68.955968838531945
+  },
+  {
+    "read_id": "query_006",
+    "taxonomic_path": "",
+    "confidence": 0
+  },
+  {
+    "read_id": "query_007",
+    "taxonomic_path": "Eukaryota;Chordata;Mammalia;Artiodactyla;Cervidae;Odocoileus;Odocoileus_virginianus",
+    "confidence": 64.980034211758024
+  },
+  {
+    "read_id": "query_008",
+    "taxonomic_path": "",
+    "confidence": 0
+  },
+  {
+    "read_id": "query_009",
+    "taxonomic_path": "Eukaryota;Chordata;Actinopteri;Perciformes;Centrarchidae;Micropterus;Micropterus_salmoides",
+    "confidence": 78.905241272213516
+  },
+  {
+    "read_id": "query_010",
+    "taxonomic_path": "Eukaryota;Chordata;Actinopteri;Perciformes;Centrarchidae;Micropterus;Micropterus_salmoides",
+    "confidence": 68.569307481500488
+  },
+  {
+    "read_id": "query_011",
+    "taxonomic_path": "Eukaryota;Chordata;Actinopteri;Perciformes;Centrarchidae;Lepomis;Lepomis_macrochirus",
+    "confidence": 60.596903920961111
+  },
+  {
+    "read_id": "query_012",
+    "taxonomic_path": "Eukaryota;Chordata;Actinopteri;Perciformes;Centrarchidae;Lepomis;Lepomis_macrochirus",
+    "confidence": 68.628470672227607
+  },
+  {
+    "read_id": "query_013",
+    "taxonomic_path": "Eukaryota;Chordata;Actinopteri;Salmoniformes;Salmonidae;Oncorhynchus;Oncorhynchus_mykiss",
+    "confidence": 68.203926398195506
+  },
+  {
+    "read_id": "query_014",
+    "taxonomic_path": "Eukaryota;Arthropoda;Insecta;Diptera;Culicidae;Aedes;Aedes_aegypti",
+    "confidence": 61.080709174814338
+  },
+  {
+    "read_id": "query_015",
+    "taxonomic_path": "Eukaryota;Arthropoda;Insecta;Diptera;Culicidae;Aedes;Aedes_aegypti",
+    "confidence": 60.916319965254509
+  }
+]

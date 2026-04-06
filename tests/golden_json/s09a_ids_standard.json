@@ -1,0 +1,62 @@
+{
+  "query_001": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Carnivora", "Canidae", "Canis", "Canis_lupus"],
+    "confidence": [74.12922579560805, 74.12922579560805, 74.12922579560805, 74.12922579560805, 74.12922579560805, 74.12922579560805, 74.12922579560805, 74.12922579560805]
+  },
+  "query_002": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Carnivora", "Canidae", "Canis", "Canis_lupus"],
+    "confidence": [66.448970126771783, 66.448970126771783, 66.448970126771783, 66.448970126771783, 66.448970126771783, 66.448970126771783, 66.448970126771783, 66.448970126771783]
+  },
+  "query_003": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Carnivora", "Canidae", "Vulpes", "Vulpes_vulpes"],
+    "confidence": [66.502623728885993, 66.502623728885993, 66.502623728885993, 66.502623728885993, 66.502623728885993, 66.502623728885993, 66.502623728885993, 66.502623728885993]
+  },
+  "query_004": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Carnivora", "Canidae", "Vulpes", "Vulpes_vulpes"],
+    "confidence": [67.612622790878618, 67.612622790878618, 67.612622790878618, 67.612622790878618, 67.612622790878618, 67.612622790878618, 67.612622790878618, 67.612622790878618]
+  },
+  "query_005": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Carnivora", "Felidae", "Felis", "Felis_catus"],
+    "confidence": [68.955968838531945, 68.955968838531945, 68.955968838531945, 68.955968838531945, 68.955968838531945, 68.955968838531945, 68.955968838531945, 68.955968838531945]
+  },
+  "query_006": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [57.057891314658335, 57.057891314658335]
+  },
+  "query_007": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Odocoileus", "Odocoileus_virginianus"],
+    "confidence": [64.980034211758024, 64.980034211758024, 64.980034211758024, 64.980034211758024, 64.980034211758024, 64.980034211758024, 64.980034211758024, 64.980034211758024]
+  },
+  "query_008": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [57.927388785754346, 57.927388785754346]
+  },
+  "query_009": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Actinopteri", "Perciformes", "Centrarchidae", "Micropterus", "Micropterus_salmoides"],
+    "confidence": [78.905241272213516, 78.905241272213516, 78.905241272213516, 78.905241272213516, 78.905241272213516, 78.905241272213516, 78.905241272213516, 78.905241272213516]
+  },
+  "query_010": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Actinopteri", "Perciformes", "Centrarchidae", "Micropterus", "Micropterus_salmoides"],
+    "confidence": [68.569307481500488, 68.569307481500488, 68.569307481500488, 68.569307481500488, 68.569307481500488, 68.569307481500488, 68.569307481500488, 68.569307481500488]
+  },
+  "query_011": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Actinopteri", "Perciformes", "Centrarchidae", "Lepomis", "Lepomis_macrochirus"],
+    "confidence": [60.596903920961111, 60.596903920961111, 60.596903920961111, 60.596903920961111, 60.596903920961111, 60.596903920961111, 60.596903920961111, 60.596903920961111]
+  },
+  "query_012": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Actinopteri", "Perciformes", "Centrarchidae", "Lepomis", "Lepomis_macrochirus"],
+    "confidence": [68.628470672227607, 68.628470672227607, 68.628470672227607, 68.628470672227607, 68.628470672227607, 68.628470672227607, 68.628470672227607, 68.628470672227607]
+  },
+  "query_013": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Actinopteri", "Salmoniformes", "Salmonidae", "Oncorhynchus", "Oncorhynchus_mykiss"],
+    "confidence": [68.203926398195506, 68.203926398195506, 68.203926398195506, 68.203926398195506, 68.203926398195506, 68.203926398195506, 68.203926398195506, 68.203926398195506]
+  },
+  "query_014": {
+    "taxon": ["Root", "Eukaryota", "Arthropoda", "Insecta", "Diptera", "Culicidae", "Aedes", "Aedes_aegypti"],
+    "confidence": [61.080709174814338, 61.080709174814338, 61.080709174814338, 61.080709174814338, 61.080709174814338, 61.080709174814338, 61.080709174814338, 61.080709174814338]
+  },
+  "query_015": {
+    "taxon": ["Root", "Eukaryota", "Arthropoda", "Insecta", "Diptera", "Culicidae", "Aedes", "Aedes_aegypti"],
+    "confidence": [60.916319965254509, 60.916319965254509, 60.916319965254509, 60.916319965254509, 60.916319965254509, 60.916319965254509, 60.916319965254509, 60.916319965254509]
+  }
+}

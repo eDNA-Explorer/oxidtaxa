@@ -1,0 +1,18 @@
+{
+  "seq_001": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Carnivora", "Canidae", "Canis", "Canis_lupus"],
+    "confidence": [100.00000000000003, 100.00000000000003, 100.00000000000003, 100.00000000000003, 100.00000000000003, 100.00000000000003, 100.00000000000003, 100.00000000000003]
+  },
+  "seq_020": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Carnivora", "Canidae", "Vulpes", "Vulpes_vulpes"],
+    "confidence": [99.999999999999986, 99.999999999999986, 99.999999999999986, 99.999999999999986, 99.999999999999986, 99.999999999999986, 99.999999999999986, 99.999999999999986]
+  },
+  "seq_040": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Mammalia", "Artiodactyla", "Cervidae", "Odocoileus", "Odocoileus_virginianus"],
+    "confidence": [100, 100, 100, 100, 100, 100, 100, 100]
+  },
+  "seq_060": {
+    "taxon": ["Root", "Eukaryota", "Chordata", "Actinopteri", "Perciformes", "Centrarchidae", "Lepomis", "Lepomis_macrochirus"],
+    "confidence": [100.00000000000016, 100.00000000000016, 100.00000000000016, 100.00000000000016, 100.00000000000016, 100.00000000000016, 100.00000000000016, 100.00000000000016]
+  }
+}

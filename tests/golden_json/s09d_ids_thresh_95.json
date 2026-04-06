@@ -1,0 +1,22 @@
+{
+  "query_001": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [74.12922579560805, 74.12922579560805]
+  },
+  "query_002": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [66.448970126771783, 66.448970126771783]
+  },
+  "query_003": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [66.502623728885993, 66.502623728885993]
+  },
+  "query_004": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [67.612622790878618, 67.612622790878618]
+  },
+  "query_005": {
+    "taxon": ["Root", "unclassified_Root"],
+    "confidence": [68.955968838531945, 68.955968838531945]
+  }
+}

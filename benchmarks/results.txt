@@ -1,0 +1,95 @@
+=====================================================
+  IDTAXA Benchmark: R/C vs Python/Rust
+  Apple M4 Pro, 14 cores
+=====================================================
+
+Settings: threshold=40 bootstraps=50 strand=both seed=42
+R: proc.time() (computation only).  Rust: time.perf_counter() (computation only).
+Rust compiled with --release (LTO, codegen-units=1). All 51 golden tests pass.
+
+=====================================================
+  BASELINE (pre-optimization, 2026-04-03)
+=====================================================
+
+                    R/C        Rust 1T    Rust 8T    Speedup(1T)  Speedup(8T)
+  1K ref / 500q
+  Train           4.81s        0.58s        —          8.3x           —
+  Classify        1.39s        0.62s      0.12s        2.2x         11.6x
+  Total           6.20s        1.20s      0.70s        5.2x          8.9x
+
+  5K ref / 500q
+  Train          17.17s        1.78s        —          9.6x           —
+  Classify        4.65s        3.88s      0.70s        1.2x          6.6x
+  Total          21.82s        5.66s      2.48s        3.9x          8.8x
+
+  10K ref / 500q
+  Train          29.63s        3.39s        —          8.7x           —
+  Classify        9.00s       12.25s      1.91s        0.7x          4.7x
+  Total          38.63s       15.64s      5.30s        2.5x          7.3x
+
+=====================================================
+  OPTIMIZED (2026-04-04)
+=====================================================
+
+                    R/C        Rust 1T    Rust 8T    Speedup(1T)  Speedup(8T)
+  1K ref / 500q
+  Train           4.81s        0.43s        —         11.2x           —
+  Classify        1.39s        0.46s      0.12s        3.0x         11.6x
+  Total           6.20s        0.89s      0.55s        7.0x         11.3x
+
+  5K ref / 500q
+  Train          17.17s        1.30s        —         13.2x           —
+  Classify        4.65s        0.91s      0.42s        5.1x         11.1x
+  Total          21.82s        2.21s      1.72s        9.9x         12.7x
+
+  10K ref / 500q
+  Train          29.63s        2.29s        —         12.9x           —
+  Classify        9.00s        1.52s      0.80s        5.9x         11.3x
+  Total          38.63s        3.81s      3.09s       10.1x         12.5x
+
+=====================================================
+  IMPROVEMENT SUMMARY
+=====================================================
+
+Training:
+  Before: 8-10x faster than R.  After: 11-13x faster than R.
+  Improvement: ~1.3-1.5x from HashSet dedup, parallel IDF, LTO.
+
+Classification (single-threaded):
+  Before: 2.2x faster at 1K, 0.7x SLOWER at 10K.
+  After:  3.0x faster at 1K, 5.9x faster at 10K.
+  The 10K regression is FIXED (12.25s -> 1.52s = 8.1x improvement).
+
+Classification (8 threads):
+  Before: 4.7-11.6x faster than R.
+  After:  11.1-11.6x faster than R at all scales.
+
+Total pipeline (train + classify, 8T):
+  1K:   R 6.2s  ->  Rust 0.55s   (11.3x faster)
+  5K:   R 21.8s ->  Rust 1.72s   (12.7x faster)
+  10K:  R 38.6s ->  Rust 3.09s   (12.5x faster)
+
+Optimizations applied (16 total):
+  Phase 2 - Algorithmic:
+  1. HashSet for u_classes/all_taxa dedup (training O(n^2) -> O(n))
+  2. HashMap for sequences_per_node (training O(n*t) -> O(n))
+  3. HashMap for dereplicate (classify O(n^2) -> O(n))
+  4. HashMap for boths_map (classify O(n) -> O(1) per query)
+  5. Fixed array for enumerate_single sliding window
+
+  Phase 3 - Constant-factor:
+  6. Byte-level DNA operations (reverse_complement, remove_gaps)
+  7. Parallel IDF weight computation (rayon)
+  8. sample_int_replace_into for pre-allocated buffers
+
+  Phase 4 - Quick wins:
+  9. Release profile: LTO + codegen-units=1
+  10. O(n) groupMax single-pass (was O(n*g) brute force)
+  11. Flat contiguous hits matrix in parallel_match (was Vec<Vec<f64>>)
+  12. Sequential path in parallel_match for small n (avoids rayon overhead)
+
+  Phase 5 - Allocation reduction:
+  13. Eliminated sampling.clone() via sort-index approach
+  14. Eliminated grouped Vec<Vec<usize>> allocation storm
+  15. Eliminated sampling_weights Vec via inline davg computation
+  16. Flat hits in tree descent (was Vec<Vec<f64>>)
