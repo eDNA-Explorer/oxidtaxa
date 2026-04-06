@@ -1,6 +1,8 @@
 # Rust build artifacts
 target/
-rust/target/
+
+# Legacy rust/ subdirectory (source migrated to root, reference copy in reference/rust_original/)
+rust/
 
 # Python
 .venv/
