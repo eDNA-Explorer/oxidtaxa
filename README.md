@@ -22,7 +22,7 @@ python classify_idtaxa.py query.fasta model.bin results.tsv \
 ## Python API
 
 ```python
-from idtaxa import train, classify
+from oxidaxa import train, classify
 
 # Train
 train(
@@ -32,6 +32,7 @@ train(
     seed=42,
     k=None,                            # k-mer size (None = auto from sequence lengths)
     record_kmers_fraction=0.10,        # fraction of top k-mers per decision node
+    seed_pattern=None,                 # spaced seed (e.g., "11011011011"). None = contiguous
 )
 
 # Classify
@@ -47,6 +48,8 @@ classify(
     processors=8,                      # threads
     sample_exponent=0.47,              # k-mers per bootstrap: S = L^exponent
     seed=42,
+    length_normalize=False,            # normalize scores by training sequence length
+    rank_thresholds=None,              # per-rank thresholds (e.g., [90, 80, 70, 60, 50, 40])
 )
 ```
 
@@ -62,6 +65,8 @@ classify(
 | **min_descend** | 0.98 | 0.5-1.0 | Fraction of bootstrap votes required to descend into a child node. Lower = more aggressive descent into uncertain branches. |
 | **full_length** | 0.0 | 0.0+ | Length ratio filter for training sequences. 0 disables. When set (e.g. 2.0), excludes training sequences whose k-mer count differs by more than this fold from the query. |
 | **sample_exponent** | 0.47 | 0.2-0.8 | Controls k-mers sampled per bootstrap: S = L^exponent where L = unique k-mers in query. Lower = fewer samples (faster, noisier). Higher = more samples (slower, more stable). |
+| **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). Corrects bias from longer references accumulating more k-mer hits. Most useful for variable-length markers. |
+| **rank_thresholds** | None | list of floats | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set, overrides the single `threshold` parameter. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). If shorter than the predicted path, the last value is reused. |
 | **processors** | 1 | 1+ | Number of threads for parallel classification. |
 | **seed** | 42 | any u32 | PRNG seed. Each query gets an independent PRNG seeded with seed XOR query_index. |
 
@@ -69,25 +74,108 @@ classify(
 
 | Parameter | Default | Range | Description |
 |-----------|---------|-------|-------------|
-| **k** | auto | 1-15 | K-mer word size. When None, auto-computed as floor(ln(500 * L_99th) / ln(alphabet_size)). Typical values: 7-9 for DNA. |
+| **k** | auto | 1-15 | K-mer word size. When None, auto-computed as floor(ln(500 * L_99th) / ln(alphabet_size)). Typical values: 7-9 for DNA. When using a spaced seed, this is overridden by the seed's weight. |
 | **record_kmers_fraction** | 0.10 | 0.01-0.5 | Fraction of most-discriminating k-mers retained at each decision node. Higher = more features per node, larger model, potentially better discrimination. |
+| **seed_pattern** | None | binary string | Spaced seed pattern for mutation-robust k-mer enumeration. A string of 1s and 0s (e.g., `"11011011011"`). Positions with `1` are used; `0` positions are skipped. See [Spaced K-mers](#spaced-k-mers) below. |
 | **seed** | 42 | any u32 | PRNG seed for the training bootstrap loop. |
 
-### Parameter Sweep Recommendations
+### Spaced K-mers
 
-For optimizing classification on a new marker:
+A standard (contiguous) 8-mer is destroyed by a single SNP or sequencing error. Spaced seeds spread the k-mer across a wider window, so a point mutation only affects k-mers where the error lands on a `1` position.
 
-**Tier 1 — Sweep these first (known high impact):**
+**How it works:** The pattern `"11011011011"` has **weight** 8 (eight 1s) and **span** 11. The window slides across the sequence 1 base at a time, but only the 8 positions marked `1` contribute to the k-mer index. The index space is 4^weight = 4^8 = 65,536 — same as contiguous k=8.
+
+```
+Sequence:  A C G T A C G T A C G T A C G
+Pattern:   1 1 0 1 1 0 1 1 0 1 1
+Used:      A C . T A . G T . C G  →  k-mer from {A,C,T,A,G,T,C,G}
+              1 1 0 1 1 0 1 1 0 1 1
+              C G . A C . T A . G T  →  next k-mer
+```
+
+**Two independent axes to sweep:**
+
+1. **Weight** (= effective k): determines specificity. Weight 6 = 4,096 possible k-mers (less specific), weight 10 = 1,048,576 (very specific).
+2. **Span-to-weight ratio**: determines mutation robustness. Ratio 1.0 = contiguous, 1.4 = moderate spacing, 1.8+ = wide spacing.
+
+**Important:** The seed pattern is a training parameter — it's stored in the model. You must train a separate model for each pattern. Classification reads the pattern from the model automatically.
+
+**Choosing patterns:** Periodic patterns (like `"11011011011"`) are simple but suboptimal — the literature on spaced seeds (Li et al. 2004, PatternHunter) shows that aperiodic, asymmetric patterns perform better because they spread miss events more evenly. Avoid long runs of consecutive 0s.
+
+### Parameter Sweep Guide
+
+For optimizing classification on a new marker, sweep in tiers. Each tier's optimal values feed into the next.
+
+**Tier 1 — Highest impact, sweep first:**
+
+These are classification-only parameters (no retraining needed), so sweeps are fast.
+
 ```python
 thresholds = [20, 30, 40, 50, 60, 70, 80]
 sample_exponents = [0.35, 0.40, 0.47, 0.55, 0.65]
-k_values = [6, 7, 8, 9, 10]
 ```
 
-**Tier 2 — Secondary parameters:**
+**Tier 2 — Training parameters (require retraining per value):**
+
+```python
+k_values = [6, 7, 8, 9, 10]                       # train separate model per k
+record_kmers_fractions = [0.05, 0.10, 0.15, 0.20]  # train separate model per fraction
+```
+
+**Tier 3 — Secondary classification parameters:**
+
 ```python
 min_descend_values = [0.90, 0.95, 0.98, 0.99]
-record_kmers_fractions = [0.05, 0.10, 0.15, 0.20]
+length_normalize = [True, False]
+rank_thresholds_options = [
+    None,                              # single threshold (from Tier 1)
+    [90, 80, 70, 60, 50, 40, 40],     # strict top, lenient bottom
+    [80, 70, 60, 50, 40, 30, 30],     # moderate gradient
+]
+```
+
+**Tier 4 — Spaced seeds (require retraining per pattern):**
+
+Train one model per pattern, then sweep Tier 1 classification params for each. Fix weight to the best k from Tier 2.
+
+```python
+# Weight-8 patterns (same index space as contiguous k=8)
+seed_patterns = [
+    None,                    # contiguous baseline
+    "11011011011",           # periodic, span=11, ratio=1.38
+    "1101001100101",         # aperiodic, span=13, ratio=1.62
+    "110100110010101",       # aperiodic, span=15, ratio=1.88
+]
+
+# Weight-7 patterns (if Tier 2 found k=7 optimal)
+seed_patterns_w7 = [
+    None,                    # contiguous k=7
+    "1101101011",            # span=10, ratio=1.43
+    "11010010110",           # aperiodic, span=11, ratio=1.57
+]
+```
+
+**Sweep strategy:**
+
+```bash
+# Tier 2: train models with different k values
+for k in 6 7 8 9 10; do
+    python train.py ref.fasta tax.tsv model_k${k}.bin --k $k
+done
+
+# Tier 4: train models with different spaced seeds (all weight=8)
+python train.py ref.fasta tax.tsv model_contiguous.bin
+python train.py ref.fasta tax.tsv model_s11.bin --seed-pattern "11011011011"
+python train.py ref.fasta tax.tsv model_s13.bin --seed-pattern "1101001100101"
+python train.py ref.fasta tax.tsv model_s15.bin --seed-pattern "110100110010101"
+
+# Sweep classification params for each model
+for model in model_*.bin; do
+    for thresh in 20 30 40 50 60 70 80; do
+        python classify.py query.fasta $model out_${model}_t${thresh}.tsv \
+            $thresh both 0.98 0.0 8 --bootstraps 50
+    done
+done
 ```
 
 **Tip:** Use `bootstraps=50` during sweeps for 2x speedup. The optimal threshold found at 50 bootstraps transfers directly to production at 100 bootstraps.
@@ -117,8 +205,24 @@ Benchmarked on Apple M4 Pro (14 cores), vert12S marker:
 
 ```
   Train:     47s
-  Classify:  87 min
+  Classify:  87 min (pre-inverted-index)
 ```
+
+### Inverted K-mer Index
+
+Models now include an inverted index (k-mer id -> list of training sequences containing it), built automatically during training. This replaces the O(|keep| x |query_kmers|) merge-join in `parallel_match` with O(|query_kmers| x avg_posting_list) lookups via `parallel_match_inverted`.
+
+**Theoretical speedup** depends on how many training sequences remain after tree descent (`keep`):
+
+| Scenario | keep size | Merge-join ops | Inverted ops | Speedup |
+|----------|-----------|----------------|--------------|---------|
+| Worst case (poor tree descent) | 178K | 178K x 250 = 44.5M | 100 x 407 = 40.7K | ~1,000x |
+| Typical (good tree descent) | 500 | 500 x 250 = 125K | 100 x 407 = 40.7K | ~3x |
+| Best case (narrow leaf) | 10 | 10 x 250 = 2.5K | 100 x 407 = 40.7K | <1x (merge-join wins) |
+
+The inverted path dominates at large `keep` sizes — exactly the cases that were slowest before. At small `keep`, both paths are fast. The dispatch falls back to merge-join when no inverted index is present.
+
+**Memory cost:** ~4 bytes per posting entry. For 178K refs at k=8: ~27M postings = ~108 MB. Model grows from ~195 MB to ~305 MB.
 
 ## Architecture
 
@@ -141,7 +245,8 @@ rust/src/
 - **Per-query independent PRNG**: Each query gets `seed XOR index` instead of R's sequential shared PRNG. Classification of query N is independent of query N-1. Statistically equivalent, fully parallelizable.
 - **Flat contiguous hits matrix**: Single allocation for all training sequence comparisons (matching C's `allocMatrix`), not Vec-of-Vec.
 - **O(n) algorithms**: HashMap-based dereplicate, HashSet-based taxonomy dedup, prefix-walk for sequence-to-node mapping. No O(n^2) operations.
-- **Bincode serialization**: Trained models saved as compact binary. ~195 MB for 178K reference sequences.
+- **Inverted k-mer index**: Built at training time, enables O(query_kmers) classification instead of O(keep x query_kmers) merge-join. Up to 1000x faster at large database sizes.
+- **Bincode serialization**: Trained models saved as compact binary. ~305 MB for 178K reference sequences (includes inverted index).
 
 ### Correctness
 

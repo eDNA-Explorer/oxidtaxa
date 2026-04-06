@@ -1,4 +1,5 @@
 # Rust build artifacts
+target/
 rust/target/
 
 # Python
@@ -9,6 +10,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+*.so
+*.dylib
 
 # Binary model files
 *.bin
@@ -25,3 +28,9 @@ build/
 
 # pytest
 .pytest_cache/
+
+# Compiled C objects (in reference/)
+*.o
+
+# Benchmark data (large)
+benchmarks/real_data/
