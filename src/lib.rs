@@ -38,14 +38,13 @@ mod python_bindings {
         // Quality filtering (same as train_idtaxa.R)
         let (filtered_seqs, filtered_tax) = filter_for_training(&seqs, &taxonomy);
 
-        let mut rng = crate::rng::RRng::new(seed);
         let config = crate::types::TrainConfig {
             k,
             record_kmers_fraction,
             seed_pattern,
             ..Default::default()
         };
-        let model = crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, &mut rng, verbose)
+        let model = crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
             .map_err(|e| PyValueError::new_err(e))?;
 
         model.save(output_path).map_err(|e| PyValueError::new_err(e))?;

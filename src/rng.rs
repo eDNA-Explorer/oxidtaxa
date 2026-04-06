@@ -6,6 +6,16 @@
 //!
 //! The generation algorithm (twist + temper) is standard MT19937.
 
+/// Mix a base seed with an index to produce an independent seed.
+/// Uses SplitMix64 finalizer for good avalanche properties.
+pub fn mix_seed(base: u32, index: u64) -> u32 {
+    let mut z = base as u64 ^ index;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    z = z ^ (z >> 31);
+    z as u32
+}
+
 const N: usize = 624;
 const M: usize = 397;
 const MATRIX_A: u32 = 0x9908B0DF;

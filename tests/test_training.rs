@@ -1,7 +1,6 @@
 mod common;
 
 use common::{assert_approx_eq, golden_json_dir, load_json};
-use oxidaxa::rng::RRng;
 use oxidaxa::training::learn_taxa;
 use oxidaxa::types::TrainConfig;
 
@@ -126,8 +125,7 @@ fn test_training_8a_standard() {
     let golden: GoldenTrainingSet = load_json("s08a_training_set");
 
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    let result = learn_taxa(&seqs, &tax, &config, &mut rng, false).unwrap();
+    let result = learn_taxa(&seqs, &tax, &config, 42, false).unwrap();
 
     compare_training_set("8a_standard", &golden, &result);
 }
@@ -138,8 +136,7 @@ fn test_training_8b_asymmetric() {
     let golden: GoldenTrainingSet = load_json("s08b_asym_training_set");
 
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    let result = learn_taxa(&seqs, &tax, &config, &mut rng, false).unwrap();
+    let result = learn_taxa(&seqs, &tax, &config, 42, false).unwrap();
 
     compare_training_set("8b_asym", &golden, &result);
 }
@@ -150,8 +147,7 @@ fn test_training_8c_problem_groups() {
     let golden: GoldenTrainingSet = load_json("s08c_problem_training_set");
 
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    let result = learn_taxa(&seqs, &tax, &config, &mut rng, false).unwrap();
+    let result = learn_taxa(&seqs, &tax, &config, 42, false).unwrap();
 
     compare_training_set("8c_problem", &golden, &result);
 }
@@ -162,8 +158,7 @@ fn test_training_8d_singletons() {
     let golden: GoldenTrainingSet = load_json("s08d_singleton_training_set");
 
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    let result = learn_taxa(&seqs, &tax, &config, &mut rng, false).unwrap();
+    let result = learn_taxa(&seqs, &tax, &config, 42, false).unwrap();
 
     compare_training_set("8d_singleton", &golden, &result);
 }
@@ -175,14 +170,12 @@ fn test_training_8e_explicit_k() {
     // K=5
     let golden_k5: GoldenTrainingSet = load_json("s08e_training_set_k5");
     let config_k5 = TrainConfig { k: Some(5), ..Default::default() };
-    let mut rng = RRng::new(42);
-    let result_k5 = learn_taxa(&seqs, &tax, &config_k5, &mut rng, false).unwrap();
+    let result_k5 = learn_taxa(&seqs, &tax, &config_k5, 42, false).unwrap();
     compare_training_set("8e_k5", &golden_k5, &result_k5);
 
     // K=10
     let golden_k10: GoldenTrainingSet = load_json("s08e_training_set_k10");
     let config_k10 = TrainConfig { k: Some(10), ..Default::default() };
-    let mut rng = RRng::new(42);
-    let result_k10 = learn_taxa(&seqs, &tax, &config_k10, &mut rng, false).unwrap();
+    let result_k10 = learn_taxa(&seqs, &tax, &config_k10, 42, false).unwrap();
     compare_training_set("8e_k10", &golden_k10, &result_k10);
 }

@@ -229,12 +229,11 @@ fn bench_learn_taxa(c: &mut Criterion) {
 
     c.bench_function("learn_taxa/80seqs", |b| {
         b.iter(|| {
-            let mut rng = RRng::new(42);
             black_box(learn_taxa(
                 black_box(&filtered_seqs),
                 black_box(&filtered_tax),
                 black_box(&config),
-                &mut rng,
+                42,
                 false,
             ).unwrap());
         });
@@ -265,8 +264,7 @@ fn bench_id_taxa(c: &mut Criterion) {
     }
 
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    let model = learn_taxa(&filtered_seqs, &filtered_tax, &config, &mut rng, false).unwrap();
+    let model = learn_taxa(&filtered_seqs, &filtered_tax, &config, 42, false).unwrap();
 
     // Load query sequences
     let (query_names, query_seqs) = read_fasta(&test_data_path("test_query.fasta")).unwrap();

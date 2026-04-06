@@ -1,9 +1,13 @@
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use rayon::prelude::*;
 
 use crate::alphabet::alphabet_size;
 use crate::kmer::{enumerate_sequences, parse_seed_pattern, SpacedSeed, NA_INTEGER};
 use crate::matching::{int_match, vector_sum};
-use crate::rng::RRng;
+use crate::rng::{mix_seed, RRng};
 use crate::types::{DecisionNode, ProblemSequence, TrainConfig, TrainingSet};
 
 /// Train an IDTAXA classifier.
@@ -13,7 +17,7 @@ pub fn learn_taxa(
     sequences: &[String],
     taxonomy_strings: &[String],
     config: &TrainConfig,
-    rng: &mut RRng,
+    seed: u32,
     _verbose: bool,
 ) -> Result<TrainingSet, String> {
     let l = sequences.len();
@@ -110,6 +114,7 @@ pub fn learn_taxa(
                 uc.push(c.clone());
             }
         }
+        uc.sort();
         uc
     };
 
@@ -254,7 +259,20 @@ pub fn learn_taxa(
         &mut decision_kmers,
     );
 
-    // Learn fractions (lines 323-420) — PRNG-critical
+    // Learn fractions (lines 323-420) — batch, order-independent
+    // Pre-compute per-sequence identity hashes for deterministic PRNG seeding
+    // regardless of input order. Hash(sequence content + taxonomy) → unique identity.
+    let seq_hashes: Vec<u64> = sequences
+        .iter()
+        .zip(taxonomy_strings.iter())
+        .map(|(seq, tax)| {
+            let mut hasher = DefaultHasher::new();
+            seq.hash(&mut hasher);
+            tax.hash(&mut hasher);
+            hasher.finish()
+        })
+        .collect();
+
     let mut fraction: Vec<Option<f64>> = vec![Some(config.max_fraction); taxonomy.len()];
     let mut incorrect: Vec<Option<bool>> = vec![Some(true); l]; // Some(true)=incorrect, Some(false)=correct, None=gave up
     let mut predicted = vec![String::new(); l];
@@ -272,98 +290,128 @@ pub fn learn_taxa(
             break;
         }
 
-        for &i in &remaining {
-            if kmers[i].is_empty() {
-                continue;
-            }
+        // Snapshot fractions so all sequences see the same values this iteration
+        let fraction_snapshot = fraction.clone();
 
-            let mut k_node = 0usize; // start at Root
-            let mut correct = true;
-
-            loop {
-                let subtrees = &children[k_node];
-                let dk = &decision_kmers[k_node];
-
-                if dk.is_none() || dk.as_ref().unwrap().keep.is_empty() {
-                    break;
+        // Classify all remaining sequences (order-independent, parallel)
+        let results: Vec<(usize, bool, usize, String)> = remaining
+            .par_iter()
+            .map(|&i| {
+                if kmers[i].is_empty() {
+                    return (i, true, 0, String::new());
                 }
 
-                let dk = dk.as_ref().unwrap();
-                let n = dk.keep.len();
+                let mut seq_rng =
+                    RRng::new(mix_seed(seed, (_it as u64) * 1_000_000 + seq_hashes[i]));
+                let mut k_node = 0usize;
+                let mut correct = true;
+                let mut pred = String::new();
 
-                if subtrees.len() > 1 {
-                    let s = match fraction[k_node] {
-                        None => ((n as f64) * config.min_fraction).ceil() as usize,
-                        Some(f) => ((n as f64) * f).ceil() as usize,
-                    };
+                loop {
+                    let subtrees = &children[k_node];
+                    let dk = &decision_kmers[k_node];
 
-                    // *** PRNG CALL — must match R exactly ***
-                    let sampling = rng.sample_int_replace(n, s * b);
-
-                    let matches = int_match(&dk.keep, &kmers[i]);
-                    let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
-                    for (j, _subtree) in subtrees.iter().enumerate() {
-                        hits[j] = vector_sum(&matches, &dk.profiles[j], &sampling, b);
+                    if dk.is_none() || dk.as_ref().unwrap().keep.is_empty() {
+                        break;
                     }
 
-                    // Find max per bootstrap replicate and vote
-                    let mut vote_counts = vec![0usize; subtrees.len()];
-                    for rep in 0..b {
-                        let max_val = hits.iter().map(|h| h[rep]).fold(0.0f64, f64::max);
-                        if max_val > 0.0 {
-                            for (j, h) in hits.iter().enumerate() {
-                                if h[rep] == max_val {
-                                    vote_counts[j] += 1;
+                    let dk = dk.as_ref().unwrap();
+                    let n = dk.keep.len();
+
+                    if subtrees.len() > 1 {
+                        let s = match fraction_snapshot[k_node] {
+                            None => ((n as f64) * config.min_fraction).ceil() as usize,
+                            Some(f) => ((n as f64) * f).ceil() as usize,
+                        };
+
+                        let sampling = seq_rng.sample_int_replace(n, s * b);
+
+                        let matches = int_match(&dk.keep, &kmers[i]);
+                        let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
+                        for (j, _subtree) in subtrees.iter().enumerate() {
+                            hits[j] =
+                                vector_sum(&matches, &dk.profiles[j], &sampling, b);
+                        }
+
+                        let mut vote_counts = vec![0usize; subtrees.len()];
+                        for rep in 0..b {
+                            let max_val =
+                                hits.iter().map(|h| h[rep]).fold(0.0f64, f64::max);
+                            if max_val > 0.0 {
+                                for (j, h) in hits.iter().enumerate() {
+                                    if h[rep] == max_val {
+                                        vote_counts[j] += 1;
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    let w = vote_counts
-                        .iter()
-                        .enumerate()
-                        .max_by_key(|(_, &c)| c)
-                        .map(|(idx, _)| idx)
-                        .unwrap_or(0);
+                        let w = vote_counts
+                            .iter()
+                            .enumerate()
+                            .max_by_key(|(_, &c)| c)
+                            .map(|(idx, _)| idx)
+                            .unwrap_or(0);
 
-                    if vote_counts[w] < ((b as f64) * 0.8) as usize {
-                        break; // less than 80% confidence
-                    }
+                        if vote_counts[w] < ((b as f64) * 0.8) as usize {
+                            break;
+                        }
 
-                    // Check classification correctness
-                    if !classes[i].starts_with(&end_taxonomy[subtrees[w]]) {
-                        correct = false;
-                        predicted[i] = taxonomy[subtrees[w]].clone();
-                        break;
-                    }
+                        if !classes[i].starts_with(&end_taxonomy[subtrees[w]]) {
+                            correct = false;
+                            pred = taxonomy[subtrees[w]].clone();
+                            break;
+                        }
 
-                    if children[subtrees[w]].is_empty() {
-                        break;
-                    }
-                    k_node = subtrees[w];
-                } else {
-                    // Single child
-                    if children[subtrees[0]].is_empty() {
-                        break;
-                    }
-                    k_node = subtrees[0];
-                }
-            }
-
-            if correct {
-                incorrect[i] = Some(false);
-            } else {
-                if fraction[k_node].is_none() {
-                    incorrect[i] = None;
-                } else {
-                    let f = fraction[k_node].unwrap();
-                    let new_f = f - delta / n_seqs[k_node] as f64;
-                    if new_f <= config.min_fraction {
-                        incorrect[i] = None;
-                        fraction[k_node] = None;
+                        if children[subtrees[w]].is_empty() {
+                            break;
+                        }
+                        k_node = subtrees[w];
                     } else {
-                        fraction[k_node] = Some(new_f);
+                        if children[subtrees[0]].is_empty() {
+                            break;
+                        }
+                        k_node = subtrees[0];
                     }
+                }
+
+                (i, correct, k_node, pred)
+            })
+            .collect();
+
+        // Apply batch updates: collect failures per node, then update fractions
+        let mut node_failures: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &(seq_idx, correct, fail_node, ref pred) in &results {
+            if correct {
+                incorrect[seq_idx] = Some(false);
+            } else {
+                predicted[seq_idx] = pred.clone();
+                node_failures.entry(fail_node).or_default().push(seq_idx);
+            }
+        }
+
+        // Apply capped decrements per node: each failure contributes delta/n_seqs,
+        // but the total per-iteration decrement is capped at half the remaining
+        // headroom to prevent a single batch from cratering the fraction.
+        for (&node, seq_indices) in &node_failures {
+            if let Some(f) = fraction[node] {
+                let per_failure = delta / n_seqs[node] as f64;
+                let raw_decrement = per_failure * seq_indices.len() as f64;
+                let headroom = f - config.min_fraction;
+                let capped_decrement = raw_decrement.min(headroom * 0.5);
+                let new_f = f - capped_decrement;
+                if new_f <= config.min_fraction {
+                    fraction[node] = None;
+                    for &si in seq_indices {
+                        incorrect[si] = None;
+                    }
+                } else {
+                    fraction[node] = Some(new_f);
+                }
+            } else {
+                // Node already at None — mark sequences as gave-up
+                for &si in seq_indices {
+                    incorrect[si] = None;
                 }
             }
         }
@@ -403,7 +451,6 @@ pub fn learn_taxa(
         .collect();
 
     // Parallel IDF accumulation: partition sequences across threads, merge partial counts
-    use rayon::prelude::*;
     let chunk_size = 256;
     let partial_counts: Vec<Vec<f64>> = kmers
         .par_chunks(chunk_size)

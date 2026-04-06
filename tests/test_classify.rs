@@ -2,7 +2,6 @@ mod common;
 
 use common::{golden_json_dir, load_json};
 use oxidaxa::classify::id_taxa;
-use oxidaxa::rng::RRng;
 use oxidaxa::training::learn_taxa;
 use oxidaxa::types::{ClassificationResult, ClassifyConfig, OutputType, StrandMode, TrainConfig};
 use std::collections::HashMap;
@@ -20,24 +19,21 @@ fn train_standard_model() -> oxidaxa::types::TrainingSet {
     let seqs: Vec<String> = load_json("s08a_filtered_seqs");
     let tax: Vec<String> = load_json("s08a_taxonomy_vec");
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    learn_taxa(&seqs, &tax, &config, &mut rng, false).unwrap()
+    learn_taxa(&seqs, &tax, &config, 42, false).unwrap()
 }
 
 fn train_problem_model() -> oxidaxa::types::TrainingSet {
     let seqs: Vec<String> = load_json("s08c_problem_seqs");
     let tax: Vec<String> = load_json("s08c_problem_tax");
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    learn_taxa(&seqs, &tax, &config, &mut rng, false).unwrap()
+    learn_taxa(&seqs, &tax, &config, 42, false).unwrap()
 }
 
 fn train_singleton_model() -> oxidaxa::types::TrainingSet {
     let seqs: Vec<String> = load_json("s08d_singleton_seqs");
     let tax: Vec<String> = load_json("s08d_singleton_tax");
     let config = TrainConfig::default();
-    let mut rng = RRng::new(42);
-    learn_taxa(&seqs, &tax, &config, &mut rng, false).unwrap()
+    learn_taxa(&seqs, &tax, &config, 42, false).unwrap()
 }
 
 /// Compare classification results against golden data stored as a named dict.

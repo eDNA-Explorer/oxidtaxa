@@ -26,9 +26,8 @@ fn main() {
         };
         let taxonomy = read_taxonomy(&tax, &names).unwrap();
 
-        let mut rng = RRng::new(42);
         let config = TrainConfig::default();
-        let ts = learn_taxa(&seqs, &taxonomy, &config, &mut rng, false).unwrap();
+        let ts = learn_taxa(&seqs, &taxonomy, &config, 42, false).unwrap();
 
         let inv_idx = ts.inverted_index.as_ref().unwrap();
 

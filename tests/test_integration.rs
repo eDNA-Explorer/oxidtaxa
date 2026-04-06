@@ -50,8 +50,7 @@ fn test_full_pipeline_e2e() {
 
     // Train
     let config = TrainConfig::default();
-    let mut rng = oxidaxa::rng::RRng::new(42);
-    let ts = learn_taxa(&filtered_seqs, &filtered_tax, &config, &mut rng, false).unwrap();
+    let ts = learn_taxa(&filtered_seqs, &filtered_tax, &config, 42, false).unwrap();
 
     // Read query FASTA
     let (query_names, query_seqs) =
