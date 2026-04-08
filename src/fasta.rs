@@ -62,13 +62,15 @@ pub fn write_classification_tsv(
     names: &[String],
     results: &[crate::types::ClassificationResult],
 ) -> Result<(), String> {
-    let mut output = String::from("read_id\ttaxonomic_path\tconfidence\n");
+    let mut output = String::from("read_id\ttaxonomic_path\tconfidence\talternatives\n");
 
     for (i, result) in results.iter().enumerate() {
         let read_id = names[i]
             .split_whitespace()
             .next()
             .unwrap_or(&names[i]);
+
+        let alternatives_field = result.alternatives.join("|");
 
         let mut taxa = result.taxon.clone();
         let mut conf = result.confidence.clone();
@@ -91,12 +93,15 @@ pub fn write_classification_tsv(
                     .iter()
                     .cloned()
                     .fold(f64::INFINITY, f64::min);
-                output.push_str(&format!("{}\t{}\t{}\n", read_id, path_str, min_conf));
+                output.push_str(&format!(
+                    "{}\t{}\t{}\t{}\n",
+                    read_id, path_str, min_conf, alternatives_field
+                ));
             } else {
-                output.push_str(&format!("{}\t\t0\n", read_id));
+                output.push_str(&format!("{}\t\t0\t{}\n", read_id, alternatives_field));
             }
         } else {
-            output.push_str(&format!("{}\t\t0\n", read_id));
+            output.push_str(&format!("{}\t\t0\t{}\n", read_id, alternatives_field));
         }
     }
 

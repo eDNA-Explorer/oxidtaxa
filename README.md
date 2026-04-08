@@ -35,11 +35,12 @@ train(
     seed_pattern=None,                 # spaced seed (e.g., "11011011011"). None = contiguous
 )
 
-# Classify
-classify(
+# Classify — returns List[ClassificationResult] in-memory. Pass output_path
+# to ALSO write a TSV file (backward compatible with existing pipelines).
+results = classify(
     query_path="query.fasta",
     model_path="model.bin",
-    output_path="results.tsv",
+    output_path="results.tsv",         # optional; when omitted, results are only returned
     threshold=60.0,                    # confidence cutoff (0-100)
     bootstraps=100,                    # bootstrap replicates (50 for sweeps, 100 production)
     strand="both",                     # "top", "bottom", or "both"
@@ -51,7 +52,33 @@ classify(
     length_normalize=False,            # normalize scores by training sequence length
     rank_thresholds=None,              # per-rank thresholds (e.g., [90, 80, 70, 60, 50, 40])
 )
+
+for r in results:
+    print(r.taxon)         # list[str] — root-to-leaf lineage
+    print(r.confidence)    # list[float] — per-rank confidence percentages
+    print(r.alternatives)  # list[str] — tied species (empty when unique)
 ```
+
+### Tied-species resolution
+
+When two or more reference sequences produce identical top-scoring matches for a query (common for marker genes where congeneric species share 100% sequence identity), the classifier will:
+
+1. **Cap the primary assignment at the lowest common ancestor of the tied set.** For example, if *Canis lupus* and *Canis latrans* tie exactly, `taxon` ends at `Canis` followed by `unclassified_Canis` — never at either species, even if per-rank confidence at the species level would otherwise clear the threshold. The classifier never reports an assignment it cannot defend.
+2. **Report every tied species in `alternatives`**, as short-labels (e.g. `Canis_latrans`, `Canis_lupus`), sorted alphabetically.
+
+```python
+# Species-level presence query
+for r in results:
+    if "Canis_lupus" in r.taxon or "Canis_lupus" in r.alternatives:
+        print(f"Detected Canis_lupus (resolved={'Canis_lupus' in r.taxon})")
+```
+
+When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-separated, empty for non-tied rows):
+
+| read_id  | taxonomic_path                                      | confidence | alternatives              |
+|----------|-----------------------------------------------------|------------|---------------------------|
+| read_042 | Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis | 100.0      | Canis_latrans\|Canis_lupus |
+| read_043 | Eukaryota;Chordata;Mammalia;Carnivora;Felidae;Felis | 95.3       |                           |
 
 ## Parameters
 
@@ -227,7 +254,7 @@ The inverted path dominates at large `keep` sizes — exactly the cases that wer
 ## Architecture
 
 ```
-rust/src/
+src/
   lib.rs          PyO3 bindings (train/classify entry points)
   types.rs        TrainConfig, ClassifyConfig, TrainingSet, ClassificationResult
   training.rs     LearnTaxa algorithm (tree building + fraction learning)
@@ -248,15 +275,13 @@ rust/src/
 - **Inverted k-mer index**: Built at training time, enables O(query_kmers) classification instead of O(keep x query_kmers) merge-join. Up to 1000x faster at large database sizes.
 - **Bincode serialization**: Trained models saved as compact binary. ~305 MB for 178K reference sequences (includes inverted index).
 
-### Correctness
+### Correctness and Divergence from R
 
-51 golden tests verify bit-level agreement with R/C IDTAXA across 13 scenarios:
-- Standard classification, perfect matches, novel organisms
-- Threshold sweep (7 values), strand variations (3 modes)
-- Duplicate queries, short sequences, bootstrap sweep, minDescend sweep
-- Problem group models, singleton taxonomy models
+Oxidaxa was initially validated against R/C IDTAXA with 51 golden tests verifying bit-level agreement across 13 scenarios (threshold sweeps, strand modes, bootstrap counts, edge cases). Having proven algorithmic equivalence, Oxidaxa now diverges from R in specific areas where the original design was constrained by R's single-threaded execution model rather than algorithmic necessity:
 
-Taxon paths must match exactly. Confidence values within 5.0 tolerance (float reordering from flat matrix layout).
+**Classification (already diverged):** Each query gets an independent PRNG (`seed XOR index`) instead of R's shared sequential PRNG. This makes classification order-independent and fully parallelizable. Results are statistically equivalent but not bit-identical to R.
+
+**Training fraction learning (planned):** R's LearnTaxa uses sequential per-sequence fraction updates — a Gauss-Seidel-style approach where each misclassification immediately decrements the sampling fraction, and subsequent sequences see the updated value within the same iteration. This has a useful self-correcting property (early corrections prevent over-decrementing at the same node), but it makes training inherently sequential. We preserve this sequential-within-node behavior but plan to parallelize across independent taxonomy nodes, since fraction updates at different nodes do not interact.
 
 ## File Format
 
@@ -271,17 +296,20 @@ Taxon paths must match exactly. Confidence values within 5.0 tolerance (float re
 
 ### Output
 
-Tab-separated with header:
+Classification results are returned in-memory as `List[ClassificationResult]` from `classify()`. When `output_path` is provided, a TSV is also written with header:
+
 ```
-read_id    taxonomic_path                                         confidence
+read_id    taxonomic_path                                         confidence  alternatives
 asv_1      Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo  93.85
 asv_2      Eukaryota;Craniata;Mammalia;Myomorpha;Arvicolinae      54.30
 asv_3                                                              0
+asv_4      Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis    100.00      Canis_latrans|Canis_lupus
 ```
 
 - `read_id`: First whitespace-delimited word from FASTA header
 - `taxonomic_path`: Semicolon-delimited, Root stripped, `unclassified_*` filtered
 - `confidence`: Minimum confidence across all reported ranks (0-100)
+- `alternatives`: Pipe-separated short-labels of tied species when the classifier capped at an LCA; empty otherwise (see [Tied-species resolution](#tied-species-resolution))
 
 ### Model Format
 

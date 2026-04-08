@@ -4,6 +4,6 @@ All computation is performed in Rust. This Python package provides
 a thin CLI interface.
 """
 
-from idtaxa._core import classify, train
+from oxidaxa._core import ClassificationResult, classify, train
 
-__all__ = ["train", "classify"]
+__all__ = ["train", "classify", "ClassificationResult"]

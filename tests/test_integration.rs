@@ -12,6 +12,8 @@ struct GoldenTsvRow {
     read_id: String,
     taxonomic_path: String,
     confidence: f64,
+    #[serde(default)]
+    alternatives: String,
 }
 
 #[test]
@@ -80,11 +82,21 @@ fn test_full_pipeline_e2e() {
     let output_content = std::fs::read_to_string(&output_path).unwrap();
     let lines: Vec<&str> = output_content.lines().collect();
 
-    assert_eq!(lines[0], "read_id\ttaxonomic_path\tconfidence");
+    assert_eq!(
+        lines[0],
+        "read_id\ttaxonomic_path\tconfidence\talternatives"
+    );
     assert_eq!(lines.len() - 1, golden.len(), "row count mismatch");
 
     for (i, line) in lines[1..].iter().enumerate() {
         let parts: Vec<&str> = line.split('\t').collect();
+        assert_eq!(
+            parts.len(),
+            4,
+            "expected 4 columns at row {}, got {}",
+            i,
+            parts.len()
+        );
         assert_eq!(parts[0], golden[i].read_id, "read_id mismatch at row {}", i);
         assert_eq!(
             parts[1], golden[i].taxonomic_path,
@@ -98,6 +110,11 @@ fn test_full_pipeline_e2e() {
             i,
             conf,
             golden[i].confidence
+        );
+        assert_eq!(
+            parts[3], golden[i].alternatives,
+            "alternatives mismatch at row {}",
+            i
         );
     }
 

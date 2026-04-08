@@ -51,9 +51,23 @@ mod python_bindings {
         Ok(())
     }
 
+    /// Classify query sequences against a trained IDTAXA model.
+    ///
+    /// Returns a list of `ClassificationResult` objects — one per input
+    /// sequence, in the same order as the query FASTA. Each result exposes:
+    /// - `taxon`: list[str] — root-to-leaf lineage
+    /// - `confidence`: list[float] — per-rank confidence percentages
+    /// - `alternatives`: list[str] — tied species short-labels when the
+    ///   classifier could not resolve between multiple equally-scored
+    ///   references (empty for non-tied classifications)
+    ///
+    /// If `output_path` is provided, a TSV with columns
+    /// `read_id, taxonomic_path, confidence, alternatives` is also written to
+    /// that path. If omitted, no file is written and results are only
+    /// returned in-memory.
     #[pyfunction]
     #[pyo3(signature = (
-        query_path, model_path, output_path,
+        query_path, model_path, output_path = None,
         threshold = 60.0, bootstraps = 100, strand = "both",
         min_descend = 0.98, full_length = 0.0, processors = 1,
         sample_exponent = 0.47, seed = 42, deterministic = false,
@@ -63,7 +77,7 @@ mod python_bindings {
     fn classify(
         query_path: &str,
         model_path: &str,
-        output_path: &str,
+        output_path: Option<String>,
         threshold: f64,
         bootstraps: usize,
         strand: &str,
@@ -75,7 +89,7 @@ mod python_bindings {
         deterministic: bool,
         length_normalize: bool,
         rank_thresholds: Option<Vec<f64>>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<crate::types::ClassificationResult>> {
         let model = crate::types::TrainingSet::load(model_path)
             .map_err(|e| PyValueError::new_err(e))?;
 
@@ -106,10 +120,12 @@ mod python_bindings {
             deterministic,
         );
 
-        crate::fasta::write_classification_tsv(output_path, &names, &results)
-            .map_err(|e| PyValueError::new_err(e))?;
+        if let Some(ref path) = output_path {
+            crate::fasta::write_classification_tsv(path, &names, &results)
+                .map_err(|e| PyValueError::new_err(e))?;
+        }
 
-        Ok(())
+        Ok(results)
     }
 
     fn parse_strand(strand: &str) -> PyResult<crate::types::StrandMode> {
@@ -155,6 +171,7 @@ mod python_bindings {
     fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(pyo3::wrap_pyfunction!(train, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(classify, m)?)?;
+        m.add_class::<crate::types::ClassificationResult>()?;
         Ok(())
     }
 }

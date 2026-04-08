@@ -360,12 +360,34 @@ fn classify_one_pass(
     let mut tot_hits = vec![0.0f64; n_top];
     for rep in 0..b {
         let mut max_val = f64::NEG_INFINITY;
-        let mut max_col = 0usize;
-        for (j, &ti) in top_hits_idx.iter().enumerate() {
+        for &ti in top_hits_idx.iter() {
             let v = hits_flat[ti * b + rep];
-            if v > max_val { max_val = v; max_col = j; }
+            if v > max_val { max_val = v; }
         }
-        if davg != 0.0 { tot_hits[max_col] += hits_flat[top_hits_idx[max_col] * b + rep] / davg; }
+        if davg == 0.0 { continue; }
+        // Per-replicate winner-take-all with tie splitting. R's IdTaxa uses
+        // `max.col(..., ties.method = "random")` which randomly picks one of the
+        // tied columns per replicate; in expectation each tied column receives
+        // credit proportional to its share of ties. We deterministically split
+        // credit equally among tied max columns, which matches that expected
+        // value and ensures groups with bit-identical training sequences
+        // surface as ties in the downstream `winners` filter at line 373.
+        //
+        // Note: `hits_flat` values can be negative when the IDF weights
+        // (`counts`) contain negative entries, so we do not guard on
+        // `max_val > 0` — doing so would drop real per-replicate contributions
+        // whenever every group's score is negative (the non-tied branch here
+        // matches the legacy accumulator bit-for-bit in that case).
+        let mut n_tied: usize = 0;
+        for &ti in top_hits_idx.iter() {
+            if hits_flat[ti * b + rep] == max_val { n_tied += 1; }
+        }
+        let share = 1.0 / n_tied as f64;
+        for (j, &ti) in top_hits_idx.iter().enumerate() {
+            if hits_flat[ti * b + rep] == max_val {
+                tot_hits[j] += hits_flat[ti * b + rep] / davg * share;
+            }
+        }
     }
 
     // Choose best group
@@ -410,8 +432,44 @@ fn classify_one_pass(
         }
     }
 
+    // When multiple groups are tied at `max_tot`, the classifier cannot honestly
+    // resolve below the LCA of the tied set. Compute that LCA's position in
+    // `predicteds` so the `above` filter can cap the reportable lineage there.
+    //
+    // Every non-selected winner's pairwise LCA with `selected` is the deepest
+    // ancestor of `unique_groups[j]` that lives in `predicteds`. The group-wise
+    // LCA is the shallowest (smallest index) of those pairwise LCAs, since it
+    // must be an ancestor of every winner.
+    let (lca_cap, alternatives): (Option<usize>, Vec<String>) = if winners.len() > 1 {
+        let mut deepest_allowed = predicteds.len() - 1;
+        for &j in &winners {
+            if j == selected { continue; }
+            let mut p = parents[unique_groups[j]];
+            loop {
+                if let Some(pos) = predicteds.iter().position(|&x| x == p) {
+                    if pos < deepest_allowed { deepest_allowed = pos; }
+                    break;
+                }
+                if p == 0 || parents[p] == p { break; }
+                p = parents[p];
+            }
+        }
+        let mut alts: Vec<String> = winners
+            .iter()
+            .map(|&w| taxa[unique_groups[w]].clone())
+            .collect();
+        alts.sort();
+        (Some(deepest_allowed), alts)
+    } else {
+        (None, Vec::new())
+    };
+
     let above: Vec<usize> = confidences.iter().enumerate()
         .filter(|(i, &c)| {
+            // Cap: when there's a tie, never report below the LCA.
+            if let Some(cap) = lca_cap {
+                if *i > cap { return false; }
+            }
             let thresh = match &config.rank_thresholds {
                 Some(rt) if *i < rt.len() => rt[*i],
                 Some(rt) if !rt.is_empty() => *rt.last().unwrap(),
@@ -425,6 +483,7 @@ fn classify_one_pass(
         ClassificationResult {
             taxon: predicteds.iter().map(|&p| taxa[p].clone()).collect(),
             confidence: confidences,
+            alternatives: alternatives.clone(),
         }
     } else {
         let w = if above.is_empty() { vec![0] } else { above };
@@ -433,7 +492,7 @@ fn classify_one_pass(
         taxon.push(format!("unclassified_{}", taxa[predicteds[last_w]]));
         let mut conf: Vec<f64> = w.iter().map(|&i| confidences[i]).collect();
         conf.push(confidences[last_w]);
-        ClassificationResult { taxon, confidence: conf }
+        ClassificationResult { taxon, confidence: conf, alternatives }
     };
 
     Some((result, similarity))

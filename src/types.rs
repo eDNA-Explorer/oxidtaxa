@@ -46,10 +46,18 @@ pub struct TrainingSet {
 }
 
 /// Classification result for a single query sequence.
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassificationResult {
     pub taxon: Vec<String>,
     pub confidence: Vec<f64>,
+    /// Short-labels of all reference groups tied at the maximum `tot_hits`
+    /// score during classification. Empty for non-tied classifications.
+    /// When non-empty, the classifier was unable to distinguish between these
+    /// leaves and has truncated `taxon` at their lowest common ancestor.
+    /// Entries are sorted alphabetically.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
 }
 
 impl ClassificationResult {
@@ -57,7 +65,26 @@ impl ClassificationResult {
         Self {
             taxon: vec!["Root".to_string(), "unclassified_Root".to_string()],
             confidence: vec![0.0, 0.0],
+            alternatives: Vec::new(),
         }
+    }
+}
+
+#[cfg(feature = "python")]
+#[pyo3::pymethods]
+impl ClassificationResult {
+    fn __repr__(&self) -> String {
+        let path = self.taxon.join(";");
+        let alts_suffix = if self.alternatives.is_empty() {
+            String::new()
+        } else {
+            format!(" alternatives={:?}", self.alternatives)
+        };
+        format!("ClassificationResult(taxon=\"{}\"{})", path, alts_suffix)
+    }
+
+    fn __len__(&self) -> usize {
+        self.taxon.len()
     }
 }
 

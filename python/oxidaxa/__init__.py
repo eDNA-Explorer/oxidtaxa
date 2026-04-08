@@ -4,6 +4,6 @@ Rust-accelerated IDTAXA implementation with per-query independent PRNG,
 inverted k-mer index, spaced seed support, and configurable scoring.
 """
 
-from oxidaxa._core import classify, train
+from oxidaxa._core import ClassificationResult, classify, train
 
-__all__ = ["train", "classify"]
+__all__ = ["train", "classify", "ClassificationResult"]
