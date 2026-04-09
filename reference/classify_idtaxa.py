@@ -7,7 +7,7 @@ Usage:
 """
 import argparse
 
-from idtaxa import classify
+from oxidtaxa import classify
 
 
 def main() -> None:

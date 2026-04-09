@@ -6,7 +6,7 @@ Usage:
 """
 import argparse
 
-from idtaxa import train
+from oxidtaxa import train
 
 
 def main() -> None:

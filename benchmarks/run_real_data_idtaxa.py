@@ -72,7 +72,7 @@ def find_query_fasta(project_id: str) -> Path | None:
 
 def run_plate(plate_label: str, project_id: str) -> None:
     """Train + classify for one plate using Rust IDTAXA."""
-    from idtaxa import train, classify
+    from oxidtaxa import train, classify
 
     print(f"\n{'=' * 60}")
     print(f"  Plate {plate_label} ({project_id})")

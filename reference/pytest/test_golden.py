@@ -13,11 +13,11 @@ GOLDEN_DIR = Path(__file__).parent.parent / "tests" / "golden_json"
 
 class TestImport:
     def test_import_train(self):
-        from idtaxa import train
+        from oxidtaxa import train
         assert callable(train)
 
     def test_import_classify(self):
-        from idtaxa import classify
+        from oxidtaxa import classify
         assert callable(classify)
 
 
@@ -25,7 +25,7 @@ class TestFullPipeline:
     """End-to-end pipeline tests matching Section 10 of run_golden.R."""
 
     def test_train_and_classify(self, tmp_path):
-        from idtaxa import classify, train
+        from oxidtaxa import classify, train
 
         model_path = str(tmp_path / "model.bin")
         output_path = str(tmp_path / "output.tsv")
@@ -73,7 +73,7 @@ class TestFullPipeline:
             )
 
     def test_train_only(self, tmp_path):
-        from idtaxa import train
+        from oxidtaxa import train
 
         model_path = str(tmp_path / "model.bin")
         train(
@@ -85,7 +85,7 @@ class TestFullPipeline:
         assert os.path.getsize(model_path) > 0
 
     def test_classify_strand_top(self, tmp_path):
-        from idtaxa import classify, train
+        from oxidtaxa import classify, train
 
         model_path = str(tmp_path / "model.bin")
         output_path = str(tmp_path / "output.tsv")
