@@ -1,9 +1,9 @@
 mod common;
 
-use oxidaxa::classify::id_taxa;
-use oxidaxa::fasta::write_classification_tsv;
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
+use oxidtaxa::classify::id_taxa;
+use oxidtaxa::fasta::write_classification_tsv;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
 
 /// Build a minimal training set:
 ///   Root > Mammalia > Carnivora > Canidae > Canis   > {Canis_lupus, Canis_latrans}
@@ -14,7 +14,7 @@ use oxidaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
 /// will tie at `tot_hits` during classification. `Vulpes_vulpes` and
 /// `Felis_catus` have distinct sequences so the classifier has enough
 /// context to disambiguate and so the tree has realistic shape.
-fn build_tied_training_set() -> oxidaxa::types::TrainingSet {
+fn build_tied_training_set() -> oxidtaxa::types::TrainingSet {
     // Synthetic ~200bp sequences. Identical for Canis_lupus / Canis_latrans.
     let tied_seq = "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
                     GCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -161,7 +161,7 @@ fn tied_alternatives_appear_in_tsv_output() {
     );
 
     let tmp_dir = std::env::temp_dir();
-    let output_path = tmp_dir.join("oxidaxa_ties_test.tsv");
+    let output_path = tmp_dir.join("oxidtaxa_ties_test.tsv");
     write_classification_tsv(output_path.to_str().unwrap(), &query_names, &results).unwrap();
 
     let content = std::fs::read_to_string(&output_path).unwrap();

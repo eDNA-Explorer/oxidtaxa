@@ -1,9 +1,9 @@
 mod common;
 
 use common::{golden_json_dir, load_json};
-use oxidaxa::classify::id_taxa;
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::{ClassificationResult, ClassifyConfig, OutputType, StrandMode, TrainConfig};
+use oxidtaxa::classify::id_taxa;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::{ClassificationResult, ClassifyConfig, OutputType, StrandMode, TrainConfig};
 use std::collections::HashMap;
 
 /// Golden classification result from JSON.
@@ -15,21 +15,21 @@ struct GoldenClassResult {
 
 const CONF_TOLERANCE: f64 = 5.0; // tolerance for confidence comparison
 
-fn train_standard_model() -> oxidaxa::types::TrainingSet {
+fn train_standard_model() -> oxidtaxa::types::TrainingSet {
     let seqs: Vec<String> = load_json("s08a_filtered_seqs");
     let tax: Vec<String> = load_json("s08a_taxonomy_vec");
     let config = TrainConfig::default();
     learn_taxa(&seqs, &tax, &config, 42, false).unwrap()
 }
 
-fn train_problem_model() -> oxidaxa::types::TrainingSet {
+fn train_problem_model() -> oxidtaxa::types::TrainingSet {
     let seqs: Vec<String> = load_json("s08c_problem_seqs");
     let tax: Vec<String> = load_json("s08c_problem_tax");
     let config = TrainConfig::default();
     learn_taxa(&seqs, &tax, &config, 42, false).unwrap()
 }
 
-fn train_singleton_model() -> oxidaxa::types::TrainingSet {
+fn train_singleton_model() -> oxidtaxa::types::TrainingSet {
     let seqs: Vec<String> = load_json("s08d_singleton_seqs");
     let tax: Vec<String> = load_json("s08d_singleton_tax");
     let config = TrainConfig::default();

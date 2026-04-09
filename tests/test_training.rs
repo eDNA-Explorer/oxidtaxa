@@ -1,8 +1,8 @@
 mod common;
 
 use common::{assert_approx_eq, golden_json_dir, load_json};
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::TrainConfig;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::TrainConfig;
 
 /// Golden training set structure from JSON.
 #[derive(serde::Deserialize, Debug)]
@@ -47,7 +47,7 @@ fn load_training_inputs(seqs_name: &str, tax_name: &str) -> (Vec<String>, Vec<St
     (seqs, tax)
 }
 
-fn compare_training_set(label: &str, golden: &GoldenTrainingSet, result: &oxidaxa::types::TrainingSet) {
+fn compare_training_set(label: &str, golden: &GoldenTrainingSet, result: &oxidtaxa::types::TrainingSet) {
     assert_eq!(result.k, golden.k, "{}: K mismatch", label);
     assert_eq!(result.taxonomy, golden.taxonomy, "{}: taxonomy mismatch", label);
     assert_eq!(result.taxa, golden.taxa, "{}: taxa mismatch", label);

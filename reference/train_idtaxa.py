@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train an Oxidaxa classifier from CruxV2 reference files.
+"""Train an Oxidtaxa classifier from CruxV2 reference files.
 
 Usage:
     python train_idtaxa.py <reference.fasta> <taxonomy.tsv> <output.model>
@@ -10,7 +10,7 @@ from idtaxa import train
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train Oxidaxa classifier")
+    parser = argparse.ArgumentParser(description="Train Oxidtaxa classifier")
     parser.add_argument("reference_fasta", help="CruxV2 reference FASTA")
     parser.add_argument("taxonomy_tsv", help="Tab-separated: accession<TAB>taxonomy")
     parser.add_argument("output_model", help="Output model file path")

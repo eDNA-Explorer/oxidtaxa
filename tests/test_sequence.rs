@@ -1,7 +1,7 @@
 mod common;
 
 use common::load_json;
-use oxidaxa::sequence::{remove_gaps, reverse_complement, vcount_pattern};
+use oxidtaxa::sequence::{remove_gaps, reverse_complement, vcount_pattern};
 
 #[test]
 fn test_reverse_complement_matches_golden() {

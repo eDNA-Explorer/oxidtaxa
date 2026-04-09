@@ -1,7 +1,7 @@
 mod common;
 
 use common::load_json;
-use oxidaxa::rng::RRng;
+use oxidtaxa::rng::RRng;
 
 #[test]
 fn test_prng_matches_r_unif_rand() {

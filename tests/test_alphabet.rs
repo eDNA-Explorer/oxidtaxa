@@ -1,7 +1,7 @@
 mod common;
 
 use common::{assert_approx_eq, load_json};
-use oxidaxa::alphabet::alphabet_size;
+use oxidtaxa::alphabet::alphabet_size;
 
 /// Load alphabet_size sequences — may be a single string or array of strings.
 fn load_seqs(name: &str) -> Vec<String> {

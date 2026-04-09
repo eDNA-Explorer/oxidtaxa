@@ -18,11 +18,11 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use oxidaxa::classify::id_taxa;
-use oxidaxa::fasta::{read_fasta, read_taxonomy};
-use oxidaxa::sequence::remove_gaps;
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::{
+use oxidtaxa::classify::id_taxa;
+use oxidtaxa::fasta::{read_fasta, read_taxonomy};
+use oxidtaxa::sequence::remove_gaps;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::{
     ClassificationResult, ClassifyConfig, OutputType, StrandMode, TrainConfig,
 };
 

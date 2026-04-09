@@ -1,7 +1,7 @@
 mod common;
 
 use common::load_json;
-use oxidaxa::fasta::read_fasta;
+use oxidtaxa::fasta::read_fasta;
 
 #[test]
 fn test_fasta_read_matches_golden() {

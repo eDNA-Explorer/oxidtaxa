@@ -1,8 +1,8 @@
 //! Regenerate golden JSON fixtures for training tests.
 //! Run: cargo run --example regen_golden
 
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::TrainConfig;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::TrainConfig;
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -18,7 +18,7 @@ fn load_json<T: serde::de::DeserializeOwned>(name: &str) -> T {
     serde_json::from_str(&content).unwrap()
 }
 
-fn save_golden(name: &str, ts: &oxidaxa::types::TrainingSet) {
+fn save_golden(name: &str, ts: &oxidtaxa::types::TrainingSet) {
     // Convert to the golden JSON format matching R's structure
     // children: 0-indexed Rust → 1-indexed R
     let children_1idx: Vec<Vec<usize>> = ts

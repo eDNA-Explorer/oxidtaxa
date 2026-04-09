@@ -1,8 +1,8 @@
-# Oxidaxa Feature Additions: Inverted Index, Length Normalization, Spaced K-mers, Per-Rank Thresholds
+# Oxidtaxa Feature Additions: Inverted Index, Length Normalization, Spaced K-mers, Per-Rank Thresholds
 
 ## Overview
 
-Four features to improve Oxidaxa's classification speed and accuracy. Each is independently testable and sweepable. Ordered by implementation dependency.
+Four features to improve Oxidtaxa's classification speed and accuracy. Each is independently testable and sweepable. Ordered by implementation dependency.
 
 ## Features
 

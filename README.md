@@ -1,4 +1,4 @@
-# Oxidaxa
+# Oxidtaxa
 
 High-performance taxonomic classifier for eDNA metabarcoding. A Rust rewrite of IDTAXA (DECIPHER) with Python bindings via PyO3.
 
@@ -22,7 +22,7 @@ python classify_idtaxa.py query.fasta model.bin results.tsv \
 ## Python API
 
 ```python
-from oxidaxa import train, classify
+from oxidtaxa import train, classify
 
 # Train
 train(
@@ -214,7 +214,7 @@ Benchmarked on Apple M4 Pro (14 cores), vert12S marker:
 ### vs R/C IDTAXA (DECIPHER)
 
 ```
-                    R/C        Oxidaxa 1T   Oxidaxa 8T   Speedup(1T)  Speedup(8T)
+                    R/C        Oxidtaxa 1T   Oxidtaxa 8T   Speedup(1T)  Speedup(8T)
 1K ref / 500q
   Train           4.81s        0.43s           —          11.2x           —
   Classify        1.39s        0.46s         0.12s         3.0x         11.6x
@@ -277,7 +277,7 @@ src/
 
 ### Correctness and Divergence from R
 
-Oxidaxa was initially validated against R/C IDTAXA with 51 golden tests verifying bit-level agreement across 13 scenarios (threshold sweeps, strand modes, bootstrap counts, edge cases). Having proven algorithmic equivalence, Oxidaxa now diverges from R in specific areas where the original design was constrained by R's single-threaded execution model rather than algorithmic necessity:
+Oxidtaxa was initially validated against R/C IDTAXA with 51 golden tests verifying bit-level agreement across 13 scenarios (threshold sweeps, strand modes, bootstrap counts, edge cases). Having proven algorithmic equivalence, Oxidtaxa now diverges from R in specific areas where the original design was constrained by R's single-threaded execution model rather than algorithmic necessity:
 
 **Classification (already diverged):** Each query gets an independent PRNG (`seed XOR index`) instead of R's shared sequential PRNG. This makes classification order-independent and fully parallelizable. Results are statistically equivalent but not bit-identical to R.
 
@@ -313,7 +313,7 @@ asv_4      Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis    100.00      Ca
 
 ### Model Format
 
-Binary (bincode). Not compatible with R's `.rds` format. Train separately for Oxidaxa.
+Binary (bincode). Not compatible with R's `.rds` format. Train separately for Oxidtaxa.
 
 ## Development
 

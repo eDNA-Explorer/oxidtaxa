@@ -2,12 +2,12 @@
 /// Run: cargo run --example bench_inverted --release
 use std::time::Instant;
 
-use oxidaxa::fasta::{read_fasta, read_taxonomy};
-use oxidaxa::kmer::{enumerate_sequences, NA_INTEGER};
-use oxidaxa::matching::{parallel_match, parallel_match_inverted};
-use oxidaxa::rng::RRng;
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::TrainConfig;
+use oxidtaxa::fasta::{read_fasta, read_taxonomy};
+use oxidtaxa::kmer::{enumerate_sequences, NA_INTEGER};
+use oxidtaxa::matching::{parallel_match, parallel_match_inverted};
+use oxidtaxa::rng::RRng;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::TrainConfig;
 
 fn main() {
     let sizes = [1000, 5000, 10000];

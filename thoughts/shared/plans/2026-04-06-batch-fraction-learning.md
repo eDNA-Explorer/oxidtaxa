@@ -160,7 +160,7 @@ Update all call sites:
 - `src/lib.rs:45` — pass `seed` instead of `&mut rng`
 - `tests/test_training.rs` — all 5 test functions
 - `tests/test_integration.rs` — the e2e test
-- `benches/oxidaxa_bench.rs` — the learn_taxa benchmark
+- `benches/oxidtaxa_bench.rs` — the learn_taxa benchmark
 
 ### Success Criteria:
 - [x] `cargo build` succeeds
@@ -352,7 +352,7 @@ If batch convergence is measurably slower, increase `maxIterations` default. Eva
 
 ## References
 
-- Original feature plan: `thoughts/shared/plans/2026-04-06-oxidaxa-features.md`
+- Original feature plan: `thoughts/shared/plans/2026-04-06-oxidtaxa-features.md`
 - IDTAXA paper: Murali et al. 2018, Microbiome 6:140
 - Gauss-Seidel vs Jacobi convergence: sequential converges ~2x faster per iteration
 - Hogwild! (Niu et al. 2011): lock-free parallel SGD converges when updates are sparse

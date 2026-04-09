@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Train an Oxidaxa classifier from reference sequences.
+"""Train an Oxidtaxa classifier from reference sequences.
 
 Usage:
     python train.py reference.fasta taxonomy.tsv model.bin
 """
 import argparse
 
-from oxidaxa import train
+from oxidtaxa import train
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train Oxidaxa classifier")
+    parser = argparse.ArgumentParser(description="Train Oxidtaxa classifier")
     parser.add_argument("reference_fasta", help="Reference FASTA")
     parser.add_argument("taxonomy_tsv", help="Tab-separated: accession<TAB>taxonomy")
     parser.add_argument("output_model", help="Output model file path")

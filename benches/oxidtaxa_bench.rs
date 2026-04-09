@@ -1,14 +1,14 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use std::path::PathBuf;
 
-use oxidaxa::kmer::enumerate_sequences;
-use oxidaxa::matching::{int_match, vector_sum, parallel_match};
-use oxidaxa::rng::RRng;
-use oxidaxa::sequence::{remove_gaps, reverse_complement};
-use oxidaxa::fasta::read_fasta;
-use oxidaxa::training::learn_taxa;
-use oxidaxa::classify::id_taxa;
-use oxidaxa::types::{TrainConfig, ClassifyConfig, StrandMode, OutputType};
+use oxidtaxa::kmer::enumerate_sequences;
+use oxidtaxa::matching::{int_match, vector_sum, parallel_match};
+use oxidtaxa::rng::RRng;
+use oxidtaxa::sequence::{remove_gaps, reverse_complement};
+use oxidtaxa::fasta::read_fasta;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::classify::id_taxa;
+use oxidtaxa::types::{TrainConfig, ClassifyConfig, StrandMode, OutputType};
 
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -206,7 +206,7 @@ fn bench_read_fasta(c: &mut Criterion) {
 
 fn bench_learn_taxa(c: &mut Criterion) {
     let (names, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
-    let taxonomy = oxidaxa::fasta::read_taxonomy(
+    let taxonomy = oxidtaxa::fasta::read_taxonomy(
         &test_data_path("test_ref_taxonomy.tsv"), &names
     ).unwrap();
 
@@ -245,7 +245,7 @@ fn bench_learn_taxa(c: &mut Criterion) {
 fn bench_id_taxa(c: &mut Criterion) {
     // Train a model first
     let (names, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
-    let taxonomy = oxidaxa::fasta::read_taxonomy(
+    let taxonomy = oxidtaxa::fasta::read_taxonomy(
         &test_data_path("test_ref_taxonomy.tsv"), &names
     ).unwrap();
 
@@ -268,7 +268,7 @@ fn bench_id_taxa(c: &mut Criterion) {
 
     // Load query sequences
     let (query_names, query_seqs) = read_fasta(&test_data_path("test_query.fasta")).unwrap();
-    let clean_seqs = oxidaxa::sequence::remove_gaps(&query_seqs);
+    let clean_seqs = oxidtaxa::sequence::remove_gaps(&query_seqs);
 
     let classify_config = ClassifyConfig {
         threshold: 40.0,

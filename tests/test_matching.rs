@@ -1,7 +1,7 @@
 mod common;
 
 use common::load_json;
-use oxidaxa::matching::int_match;
+use oxidtaxa::matching::int_match;
 use std::collections::HashMap;
 
 /// Load intMatch test cases from golden JSON.

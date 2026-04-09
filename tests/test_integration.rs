@@ -1,11 +1,11 @@
 mod common;
 
 use common::load_json;
-use oxidaxa::classify::id_taxa;
-use oxidaxa::fasta::{read_fasta, write_classification_tsv};
-use oxidaxa::sequence::remove_gaps;
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
+use oxidtaxa::classify::id_taxa;
+use oxidtaxa::fasta::{read_fasta, write_classification_tsv};
+use oxidtaxa::sequence::remove_gaps;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
 
 #[derive(serde::Deserialize)]
 struct GoldenTsvRow {
@@ -23,7 +23,7 @@ fn test_full_pipeline_e2e() {
 
     // Read FASTA and taxonomy
     let (names, seqs) = read_fasta(data_dir.join("test_ref.fasta").to_str().unwrap()).unwrap();
-    let taxonomy = oxidaxa::fasta::read_taxonomy(
+    let taxonomy = oxidtaxa::fasta::read_taxonomy(
         data_dir.join("test_ref_taxonomy.tsv").to_str().unwrap(),
         &names,
     )

@@ -203,10 +203,10 @@ pub struct TsvRow {
 
 **Location**: `src/lib.rs:11-160`, `#[cfg(feature = "python")]`
 
-- `#[pymodule] fn _core` registers `train` and `classify` (`src/lib.rs:154-159`), built as `oxidaxa._core` (`pyproject.toml:13`).
+- `#[pymodule] fn _core` registers `train` and `classify` (`src/lib.rs:154-159`), built as `oxidtaxa._core` (`pyproject.toml:13`).
 - `classify(...)` signature: `(query_path, model_path, output_path, threshold=60.0, bootstraps=100, strand="both", min_descend=0.98, full_length=0.0, processors=1, sample_exponent=0.47, seed=42, deterministic=False, length_normalize=False, rank_thresholds=None)` (`src/lib.rs:55-61`).
 - Internally calls `write_classification_tsv(output_path, &names, &results)` at `src/lib.rs:109`.
-- **Returns `PyResult<()>`** — no Python value on success. The Python wrapper at `python/oxidaxa/__init__.py:7` just re-exports `classify` and `train` with no added logic; a duplicate re-export lives at `python/idtaxa/__init__.py:7`.
+- **Returns `PyResult<()>`** — no Python value on success. The Python wrapper at `python/oxidtaxa/__init__.py:7` just re-exports `classify` and `train` with no added logic; a duplicate re-export lives at `python/idtaxa/__init__.py:7`.
 
 So Python users currently cannot access `ClassificationResult` in memory at all — their only artifact is the 3-column TSV written to disk.
 
@@ -288,7 +288,7 @@ taxa[7]     = "Canidae"      (family-level)
 - `src/fasta.rs:60-105` — `write_classification_tsv` (only serialization path)
 - `src/lib.rs:54-113` — PyO3 `classify` function (returns `PyResult<()>`, writes to TSV)
 - `src/lib.rs:154-159` — PyO3 `#[pymodule] fn _core` registration
-- `python/oxidaxa/__init__.py:7` and `python/idtaxa/__init__.py:7` — thin Python re-exports
+- `python/oxidtaxa/__init__.py:7` and `python/idtaxa/__init__.py:7` — thin Python re-exports
 - `reference/R_orig/IdTaxa.R:380-389` — R reference tie-break logic (matches Rust)
 - `tests/golden_json/s08b_asym_training_set.json:94749-94772` — concrete example of `taxa`/`taxonomy` contents
 - `thoughts/shared/plans/2026-04-03-idtaxa-python-rust-port.md:45,1154` — port-plan mention of tie-breaking

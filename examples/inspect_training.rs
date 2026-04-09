@@ -1,7 +1,7 @@
 //! Inspect training model to understand problem sequences.
-use oxidaxa::fasta::{read_fasta, read_taxonomy};
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::TrainConfig;
+use oxidtaxa::fasta::{read_fasta, read_taxonomy};
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::TrainConfig;
 
 fn filter_for_training(seqs: &[String], taxonomy: &[String]) -> (Vec<String>, Vec<String>) {
     let mut fs = Vec::new();

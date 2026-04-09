@@ -37,7 +37,7 @@ See `thoughts/shared/research/2026-04-08-tied-species-reporting-at-truncated-ran
 - **No `#[serde(default)]` patterns currently used** anywhere in `src/`. This plan introduces the first use, but it's isolated to one field and well-understood.
 - **`ClassificationResult` is currently not `#[pyclass]`-exposed.** The PyO3 layer at `src/lib.rs:54-113` uses it internally and writes a TSV; Python sees only the file path and gets `None` back from `classify()`. Adding a `#[pyclass]` wrapper is mechanical PyO3 boilerplate — the struct has only `Vec<String>` and `Vec<f64>` fields, both of which have native PyO3 conversions. `#[pyclass(get_all)]` provides the Python-side field getters with zero custom code.
 - **PyO3 0.24 is already wired** (`Cargo.toml:16`, `features = ["python"]`) with the `extension-module` feature. No new dependencies or toolchain changes required.
-- **No existing Python pytest setup.** `python/oxidaxa/__init__.py` and `python/idtaxa/__init__.py` are bare re-exports. There is no `python/tests/` directory, no `conftest.py`, no `[tool.pytest]` block in `pyproject.toml`. Python-level testing in this plan is limited to one manual smoke test documented as a verification step — no pytest harness is introduced.
+- **No existing Python pytest setup.** `python/oxidtaxa/__init__.py` and `python/idtaxa/__init__.py` are bare re-exports. There is no `python/tests/` directory, no `conftest.py`, no `[tool.pytest]` block in `pyproject.toml`. Python-level testing in this plan is limited to one manual smoke test documented as a verification step — no pytest harness is introduced.
 - **`output_path` currently is a required positional arg** at `src/lib.rs:56,60`. Changing it to optional-with-default is a non-breaking signature change from the Python side (existing callers that pass it by keyword continue to work; existing callers that pass it positionally also continue to work because it stays in the same position).
 
 ## Desired End State
@@ -51,17 +51,17 @@ After this plan is complete:
 3. **TSV output.** `write_classification_tsv` emits a 4th column `alternatives` — pipe-separated (`|`) list of species short-labels, empty string when not populated. Header becomes `"read_id\ttaxonomic_path\tconfidence\talternatives\n"`. All 4 columns are always present (tab-count stable) so positional parsers don't break on empty-tie rows.
 4. **PyO3 API.** `ClassificationResult` is a `#[pyclass(get_all)]`-exposed struct. Python callers see:
    ```python
-   import oxidaxa
+   import oxidtaxa
    
    # In-memory only
-   results = oxidaxa.classify(query_path="q.fa", model_path="m.bin")
+   results = oxidtaxa.classify(query_path="q.fa", model_path="m.bin")
    for r in results:
        print(r.taxon)          # list[str], native
        print(r.confidence)     # list[float], native
        print(r.alternatives)   # list[str], native
    
    # In-memory + TSV (backward compatible)
-   results = oxidaxa.classify(
+   results = oxidtaxa.classify(
        query_path="q.fa",
        model_path="m.bin",
        output_path="out.tsv",  # still written
@@ -77,7 +77,7 @@ After this plan is complete:
    - `cargo test` (default features — no python)
    - `cargo check --features python` — the PyO3 layer compiles cleanly with the new `#[pyclass]` attribute and signature changes
    - `cargo clippy --features python --all-targets -- -D warnings`
-   - Manual: `maturin develop --features python && python -c "import oxidaxa; help(oxidaxa.classify)"` — the Python docstring shows the new signature, `ClassificationResult` is importable, and a minimal classify call returns a list
+   - Manual: `maturin develop --features python && python -c "import oxidtaxa; help(oxidtaxa.classify)"` — the Python docstring shows the new signature, `ClassificationResult` is importable, and a minimal classify call returns a list
 
 ### Key Discoveries (referenced throughout the plan):
 
@@ -492,10 +492,10 @@ Add `tests/test_ties.rs` that exercises the tie path end-to-end with a small syn
 ```rust
 mod common;
 
-use oxidaxa::classify::id_taxa;
-use oxidaxa::fasta::write_classification_tsv;
-use oxidaxa::training::learn_taxa;
-use oxidaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
+use oxidtaxa::classify::id_taxa;
+use oxidtaxa::fasta::write_classification_tsv;
+use oxidtaxa::training::learn_taxa;
+use oxidtaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
 
 /// Build a minimal training set:
 ///   Root > Mammalia > Carnivora > Canidae > Canis   > {Canis_lupus, Canis_latrans}
@@ -506,7 +506,7 @@ use oxidaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
 /// will tie at `tot_hits` during classification. `Vulpes_vulpes` and
 /// `Felis_catus` have distinct sequences so the classifier has enough
 /// context to disambiguate and so the tree has realistic shape.
-fn build_tied_training_set() -> oxidaxa::types::TrainingSet {
+fn build_tied_training_set() -> oxidtaxa::types::TrainingSet {
     // Two ~200bp synthetic sequences. Identical for Canis_lupus / Canis_latrans.
     let tied_seq = "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
                     GCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -653,7 +653,7 @@ fn tied_alternatives_appear_in_tsv_output() {
     );
 
     let tmp_dir = std::env::temp_dir();
-    let output_path = tmp_dir.join("oxidaxa_ties_test.tsv");
+    let output_path = tmp_dir.join("oxidtaxa_ties_test.tsv");
     write_classification_tsv(
         output_path.to_str().unwrap(),
         &query_names,
@@ -700,7 +700,7 @@ fn tied_alternatives_appear_in_tsv_output() {
 - [x] Full `cargo test` remains green: **54 passed, 0 failed**
 
 #### Manual Verification:
-- [ ] Inspect the TSV written to `std::env::temp_dir()/oxidaxa_ties_test.tsv` during test run (add a `println!` temporarily if helpful, then remove) — confirm visually that the 4th column shows `Canis_latrans|Canis_lupus`
+- [ ] Inspect the TSV written to `std::env::temp_dir()/oxidtaxa_ties_test.tsv` during test run (add a `println!` temporarily if helpful, then remove) — confirm visually that the 4th column shows `Canis_latrans|Canis_lupus`
 - [ ] If the synthetic training set fails to train (e.g., too few unique k-mers), adjust the sequences and document the reason in a comment
 
 ---
@@ -847,7 +847,7 @@ fn classify(
 - `output_path = None` in the `#[pyo3(signature = ...)]` block sets the default so Python callers don't need to pass it.
 - Existing Python callers that pass `output_path="..."` positionally still work — same position as before.
 - Existing callers that pass it as a keyword still work — same keyword name.
-- Return type change from `PyResult<()>` to `PyResult<Vec<ClassificationResult>>`: PyO3 auto-converts `Vec<T>` where `T: IntoPyObject` into a Python `list`. `ClassificationResult` is now `#[pyclass]`-exposed, so PyO3 wraps each element in a `Py<ClassificationResult>` automatically. Callers that ignored the return value (e.g., `oxidaxa.classify(...)` without assignment) get a list they silently drop — no breakage.
+- Return type change from `PyResult<()>` to `PyResult<Vec<ClassificationResult>>`: PyO3 auto-converts `Vec<T>` where `T: IntoPyObject` into a Python `list`. `ClassificationResult` is now `#[pyclass]`-exposed, so PyO3 wraps each element in a `Py<ClassificationResult>` automatically. Callers that ignored the return value (e.g., `oxidtaxa.classify(...)` without assignment) get a list they silently drop — no breakage.
 - The `#[allow(clippy::too_many_arguments)]` allow stays; this function had it before.
 
 #### 3. Module registration unchanged
@@ -855,7 +855,7 @@ fn classify(
 
 The `#[pymodule] fn _core` at `src/lib.rs:154-159` already registers `classify` and `train`. No changes — `wrap_pyfunction!(classify, m)` picks up the new signature automatically.
 
-Optionally add `ClassificationResult` to the module so Python can `import oxidaxa; oxidaxa.ClassificationResult` for type hints and isinstance checks:
+Optionally add `ClassificationResult` to the module so Python can `import oxidtaxa; oxidtaxa.ClassificationResult` for type hints and isinstance checks:
 
 ```rust
 #[pymodule]
@@ -867,20 +867,20 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 ```
 
-The `add_class` call exposes the type in the module namespace. Optional but useful for type hints on the Python side and for `isinstance(r, oxidaxa.ClassificationResult)` checks.
+The `add_class` call exposes the type in the module namespace. Optional but useful for type hints on the Python side and for `isinstance(r, oxidtaxa.ClassificationResult)` checks.
 
 #### 4. Python re-export — expose `ClassificationResult` from the package namespace
-**File**: `python/oxidaxa/__init__.py`
+**File**: `python/oxidtaxa/__init__.py`
 
 Current:
 ```python
-from oxidaxa._core import classify, train
+from oxidtaxa._core import classify, train
 __all__ = ["train", "classify"]
 ```
 
 Updated:
 ```python
-from oxidaxa._core import classify, train, ClassificationResult
+from oxidtaxa._core import classify, train, ClassificationResult
 __all__ = ["train", "classify", "ClassificationResult"]
 ```
 
@@ -889,7 +889,7 @@ __all__ = ["train", "classify", "ClassificationResult"]
 Same change — the `idtaxa` package is a duplicate re-export namespace for compatibility (`src/lib.rs`/research notes earlier). Keep it symmetric.
 
 ```python
-from oxidaxa._core import classify, train, ClassificationResult
+from oxidtaxa._core import classify, train, ClassificationResult
 __all__ = ["train", "classify", "ClassificationResult"]
 ```
 
@@ -934,16 +934,16 @@ fn classify(/* ... */) -> PyResult<Vec<ClassificationResult>> {
 - [ ] Python smoke test (run after `maturin develop`):
   ```bash
   python -c "
-  import oxidaxa
-  print(oxidaxa.ClassificationResult)
-  print(oxidaxa.classify.__doc__)
+  import oxidtaxa
+  print(oxidtaxa.ClassificationResult)
+  print(oxidtaxa.classify.__doc__)
   "
   ```
   Expected: prints the class repr and the updated docstring showing the new return type and optional `output_path`.
 - [ ] Python end-to-end smoke test using an existing training model (the user can point at any `.bin` model they already have):
   ```python
-  import oxidaxa
-  results = oxidaxa.classify(
+  import oxidtaxa
+  results = oxidtaxa.classify(
       query_path="tests/data/test_query.fasta",
       model_path="tests/data/test_model.bin",  # or whatever the user has
   )
@@ -960,7 +960,7 @@ fn classify(/* ... */) -> PyResult<Vec<ClassificationResult>> {
   import tempfile, os
   with tempfile.NamedTemporaryFile(suffix=".tsv", delete=False) as tmp:
       tsv_path = tmp.name
-  results = oxidaxa.classify(
+  results = oxidtaxa.classify(
       query_path="tests/data/test_query.fasta",
       model_path="tests/data/test_model.bin",
       output_path=tsv_path,
@@ -972,7 +972,7 @@ fn classify(/* ... */) -> PyResult<Vec<ClassificationResult>> {
   assert header == "read_id\ttaxonomic_path\tconfidence\talternatives"
   os.unlink(tsv_path)
   ```
-- [ ] Dagster-equivalent call pattern (existing callers): verify that `oxidaxa.classify(query_path=q, model_path=m, output_path=o)` — with all three as kwargs — still works without modification, since that's how the existing pipeline invokes it. No behavior change from the caller's perspective.
+- [ ] Dagster-equivalent call pattern (existing callers): verify that `oxidtaxa.classify(query_path=q, model_path=m, output_path=o)` — with all three as kwargs — still works without modification, since that's how the existing pipeline invokes it. No behavior change from the caller's perspective.
 - [ ] Tied-species round-trip: train a model with the synthetic tied-species fixture from Phase 4's `build_tied_training_set`, save to bincode, load from Python, classify the tied query, verify `results[0].alternatives == ["Canis_latrans", "Canis_lupus"]` as a native Python list (no pipe-split needed). This is the actual functional goal of moving to Option B.
 
 ---
@@ -1000,9 +1000,9 @@ When two or more reference sequences produce identical top-scoring matches for a
 **From Python:**
 
 ```python
-import oxidaxa
+import oxidtaxa
 
-results = oxidaxa.classify(
+results = oxidtaxa.classify(
     query_path="queries.fa",
     model_path="model.bin",
 )
@@ -1076,7 +1076,7 @@ The `alternatives` column is pipe-separated (`|`) and empty for non-tied classif
    - Manually inspect a few and confirm (a) the `taxonomic_path` is strictly above the tied species' rank and (b) the `alternatives` list is sensible
 5. **Python in-memory smoke test** (Phase 5 manual verification — see Phase 5 Success Criteria for detailed commands):
    - `maturin develop --features python`
-   - `python -c "import oxidaxa; print(oxidaxa.ClassificationResult); print(oxidaxa.classify.__doc__)"` confirms the class is exposed and the docstring is updated
+   - `python -c "import oxidtaxa; print(oxidtaxa.ClassificationResult); print(oxidtaxa.classify.__doc__)"` confirms the class is exposed and the docstring is updated
    - Classify with no `output_path`, assert `isinstance(results, list)` and `isinstance(results[0].alternatives, list)`
    - Classify with `output_path`, assert both the return list and the TSV file are populated
    - Tied-species round-trip using the Phase 4 synthetic fixture saved as a bincode model, then loaded from Python — assert `results[0].alternatives == ["Canis_latrans", "Canis_lupus"]` as a native Python list
@@ -1094,7 +1094,7 @@ The `alternatives` column is pipe-separated (`|`) and empty for non-tied classif
 - **PyO3 `#[pyclass]` overhead.** PyO3 wraps each `ClassificationResult` in a `Py<ClassificationResult>` (reference-counted pointer + object header) when returning to Python. For a list of 1M results, this is an extra ~16-24 bytes of header per result on top of the struct fields. Not free, but in the same order of magnitude as the existing `Vec<ClassificationResult>` overhead. Clients who want to minimize Python-side memory can still call with `output_path="..."` and ignore the return value (Python will drop the list on function return — the TSV becomes the persistence path).
 - **`get_all` field accessor overhead.** Each call to `result.taxon` (or `.confidence`, `.alternatives`) from Python converts the underlying `Vec<String>` / `Vec<f64>` into a Python `list` object via PyO3's `IntoPyObject`. This is a per-access copy, not a view — the underlying Rust data is not shared with Python. For the common access pattern of reading a result once, this is fine. For clients that repeatedly index into `result.taxon`, caching the return into a local Python variable avoids redundant copies.
 - **`classify()` return-value construction.** PyO3 builds a Python `list` containing `Py<ClassificationResult>` for every result in the vector. For 1M results this allocates 1M `Py<T>` wrappers + 1 list. Single-pass allocation, no secondary transforms. Compared to the current TSV-write path (`String::push_str` loop + one `fs::write`), the memory profile is similar — both paths hold all results in memory before yielding.
-- **Regression risk on existing benchmarks.** `benches/oxidaxa_bench.rs` does not reference `ClassificationResult` directly, so no bench changes required. The `#[pyclass]` attribute does not affect non-python builds (it's `#[cfg_attr]`-gated), so default-feature bench runs see zero overhead. Expect bench numbers to be within noise of pre-change.
+- **Regression risk on existing benchmarks.** `benches/oxidtaxa_bench.rs` does not reference `ClassificationResult` directly, so no bench changes required. The `#[pyclass]` attribute does not affect non-python builds (it's `#[cfg_attr]`-gated), so default-feature bench runs see zero overhead. Expect bench numbers to be within noise of pre-change.
 
 ## Migration Notes
 
@@ -1102,9 +1102,9 @@ The `alternatives` column is pipe-separated (`|`) and empty for non-tied classif
 
 - **Data on disk.** Nothing. `ClassificationResult` is never bincoded or persisted (only `TrainingSet` is), so there are no old files to upgrade. `TrainingSet` is unchanged — existing `.bin` models load without regeneration.
 - **TSV consumers.** The format change is **purely additive**. Any downstream tool that hard-codes 3 columns will break; any tool that splits by `\t` and ignores extra columns will continue to work. Internal to this repo: only `tests/test_integration.rs:83` hard-asserts 3 columns, and this plan updates it. External: the user runs this pipeline, so any downstream parser on their side needs the same 1-line update (add column, or use `pd.read_csv` with `usecols=[0,1,2]` to ignore the new column).
-- **Python API — existing callers.** Unchanged in practice. `oxidaxa.classify(query_path=..., model_path=..., output_path=...)` continues to work identically: the TSV is still written to `output_path`, and the call succeeds. The only difference is that the return value is now a `list[ClassificationResult]` instead of `None`. Callers that ignored the return value (`oxidaxa.classify(...)` without assignment) silently drop the list — no breakage. Callers that asserted `result is None` would need updating, but no such call exists in the current codebase.
-- **Python API — new callers.** Can omit `output_path` entirely to skip disk I/O: `results = oxidaxa.classify(query_path=..., model_path=...)`. The return value is a native Python list of `ClassificationResult` objects with `list[str]` / `list[float]` fields.
-- **Dagster/pipeline integration.** Pass-through unchanged. Existing assets that invoke `oxidaxa.classify(..., output_path=...)` and then pass `output_path` to the next asset keep working with zero modification.
+- **Python API — existing callers.** Unchanged in practice. `oxidtaxa.classify(query_path=..., model_path=..., output_path=...)` continues to work identically: the TSV is still written to `output_path`, and the call succeeds. The only difference is that the return value is now a `list[ClassificationResult]` instead of `None`. Callers that ignored the return value (`oxidtaxa.classify(...)` without assignment) silently drop the list — no breakage. Callers that asserted `result is None` would need updating, but no such call exists in the current codebase.
+- **Python API — new callers.** Can omit `output_path` entirely to skip disk I/O: `results = oxidtaxa.classify(query_path=..., model_path=...)`. The return value is a native Python list of `ClassificationResult` objects with `list[str]` / `list[float]` fields.
+- **Dagster/pipeline integration.** Pass-through unchanged. Existing assets that invoke `oxidtaxa.classify(..., output_path=...)` and then pass `output_path` to the next asset keep working with zero modification.
 - **R reference bit-compat.** Untied classifications remain bit-identical to R. Tied classifications now diverge from R (which still uses its own random pick). This is the intended behavior change and is documented in the README.
 - **Rust-side callers of `id_taxa()` and `write_classification_tsv()`.** The Rust public API is source-compatible: `id_taxa()` still returns `Vec<ClassificationResult>`, and `write_classification_tsv()` still takes `(&str, &[String], &[ClassificationResult])`. The only change is that `ClassificationResult` now has a third public field (`alternatives`), so any Rust code that pattern-matches on the struct with `ClassificationResult { taxon, confidence }` (without `..`) would need to add `alternatives` or add `..`. No such pattern exists in the current codebase.
 
@@ -1117,9 +1117,9 @@ The `alternatives` column is pipe-separated (`|`) and empty for non-tied classif
 - `ClassificationResult` definition: `src/types.rs:49-62`
 - TSV writer: `src/fasta.rs:60-105`
 - PyO3 `classify` function + module registration: `src/lib.rs:54-113,154-159`
-- Python package re-exports: `python/oxidaxa/__init__.py:7`, `python/idtaxa/__init__.py:7`
+- Python package re-exports: `python/oxidtaxa/__init__.py:7`, `python/idtaxa/__init__.py:7`
 - PyO3 dependency declaration: `Cargo.toml:16` (pyo3 0.24, `extension-module`), `Cargo.toml:30-32` (python feature gate)
-- Maturin configuration: `pyproject.toml` (`module-name = "oxidaxa._core"`, `python-source = "python"`)
+- Maturin configuration: `pyproject.toml` (`module-name = "oxidtaxa._core"`, `python-source = "python"`)
 - Integration test to update: `tests/test_integration.rs:10-106`
 - Golden to leave untouched: `tests/golden_json/s10a_e2e_tsv.json`
 - Original port plan (for historical context on the file-out API choice): `thoughts/shared/plans/2026-04-03-idtaxa-python-rust-port.md:1387-1477`

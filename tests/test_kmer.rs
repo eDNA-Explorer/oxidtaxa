@@ -1,7 +1,7 @@
 mod common;
 
 use common::load_json;
-use oxidaxa::kmer::{enumerate_sequences, NA_INTEGER};
+use oxidtaxa::kmer::{enumerate_sequences, NA_INTEGER};
 
 /// Helper: load golden k-mers (list of f64 arrays with -2147483648 sentinel for NA)
 fn load_golden_kmers(name: &str) -> Vec<Vec<i32>> {

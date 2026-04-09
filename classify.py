@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Classify sequences using a trained Oxidaxa model.
+"""Classify sequences using a trained Oxidtaxa model.
 
 Usage:
     python classify.py query.fasta model.bin results.tsv 40 both 0.98 0.0 8
 """
 import argparse
 
-from oxidaxa import classify
+from oxidtaxa import classify
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Classify with Oxidaxa")
+    parser = argparse.ArgumentParser(description="Classify with Oxidtaxa")
     parser.add_argument("query_fasta")
     parser.add_argument("model_path")
     parser.add_argument("output_tsv")
