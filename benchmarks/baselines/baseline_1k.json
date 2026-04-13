@@ -1,0 +1,2007 @@
+{
+  "n_queries": 500,
+  "problem_sequences": 3,
+  "problem_groups": 0,
+  "results": [
+    {
+      "path": "Eukaryota;Craniata;Mammalia",
+      "confidence": 60.599188177827052
+    },
+    {
+      "path": "",
+      "confidence": 43.372567190160744
+    },
+    {
+      "path": "",
+      "confidence": 44.779774808805122
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 61.181259302790338
+    },
+    {
+      "path": "",
+      "confidence": 15.49524536201784
+    },
+    {
+      "path": "Eukaryota;Craniata;Amphibia;Neobatrachia",
+      "confidence": 63.022923291578216
+    },
+    {
+      "path": "",
+      "confidence": 49.169937206693056
+    },
+    {
+      "path": "",
+      "confidence": 20.353084777158781
+    },
+    {
+      "path": "",
+      "confidence": 54.777340592078914
+    },
+    {
+      "path": "",
+      "confidence": 51.363534909771808
+    },
+    {
+      "path": "",
+      "confidence": 39.487371849914602
+    },
+    {
+      "path": "",
+      "confidence": 57.238209140242056
+    },
+    {
+      "path": "",
+      "confidence": 40.930177695260902
+    },
+    {
+      "path": "",
+      "confidence": 30.771896338477447
+    },
+    {
+      "path": "",
+      "confidence": 46.040276851297442
+    },
+    {
+      "path": "",
+      "confidence": 31.146484761390973
+    },
+    {
+      "path": "",
+      "confidence": 48.764227704632802
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia",
+      "confidence": 62.778619982768248
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo;Homo sapiens",
+      "confidence": 84.616987324502418
+    },
+    {
+      "path": "",
+      "confidence": 49.163684754644301
+    },
+    {
+      "path": "",
+      "confidence": 32.91230729321326
+    },
+    {
+      "path": "Eukaryota;Streptophytina;Magnoliopsida;Solanales;Solanoideae;Solanum subgen. Lycopersicon;Solanum lycopersicum",
+      "confidence": 85.683264003246066
+    },
+    {
+      "path": "",
+      "confidence": 48.695330071119152
+    },
+    {
+      "path": "",
+      "confidence": 35.313043735237578
+    },
+    {
+      "path": "",
+      "confidence": 56.419847515799312
+    },
+    {
+      "path": "",
+      "confidence": 34.279366812128231
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia",
+      "confidence": 60.125378470013175
+    },
+    {
+      "path": "",
+      "confidence": 40.959065880912377
+    },
+    {
+      "path": "",
+      "confidence": 46.490012439154995
+    },
+    {
+      "path": "",
+      "confidence": 58.425510813819756
+    },
+    {
+      "path": "",
+      "confidence": 56.490372904949268
+    },
+    {
+      "path": "",
+      "confidence": 22.300166098313245
+    },
+    {
+      "path": "",
+      "confidence": 47.02867182794072
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 80.170931822949214
+    },
+    {
+      "path": "Eukaryota;Craniata;Teleostei;Aplocheiloidei;Nothobranchiidae;Fundulopanchax;NA",
+      "confidence": 69.648406590869598
+    },
+    {
+      "path": "",
+      "confidence": 27.586067231204481
+    },
+    {
+      "path": "",
+      "confidence": 41.075650209098768
+    },
+    {
+      "path": "",
+      "confidence": 47.193534298728551
+    },
+    {
+      "path": "",
+      "confidence": 42.957392084185344
+    },
+    {
+      "path": "",
+      "confidence": 42.016940917729116
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 70.285476650853582
+    },
+    {
+      "path": "",
+      "confidence": 42.119310052698651
+    },
+    {
+      "path": "",
+      "confidence": 44.336830279219974
+    },
+    {
+      "path": "",
+      "confidence": 36.073916562114249
+    },
+    {
+      "path": "",
+      "confidence": 52.921378856193996
+    },
+    {
+      "path": "",
+      "confidence": 49.914884246919414
+    },
+    {
+      "path": "",
+      "confidence": 39.386615080104285
+    },
+    {
+      "path": "",
+      "confidence": 26.939132960975869
+    },
+    {
+      "path": "",
+      "confidence": 39.85794473818693
+    },
+    {
+      "path": "",
+      "confidence": 30.944895081428641
+    },
+    {
+      "path": "",
+      "confidence": 41.482498919963071
+    },
+    {
+      "path": "",
+      "confidence": 12.388042658460042
+    },
+    {
+      "path": "",
+      "confidence": 37.334258969599809
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 68.466905168047049
+    },
+    {
+      "path": "Eukaryota;Craniata;Amphibia;Neobatrachia;Ranidae",
+      "confidence": 60.34822055513807
+    },
+    {
+      "path": "",
+      "confidence": 33.74854695197412
+    },
+    {
+      "path": "",
+      "confidence": 45.882038863322478
+    },
+    {
+      "path": "",
+      "confidence": 47.210607972694156
+    },
+    {
+      "path": "",
+      "confidence": 41.315562241048887
+    },
+    {
+      "path": "",
+      "confidence": 27.097671792577597
+    },
+    {
+      "path": "",
+      "confidence": 48.188163495425385
+    },
+    {
+      "path": "",
+      "confidence": 48.168417061454946
+    },
+    {
+      "path": "",
+      "confidence": 56.792346355139536
+    },
+    {
+      "path": "",
+      "confidence": 38.29683589635966
+    },
+    {
+      "path": "",
+      "confidence": 33.066292689370016
+    },
+    {
+      "path": "",
+      "confidence": 36.899578010177791
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 65.371274250083346
+    },
+    {
+      "path": "",
+      "confidence": 36.753302392850792
+    },
+    {
+      "path": "",
+      "confidence": 59.356375923784185
+    },
+    {
+      "path": "",
+      "confidence": 27.926202231115067
+    },
+    {
+      "path": "",
+      "confidence": 40.937622667279015
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 74.583641217865974
+    },
+    {
+      "path": "",
+      "confidence": 28.537723636712403
+    },
+    {
+      "path": "",
+      "confidence": 29.823073015952403
+    },
+    {
+      "path": "",
+      "confidence": 38.110672665918592
+    },
+    {
+      "path": "",
+      "confidence": 53.808850056062731
+    },
+    {
+      "path": "",
+      "confidence": 30.268862064093
+    },
+    {
+      "path": "",
+      "confidence": 50.5305337965166
+    },
+    {
+      "path": "",
+      "confidence": 46.68329435474034
+    },
+    {
+      "path": "",
+      "confidence": 33.586471445595045
+    },
+    {
+      "path": "",
+      "confidence": 43.036851852799622
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Muscomorpha;Dacinae;Bactrocera;Bactrocera dorsalis",
+      "confidence": 87.066687334028231
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 81.825224960949015
+    },
+    {
+      "path": "",
+      "confidence": 51.722846991096162
+    },
+    {
+      "path": "",
+      "confidence": 45.555368413616002
+    },
+    {
+      "path": "",
+      "confidence": 59.552836517037981
+    },
+    {
+      "path": "",
+      "confidence": 54.524238992860184
+    },
+    {
+      "path": "",
+      "confidence": 48.045337237970742
+    },
+    {
+      "path": "",
+      "confidence": 57.708749186506402
+    },
+    {
+      "path": "",
+      "confidence": 22.468398269122325
+    },
+    {
+      "path": "",
+      "confidence": 36.200233737667524
+    },
+    {
+      "path": "",
+      "confidence": 49.928938537975682
+    },
+    {
+      "path": "",
+      "confidence": 57.240263438851436
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 68.183953644641079
+    },
+    {
+      "path": "",
+      "confidence": 44.193345578161562
+    },
+    {
+      "path": "",
+      "confidence": 9.6332728958916203
+    },
+    {
+      "path": "",
+      "confidence": 42.405000601504746
+    },
+    {
+      "path": "",
+      "confidence": 22.495678712469626
+    },
+    {
+      "path": "",
+      "confidence": 31.607421717059019
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 66.790940714117369
+    },
+    {
+      "path": "",
+      "confidence": 25.360140156350777
+    },
+    {
+      "path": "",
+      "confidence": 59.378048366158353
+    },
+    {
+      "path": "",
+      "confidence": 50.371204650453201
+    },
+    {
+      "path": "",
+      "confidence": 42.827005590844649
+    },
+    {
+      "path": "",
+      "confidence": 50.94732277583774
+    },
+    {
+      "path": "",
+      "confidence": 54.256894282830281
+    },
+    {
+      "path": "",
+      "confidence": 53.466438337960078
+    },
+    {
+      "path": "",
+      "confidence": 40.892257062838297
+    },
+    {
+      "path": "",
+      "confidence": 32.233697332227976
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria;Iguania;Phrynosomatinae;Sceloporus;Sceloporus sugillatus",
+      "confidence": 61.696769338257454
+    },
+    {
+      "path": "",
+      "confidence": 41.744034995859188
+    },
+    {
+      "path": "",
+      "confidence": 50.607131074622387
+    },
+    {
+      "path": "",
+      "confidence": 55.154563316682548
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 73.492453023009119
+    },
+    {
+      "path": "Eukaryota;Craniata;Neognathae",
+      "confidence": 66.305350651709617
+    },
+    {
+      "path": "",
+      "confidence": 53.049224660027548
+    },
+    {
+      "path": "",
+      "confidence": 37.867158433245578
+    },
+    {
+      "path": "",
+      "confidence": 57.435924460211865
+    },
+    {
+      "path": "",
+      "confidence": 39.916227670158442
+    },
+    {
+      "path": "",
+      "confidence": 29.070234356897551
+    },
+    {
+      "path": "",
+      "confidence": 38.226992526012623
+    },
+    {
+      "path": "",
+      "confidence": 41.171982856584123
+    },
+    {
+      "path": "",
+      "confidence": 32.572785676239093
+    },
+    {
+      "path": "",
+      "confidence": 31.304600092444375
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 70.225510211113274
+    },
+    {
+      "path": "",
+      "confidence": 57.207647459087653
+    },
+    {
+      "path": "",
+      "confidence": 28.249336632690721
+    },
+    {
+      "path": "",
+      "confidence": 46.172871350924687
+    },
+    {
+      "path": "",
+      "confidence": 44.983396541100895
+    },
+    {
+      "path": "",
+      "confidence": 42.203313685006904
+    },
+    {
+      "path": "",
+      "confidence": 56.63742495556081
+    },
+    {
+      "path": "Eukaryota;Craniata;Teleostei;Cyprinoidei",
+      "confidence": 61.89247790994262
+    },
+    {
+      "path": "",
+      "confidence": 38.19637170918633
+    },
+    {
+      "path": "",
+      "confidence": 42.755409727475623
+    },
+    {
+      "path": "",
+      "confidence": 48.888941609021721
+    },
+    {
+      "path": "",
+      "confidence": 58.68158963479727
+    },
+    {
+      "path": "",
+      "confidence": 19.474434872476287
+    },
+    {
+      "path": "",
+      "confidence": 38.432849988566829
+    },
+    {
+      "path": "",
+      "confidence": 21.018705930966632
+    },
+    {
+      "path": "",
+      "confidence": 44.172355195843444
+    },
+    {
+      "path": "",
+      "confidence": 58.171680027175057
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae",
+      "confidence": 62.617331473578062
+    },
+    {
+      "path": "",
+      "confidence": 37.005289372305398
+    },
+    {
+      "path": "",
+      "confidence": 29.47544766387265
+    },
+    {
+      "path": "",
+      "confidence": 52.521337026355887
+    },
+    {
+      "path": "",
+      "confidence": 32.042881066626244
+    },
+    {
+      "path": "",
+      "confidence": 52.996960307403192
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia",
+      "confidence": 61.935145808895683
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo;Homo sapiens",
+      "confidence": 61.849586862603957
+    },
+    {
+      "path": "",
+      "confidence": 46.305138556882447
+    },
+    {
+      "path": "",
+      "confidence": 32.890656956950011
+    },
+    {
+      "path": "",
+      "confidence": 57.732034082239323
+    },
+    {
+      "path": "Eukaryota;Streptophytina;Magnoliopsida;Solanales;Solanoideae;Solanum subgen. Lycopersicon;Solanum lycopersicum",
+      "confidence": 64.639777826526355
+    },
+    {
+      "path": "",
+      "confidence": 52.01002330517332
+    },
+    {
+      "path": "",
+      "confidence": 27.564670815058104
+    },
+    {
+      "path": "",
+      "confidence": 52.848630053185225
+    },
+    {
+      "path": "",
+      "confidence": 42.663378748714635
+    },
+    {
+      "path": "",
+      "confidence": 39.602030530514838
+    },
+    {
+      "path": "",
+      "confidence": 39.16675002380147
+    },
+    {
+      "path": "",
+      "confidence": 41.687849624184786
+    },
+    {
+      "path": "",
+      "confidence": 24.093693879123244
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 69.034602209286575
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 61.991039464122096
+    },
+    {
+      "path": "",
+      "confidence": 59.833903044571969
+    },
+    {
+      "path": "",
+      "confidence": 42.865661977787347
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 65.431933642342486
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera",
+      "confidence": 64.921287786839855
+    },
+    {
+      "path": "",
+      "confidence": 14.405602026169392
+    },
+    {
+      "path": "",
+      "confidence": 50.959361022199325
+    },
+    {
+      "path": "",
+      "confidence": 18.352633194758017
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera",
+      "confidence": 66.106250607322622
+    },
+    {
+      "path": "",
+      "confidence": 40.483137226871079
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Muscomorpha;Pipunculinae;Pipunculus;Pipunculus sp. JFG-2010",
+      "confidence": 85.846904602255719
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae",
+      "confidence": 68.115442986291711
+    },
+    {
+      "path": "",
+      "confidence": 40.985880826560198
+    },
+    {
+      "path": "",
+      "confidence": 30.933546532171476
+    },
+    {
+      "path": "",
+      "confidence": 53.212628122293054
+    },
+    {
+      "path": "",
+      "confidence": 49.883704323595111
+    },
+    {
+      "path": "",
+      "confidence": 41.02017362969093
+    },
+    {
+      "path": "",
+      "confidence": 43.272113345129327
+    },
+    {
+      "path": "",
+      "confidence": 58.706962111282955
+    },
+    {
+      "path": "",
+      "confidence": 23.926684592231837
+    },
+    {
+      "path": "",
+      "confidence": 19.290386667808004
+    },
+    {
+      "path": "",
+      "confidence": 46.668508526377451
+    },
+    {
+      "path": "",
+      "confidence": 31.732201884776703
+    },
+    {
+      "path": "",
+      "confidence": 15.925442539118293
+    },
+    {
+      "path": "",
+      "confidence": 51.241855452305579
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 72.354904042399426
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia",
+      "confidence": 60.069683618697113
+    },
+    {
+      "path": "",
+      "confidence": 49.511920246936022
+    },
+    {
+      "path": "",
+      "confidence": 58.893165048834113
+    },
+    {
+      "path": "",
+      "confidence": 23.870149537914575
+    },
+    {
+      "path": "",
+      "confidence": 55.929420947561717
+    },
+    {
+      "path": "",
+      "confidence": 47.48092293220472
+    },
+    {
+      "path": "",
+      "confidence": 44.912195151661145
+    },
+    {
+      "path": "",
+      "confidence": 52.700987149696118
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Muscomorpha",
+      "confidence": 60.211237601682171
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 63.940771521366159
+    },
+    {
+      "path": "",
+      "confidence": 23.720187404692822
+    },
+    {
+      "path": "",
+      "confidence": 43.015791803663468
+    },
+    {
+      "path": "",
+      "confidence": 37.778830339073643
+    },
+    {
+      "path": "",
+      "confidence": 32.951700012788997
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 65.001777976456509
+    },
+    {
+      "path": "",
+      "confidence": 54.745839591558777
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Lemuriformes",
+      "confidence": 60.595294761086841
+    },
+    {
+      "path": "",
+      "confidence": 41.107136675255369
+    },
+    {
+      "path": "",
+      "confidence": 50.696209152425389
+    },
+    {
+      "path": "",
+      "confidence": 47.214013977680963
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 73.019498735718045
+    },
+    {
+      "path": "",
+      "confidence": 33.269944175645264
+    },
+    {
+      "path": "",
+      "confidence": 54.271624181170736
+    },
+    {
+      "path": "",
+      "confidence": 52.882967127880399
+    },
+    {
+      "path": "",
+      "confidence": 52.867953947573469
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 68.465421886037163
+    },
+    {
+      "path": "",
+      "confidence": 42.150347876134397
+    },
+    {
+      "path": "",
+      "confidence": 40.891570134097286
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 64.375113431251378
+    },
+    {
+      "path": "",
+      "confidence": 9.9687649172933561
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Platyrrhini;Saimiriinae;Saimiri;Saimiri boliviensis",
+      "confidence": 73.318446276064378
+    },
+    {
+      "path": "",
+      "confidence": 25.566945408331001
+    },
+    {
+      "path": "",
+      "confidence": 52.501924240478488
+    },
+    {
+      "path": "",
+      "confidence": 39.734370104764906
+    },
+    {
+      "path": "",
+      "confidence": 34.46993645687246
+    },
+    {
+      "path": "",
+      "confidence": 49.669391475739957
+    },
+    {
+      "path": "",
+      "confidence": 39.760029430397289
+    },
+    {
+      "path": "",
+      "confidence": 14.760711849088691
+    },
+    {
+      "path": "",
+      "confidence": 58.099304832231205
+    },
+    {
+      "path": "",
+      "confidence": 37.014377383724266
+    },
+    {
+      "path": "",
+      "confidence": 37.371579831297566
+    },
+    {
+      "path": "",
+      "confidence": 38.018121669294821
+    },
+    {
+      "path": "",
+      "confidence": 48.781423520139462
+    },
+    {
+      "path": "",
+      "confidence": 38.968258676678694
+    },
+    {
+      "path": "",
+      "confidence": 44.761249574042409
+    },
+    {
+      "path": "",
+      "confidence": 52.395535136845709
+    },
+    {
+      "path": "",
+      "confidence": 44.380787482093972
+    },
+    {
+      "path": "",
+      "confidence": 40.199145327750919
+    },
+    {
+      "path": "",
+      "confidence": 45.566752762183157
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema;Timema cristinae",
+      "confidence": 95.074993873385822
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 68.495103323290209
+    },
+    {
+      "path": "",
+      "confidence": 54.013937173433689
+    },
+    {
+      "path": "",
+      "confidence": 47.630915750895312
+    },
+    {
+      "path": "",
+      "confidence": 51.919630281516426
+    },
+    {
+      "path": "",
+      "confidence": 52.158564350323914
+    },
+    {
+      "path": "",
+      "confidence": 25.490767339795788
+    },
+    {
+      "path": "",
+      "confidence": 42.483391009827514
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 66.272839188477462
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Blattodea;Blattellidae;Anaplectoidea;Anaplectoidea spinea",
+      "confidence": 70.190473158768114
+    },
+    {
+      "path": "",
+      "confidence": 49.911751761730144
+    },
+    {
+      "path": "",
+      "confidence": 23.913246674264762
+    },
+    {
+      "path": "",
+      "confidence": 51.055847008259384
+    },
+    {
+      "path": "",
+      "confidence": 33.596439820770705
+    },
+    {
+      "path": "",
+      "confidence": 59.895893698971939
+    },
+    {
+      "path": "",
+      "confidence": 27.018779312512358
+    },
+    {
+      "path": "",
+      "confidence": 32.187908750154193
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 80.390877817079286
+    },
+    {
+      "path": "",
+      "confidence": 42.49282694834141
+    },
+    {
+      "path": "",
+      "confidence": 18.396728655536904
+    },
+    {
+      "path": "",
+      "confidence": 51.470558916890653
+    },
+    {
+      "path": "",
+      "confidence": 43.370003163285325
+    },
+    {
+      "path": "",
+      "confidence": 57.898058300918862
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria;Serpentes;Uropeltidae;Melanophidium;Melanophidium punctatum",
+      "confidence": 60.591045585135859
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera",
+      "confidence": 66.899855325148991
+    },
+    {
+      "path": "",
+      "confidence": 17.968308631515551
+    },
+    {
+      "path": "",
+      "confidence": 25.4371191291979
+    },
+    {
+      "path": "",
+      "confidence": 45.533631509530721
+    },
+    {
+      "path": "",
+      "confidence": 41.628287604907506
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 75.203641467575949
+    },
+    {
+      "path": "",
+      "confidence": 54.696561826816996
+    },
+    {
+      "path": "",
+      "confidence": 35.129925988937863
+    },
+    {
+      "path": "",
+      "confidence": 49.439118715584925
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 68.964002001459662
+    },
+    {
+      "path": "",
+      "confidence": 33.993085888748311
+    },
+    {
+      "path": "",
+      "confidence": 44.779013542982021
+    },
+    {
+      "path": "",
+      "confidence": 32.985233582214363
+    },
+    {
+      "path": "",
+      "confidence": 37.49039772669402
+    },
+    {
+      "path": "",
+      "confidence": 16.33442090302664
+    },
+    {
+      "path": "",
+      "confidence": 43.946597483437031
+    },
+    {
+      "path": "",
+      "confidence": 46.479970588497856
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo;Homo sapiens",
+      "confidence": 64.045807774898151
+    },
+    {
+      "path": "",
+      "confidence": 44.097089598829008
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo;Homo sapiens",
+      "confidence": 66.493245845154021
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria;Squamata;Cercosaurinae",
+      "confidence": 71.485058275614676
+    },
+    {
+      "path": "",
+      "confidence": 46.641208078580412
+    },
+    {
+      "path": "",
+      "confidence": 47.054992626819462
+    },
+    {
+      "path": "",
+      "confidence": 45.811372746578868
+    },
+    {
+      "path": "",
+      "confidence": 56.215975388949694
+    },
+    {
+      "path": "",
+      "confidence": 49.947068766815299
+    },
+    {
+      "path": "",
+      "confidence": 32.833384761027901
+    },
+    {
+      "path": "",
+      "confidence": 58.287469097157192
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Pentatomomorpha;Hydarinae;Hydaropsis;Hydaropsis longirostris",
+      "confidence": 70.109264642161833
+    },
+    {
+      "path": "",
+      "confidence": 57.61077380769229
+    },
+    {
+      "path": "",
+      "confidence": 36.403604501699242
+    },
+    {
+      "path": "",
+      "confidence": 58.936914703150322
+    },
+    {
+      "path": "",
+      "confidence": 34.291208663911277
+    },
+    {
+      "path": "",
+      "confidence": 31.814951065184658
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae",
+      "confidence": 61.157988426393679
+    },
+    {
+      "path": "",
+      "confidence": 45.085793565228258
+    },
+    {
+      "path": "",
+      "confidence": 38.914310897471637
+    },
+    {
+      "path": "",
+      "confidence": 48.224121639195793
+    },
+    {
+      "path": "",
+      "confidence": 44.413443950215644
+    },
+    {
+      "path": "",
+      "confidence": 32.025792284525252
+    },
+    {
+      "path": "",
+      "confidence": 41.712381676053425
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 67.487511451300833
+    },
+    {
+      "path": "",
+      "confidence": 32.852074474012745
+    },
+    {
+      "path": "",
+      "confidence": 26.280889272781369
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 62.678947173465431
+    },
+    {
+      "path": "",
+      "confidence": 37.475713267725688
+    },
+    {
+      "path": "",
+      "confidence": 37.76698377511299
+    },
+    {
+      "path": "",
+      "confidence": 23.817284387482438
+    },
+    {
+      "path": "Eukaryota;Craniata;Neognathae",
+      "confidence": 86.132009732767443
+    },
+    {
+      "path": "",
+      "confidence": 36.34174306413955
+    },
+    {
+      "path": "",
+      "confidence": 42.974542696156014
+    },
+    {
+      "path": "",
+      "confidence": 27.026191595723219
+    },
+    {
+      "path": "",
+      "confidence": 55.179231114648225
+    },
+    {
+      "path": "",
+      "confidence": 58.310984529642667
+    },
+    {
+      "path": "",
+      "confidence": 34.982193702782851
+    },
+    {
+      "path": "",
+      "confidence": 46.915666537834198
+    },
+    {
+      "path": "",
+      "confidence": 36.315163227996017
+    },
+    {
+      "path": "",
+      "confidence": 43.318305899832403
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 74.647128549241643
+    },
+    {
+      "path": "",
+      "confidence": 47.177754088188024
+    },
+    {
+      "path": "",
+      "confidence": 57.79785674833726
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 77.281019708631703
+    },
+    {
+      "path": "",
+      "confidence": 56.989703595117831
+    },
+    {
+      "path": "",
+      "confidence": 41.875087502130782
+    },
+    {
+      "path": "",
+      "confidence": 42.693497883733833
+    },
+    {
+      "path": "",
+      "confidence": 50.310546738887616
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Muscomorpha",
+      "confidence": 60.369379543442221
+    },
+    {
+      "path": "",
+      "confidence": 55.428843093168481
+    },
+    {
+      "path": "",
+      "confidence": 36.601656751392746
+    },
+    {
+      "path": "",
+      "confidence": 46.182597101089769
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 62.496132340368547
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 62.00852298675008
+    },
+    {
+      "path": "",
+      "confidence": 58.974280781095288
+    },
+    {
+      "path": "",
+      "confidence": 27.744819677771314
+    },
+    {
+      "path": "",
+      "confidence": 41.081816825350735
+    },
+    {
+      "path": "",
+      "confidence": 42.483714614035797
+    },
+    {
+      "path": "",
+      "confidence": 46.175625776351318
+    },
+    {
+      "path": "",
+      "confidence": 30.991740411002485
+    },
+    {
+      "path": "",
+      "confidence": 25.07730483066182
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria;Serpentes;Uropeltidae",
+      "confidence": 68.611476518807478
+    },
+    {
+      "path": "",
+      "confidence": 51.844281841248311
+    },
+    {
+      "path": "",
+      "confidence": 46.60069700779195
+    },
+    {
+      "path": "",
+      "confidence": 41.349205271278365
+    },
+    {
+      "path": "",
+      "confidence": 47.380836158652677
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae",
+      "confidence": 84.552232357265424
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera",
+      "confidence": 72.389702485437809
+    },
+    {
+      "path": "",
+      "confidence": 39.980073818842406
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 62.723846158677951
+    },
+    {
+      "path": "",
+      "confidence": 57.818936363792353
+    },
+    {
+      "path": "",
+      "confidence": 35.67501321439935
+    },
+    {
+      "path": "",
+      "confidence": 47.857383387240361
+    },
+    {
+      "path": "",
+      "confidence": 25.95495779047183
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Yangochiroptera",
+      "confidence": 62.585673250685623
+    },
+    {
+      "path": "",
+      "confidence": 35.535834628551171
+    },
+    {
+      "path": "",
+      "confidence": 31.962882590098545
+    },
+    {
+      "path": "",
+      "confidence": 40.231861213329687
+    },
+    {
+      "path": "",
+      "confidence": 53.513013825349219
+    },
+    {
+      "path": "Eukaryota;Craniata;Teleostei;Characoidei",
+      "confidence": 67.011563958722121
+    },
+    {
+      "path": "",
+      "confidence": 43.691829661384382
+    },
+    {
+      "path": "",
+      "confidence": 16.949120543347814
+    },
+    {
+      "path": "",
+      "confidence": 38.275908617848472
+    },
+    {
+      "path": "",
+      "confidence": 25.520573345374494
+    },
+    {
+      "path": "",
+      "confidence": 28.486009493742081
+    },
+    {
+      "path": "",
+      "confidence": 47.199901156081417
+    },
+    {
+      "path": "",
+      "confidence": 39.325125888556322
+    },
+    {
+      "path": "",
+      "confidence": 46.292772810525591
+    },
+    {
+      "path": "",
+      "confidence": 50.415358190573535
+    },
+    {
+      "path": "",
+      "confidence": 42.785650893872422
+    },
+    {
+      "path": "",
+      "confidence": 57.397746559515738
+    },
+    {
+      "path": "",
+      "confidence": 55.315280505674181
+    },
+    {
+      "path": "",
+      "confidence": 30.990573462882907
+    },
+    {
+      "path": "",
+      "confidence": 45.43912830842946
+    },
+    {
+      "path": "Eukaryota;Craniata;Teleostei;Alepocephaliformes;Alepocephalidae;Narcetes;NA",
+      "confidence": 85.401476646696167
+    },
+    {
+      "path": "",
+      "confidence": 34.708290125169569
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae",
+      "confidence": 74.514414205281639
+    },
+    {
+      "path": "",
+      "confidence": 36.150385028128369
+    },
+    {
+      "path": "",
+      "confidence": 45.117593713572404
+    },
+    {
+      "path": "",
+      "confidence": 35.693899437944644
+    },
+    {
+      "path": "",
+      "confidence": 40.150459311503433
+    },
+    {
+      "path": "",
+      "confidence": 25.483436166882345
+    },
+    {
+      "path": "",
+      "confidence": 50.207911800592235
+    },
+    {
+      "path": "",
+      "confidence": 31.221110766952119
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 70.969710885222554
+    },
+    {
+      "path": "",
+      "confidence": 43.692790640670935
+    },
+    {
+      "path": "Eukaryota;Craniata;Amphibia;Neobatrachia",
+      "confidence": 62.255182711940044
+    },
+    {
+      "path": "",
+      "confidence": 10.342713474790067
+    },
+    {
+      "path": "Eukaryota;Craniata;Teleostei",
+      "confidence": 67.155302123689211
+    },
+    {
+      "path": "",
+      "confidence": 43.660474127745438
+    },
+    {
+      "path": "",
+      "confidence": 57.355236262191283
+    },
+    {
+      "path": "",
+      "confidence": 52.837659582147886
+    },
+    {
+      "path": "",
+      "confidence": 31.651766694535766
+    },
+    {
+      "path": "",
+      "confidence": 42.446854344780618
+    },
+    {
+      "path": "",
+      "confidence": 26.998435083365532
+    },
+    {
+      "path": "",
+      "confidence": 48.307897813007237
+    },
+    {
+      "path": "",
+      "confidence": 47.039528669631807
+    },
+    {
+      "path": "Eukaryota;Craniata;Amphibia;Neobatrachia",
+      "confidence": 61.567512278397544
+    },
+    {
+      "path": "",
+      "confidence": 33.052854967579982
+    },
+    {
+      "path": "",
+      "confidence": 15.155565228094702
+    },
+    {
+      "path": "",
+      "confidence": 36.369553498426896
+    },
+    {
+      "path": "",
+      "confidence": 32.827583495016114
+    },
+    {
+      "path": "",
+      "confidence": 59.669149306217882
+    },
+    {
+      "path": "",
+      "confidence": 28.543379496298982
+    },
+    {
+      "path": "",
+      "confidence": 40.4605866482366
+    },
+    {
+      "path": "",
+      "confidence": 20.810059947125794
+    },
+    {
+      "path": "",
+      "confidence": 40.753289333985904
+    },
+    {
+      "path": "",
+      "confidence": 48.470295865612485
+    },
+    {
+      "path": "",
+      "confidence": 26.414053422057655
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 66.497288435765128
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Blattodea;Blattellidae;Symploce;Symploce tubercularis",
+      "confidence": 60.519322305391
+    },
+    {
+      "path": "",
+      "confidence": 39.496468138609174
+    },
+    {
+      "path": "",
+      "confidence": 11.253474404496894
+    },
+    {
+      "path": "",
+      "confidence": 56.073311212093166
+    },
+    {
+      "path": "",
+      "confidence": 40.458930481425718
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 69.460387713765627
+    },
+    {
+      "path": "",
+      "confidence": 55.855768105022484
+    },
+    {
+      "path": "",
+      "confidence": 49.121329761553447
+    },
+    {
+      "path": "Eukaryota;Craniata;Neognathae;Passeriformes;Pipridae;Corapipo;Corapipo altera",
+      "confidence": 87.121476624465075
+    },
+    {
+      "path": "",
+      "confidence": 41.411165266492191
+    },
+    {
+      "path": "",
+      "confidence": 49.179589480607731
+    },
+    {
+      "path": "",
+      "confidence": 52.858517425452753
+    },
+    {
+      "path": "",
+      "confidence": 40.385781471558801
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae",
+      "confidence": 87.24264238970386
+    },
+    {
+      "path": "",
+      "confidence": 33.56437100456148
+    },
+    {
+      "path": "",
+      "confidence": 13.235086322373503
+    },
+    {
+      "path": "",
+      "confidence": 25.357136429114764
+    },
+    {
+      "path": "",
+      "confidence": 11.117508735874102
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria;Gekkota;Gekkoninae;Bunopus;Bunopus tuberculatus",
+      "confidence": 67.720334531259851
+    },
+    {
+      "path": "",
+      "confidence": 51.912394071271969
+    },
+    {
+      "path": "",
+      "confidence": 38.695231001780002
+    },
+    {
+      "path": "",
+      "confidence": 48.165291176114536
+    },
+    {
+      "path": "",
+      "confidence": 45.478304057481346
+    },
+    {
+      "path": "",
+      "confidence": 48.099226039013054
+    },
+    {
+      "path": "",
+      "confidence": 48.440968889594025
+    },
+    {
+      "path": "",
+      "confidence": 40.921947780013454
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 61.147514912258586
+    },
+    {
+      "path": "",
+      "confidence": 26.536063446419782
+    },
+    {
+      "path": "",
+      "confidence": 31.417411847997723
+    },
+    {
+      "path": "",
+      "confidence": 45.523487350366686
+    },
+    {
+      "path": "",
+      "confidence": 42.968619877628527
+    },
+    {
+      "path": "",
+      "confidence": 38.796751755708463
+    },
+    {
+      "path": "",
+      "confidence": 26.510412010146599
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo;Homo sapiens",
+      "confidence": 63.467708546702958
+    },
+    {
+      "path": "",
+      "confidence": 42.723535167861314
+    },
+    {
+      "path": "",
+      "confidence": 44.265262371680542
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 61.126763379130757
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 65.897361423281808
+    },
+    {
+      "path": "",
+      "confidence": 25.224215567932831
+    },
+    {
+      "path": "",
+      "confidence": 46.291335831774063
+    },
+    {
+      "path": "",
+      "confidence": 48.910679579231292
+    },
+    {
+      "path": "",
+      "confidence": 44.543936921261277
+    },
+    {
+      "path": "",
+      "confidence": 34.422135628242557
+    },
+    {
+      "path": "",
+      "confidence": 22.36078058383357
+    },
+    {
+      "path": "",
+      "confidence": 32.358889550337054
+    },
+    {
+      "path": "",
+      "confidence": 24.781314803497317
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 78.817793322656044
+    },
+    {
+      "path": "",
+      "confidence": 52.970227771663545
+    },
+    {
+      "path": "",
+      "confidence": 33.893981734520622
+    },
+    {
+      "path": "",
+      "confidence": 43.462154449444121
+    },
+    {
+      "path": "",
+      "confidence": 51.113104225682605
+    },
+    {
+      "path": "",
+      "confidence": 36.970029472333017
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 64.819406233969403
+    },
+    {
+      "path": "",
+      "confidence": 36.840122537100903
+    },
+    {
+      "path": "",
+      "confidence": 46.118113742628587
+    },
+    {
+      "path": "",
+      "confidence": 28.111640076000366
+    },
+    {
+      "path": "",
+      "confidence": 46.926931657897903
+    },
+    {
+      "path": "",
+      "confidence": 32.555265321140425
+    },
+    {
+      "path": "",
+      "confidence": 40.336166660836788
+    },
+    {
+      "path": "",
+      "confidence": 44.61644674802357
+    },
+    {
+      "path": "",
+      "confidence": 52.878044896596052
+    },
+    {
+      "path": "",
+      "confidence": 34.104291075233718
+    },
+    {
+      "path": "",
+      "confidence": 40.841826300769668
+    },
+    {
+      "path": "",
+      "confidence": 56.172596811848535
+    },
+    {
+      "path": "",
+      "confidence": 42.766801774592714
+    },
+    {
+      "path": "",
+      "confidence": 51.304200679578813
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria;Scinciformata;Sphenomorphinae;Lerista;Lerista speciosa",
+      "confidence": 68.437656864642562
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 60.378676163356047
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Catarrhini",
+      "confidence": 71.310705284472235
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Blattodea",
+      "confidence": 74.545034165120938
+    },
+    {
+      "path": "",
+      "confidence": 16.831386202978933
+    },
+    {
+      "path": "",
+      "confidence": 54.17882911493416
+    },
+    {
+      "path": "",
+      "confidence": 21.411538404589511
+    },
+    {
+      "path": "",
+      "confidence": 46.085031124923624
+    },
+    {
+      "path": "",
+      "confidence": 43.468670908208061
+    },
+    {
+      "path": "",
+      "confidence": 45.962916082388134
+    },
+    {
+      "path": "",
+      "confidence": 24.650599003017298
+    },
+    {
+      "path": "",
+      "confidence": 20.404969791698807
+    },
+    {
+      "path": "",
+      "confidence": 44.807797163257682
+    },
+    {
+      "path": "",
+      "confidence": 53.14420493289019
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria;Serpentes",
+      "confidence": 61.102251010097156
+    },
+    {
+      "path": "",
+      "confidence": 41.011616018722847
+    },
+    {
+      "path": "",
+      "confidence": 35.592946526091112
+    },
+    {
+      "path": "",
+      "confidence": 32.196089307453676
+    },
+    {
+      "path": "",
+      "confidence": 35.572407228463923
+    },
+    {
+      "path": "",
+      "confidence": 46.299188794430115
+    },
+    {
+      "path": "Eukaryota;Craniata;Lepidosauria",
+      "confidence": 61.748835155892742
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 64.818052984924449
+    },
+    {
+      "path": "Eukaryota;Hexapoda;Neoptera;Timematodea;Timematidae;Timema",
+      "confidence": 74.368242977783666
+    },
+    {
+      "path": "",
+      "confidence": 45.947709295148393
+    },
+    {
+      "path": "Eukaryota;Craniata;Mammalia;Myomorpha;Murinae;Mus;Mus musculus",
+      "confidence": 75.708839502049074
+    }
+  ]
+}
