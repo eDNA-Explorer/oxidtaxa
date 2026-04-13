@@ -267,28 +267,62 @@ fn classify_one_pass(
     // Sample query k-mers
     let sampling: Vec<i32> = rng.sample_replace(my_kmers, s * b);
 
-    // Build sorted unique k-mers and position mapping without cloning sampling.
-    // Sort indices by k-mer value to group identical k-mers together.
+    // Group sampled k-mers by value. Use counting sort when sb is large enough
+    // to justify the O(4^k) auxiliary allocation; fall back to comparison sort
+    // for small inputs where the overhead dominates.
     let sb = s * b;
-    let mut sort_idx: Vec<u32> = (0..sb as u32).collect();
-    sort_idx.sort_unstable_by_key(|&i| sampling[i as usize]);
+    let n_possible = 4usize.pow(ts.k as u32);
 
-    // Build u_sampling, positions, ranges in a single pass over sorted indices
-    let mut u_sampling: Vec<i32> = Vec::new();
-    let mut positions: Vec<usize> = Vec::with_capacity(sb);
-    let mut ranges: Vec<usize> = vec![0];
-    {
+    let (u_sampling, positions, ranges) = if sb >= n_possible / 4 {
+        // Counting sort: O(sb + 4^k). Wins when sb is comparable to 4^k.
+        let mut kmer_counts = vec![0u32; n_possible + 1];
+        for &km in &sampling {
+            kmer_counts[km as usize] += 1;
+        }
+
+        let mut offsets = vec![0usize; n_possible + 1];
+        for i in 1..=n_possible {
+            offsets[i] = offsets[i - 1] + kmer_counts[i - 1] as usize;
+        }
+
+        let mut sorted_positions = vec![0usize; sb];
+        let mut cursors = offsets.clone();
+        for (idx, &km) in sampling.iter().enumerate() {
+            let k = km as usize;
+            sorted_positions[cursors[k]] = idx % b;
+            cursors[k] += 1;
+        }
+
+        let mut us: Vec<i32> = Vec::new();
+        let mut rg: Vec<usize> = vec![0];
+        for km in 1..=n_possible {
+            let c = kmer_counts[km] as usize;
+            if c > 0 {
+                us.push(km as i32);
+                rg.push(rg.last().unwrap() + c);
+            }
+        }
+        (us, sorted_positions, rg)
+    } else {
+        // Comparison sort: O(sb·log(sb)). Better for small inputs.
+        let mut sort_idx: Vec<u32> = (0..sb as u32).collect();
+        sort_idx.sort_unstable_by_key(|&i| sampling[i as usize]);
+
+        let mut us: Vec<i32> = Vec::new();
+        let mut pos: Vec<usize> = Vec::with_capacity(sb);
+        let mut rg: Vec<usize> = vec![0];
         let mut i = 0;
         while i < sb {
             let kmer = sampling[sort_idx[i] as usize];
-            u_sampling.push(kmer);
+            us.push(kmer);
             while i < sb && sampling[sort_idx[i] as usize] == kmer {
-                positions.push(sort_idx[i] as usize % b);
+                pos.push(sort_idx[i] as usize % b);
                 i += 1;
             }
-            ranges.push(positions.len());
+            rg.push(pos.len());
         }
-    }
+        (us, pos, rg)
+    };
 
     let u_weights: Vec<f64> = u_sampling.iter()
         .map(|&uk| if uk > 0 && (uk as usize) <= counts.len() { counts[(uk - 1) as usize] } else { 0.0 })

@@ -328,29 +328,67 @@ fn enumerate_single(
 
     // Fixed-size array for sliding window (max K=15, matching C implementation)
     let mut bases = [0i8; 16];
-    for j in 0..(word_size - 1) {
-        bases[j] = base_to_index(seq[j]);
+
+    // Compute first k-mer fully
+    let mut sum: i32 = 0;
+    let mut ambig_count: usize = 0;
+    for k in 0..word_size {
+        let b = base_to_index(seq[k]);
+        bases[k] = b;
+        if b < 0 {
+            ambig_count += 1;
+        } else {
+            sum += b as i32 * pwv[k];
+        }
     }
+    result[0] = if ambig_count > 0 { NA_INTEGER } else { sum };
 
-    for j in (word_size - 1)..len {
-        bases[word_size - 1] = base_to_index(seq[j]);
+    // Rolling update for subsequent positions.
+    // Since pwv[i] = 4^i (fast_moving_side=true), we have:
+    //   sum = bases[0]*1 + bases[1]*4 + ... + bases[k-1]*4^(k-1)
+    // After shifting left by one:
+    //   new_sum = bases[1]*1 + bases[2]*4 + ... + new_base*4^(k-1)
+    //           = (old_sum - bases[0]) / 4 + new_base * 4^(k-1)
+    // The division is exact because (sum - bases[0]) is always divisible by 4:
+    // all terms except bases[0]*pwv[0]=bases[0]*1 have a factor of 4.
+    let top_weight = pwv[word_size - 1]; // = 4^(k-1)
 
-        let mut sum = bases[0] as i32 * pwv[0];
-        let mut ambiguous = bases[0] < 0;
-        for k in 1..word_size {
-            sum += bases[k] as i32 * pwv[k];
-            if bases[k] < 0 {
-                ambiguous = true;
+    for j in word_size..len {
+        let outgoing = bases[0];
+        let incoming = base_to_index(seq[j]);
+
+        // Update ambiguity tracking
+        if outgoing < 0 {
+            ambig_count -= 1;
+        }
+        if incoming < 0 {
+            ambig_count += 1;
+        }
+
+        if ambig_count == 0 {
+            if outgoing >= 0 {
+                // Both outgoing and incoming are valid — O(1) rolling update
+                sum = (sum - outgoing as i32) / 4 + incoming as i32 * top_weight;
+            } else {
+                // Window just became fully unambiguous — recompute from scratch.
+                // The bases array still holds the old window; positions [1..word_size-1]
+                // are the continuing bases, and incoming goes at position word_size-1.
+                sum = 0;
+                for k in 0..(word_size - 1) {
+                    sum += bases[k + 1] as i32 * pwv[k];
+                }
+                sum += incoming as i32 * top_weight;
             }
         }
 
-        let pos = j + 1 - word_size;
-        result[pos] = if ambiguous { NA_INTEGER } else { sum };
-
-        // Shift left: matches C's bases[k-1] = bases[k] on a stack array
+        // Shift window left
         for k in 0..(word_size - 1) {
             bases[k] = bases[k + 1];
         }
+        bases[word_size - 1] = incoming;
+
+        let pos = j + 1 - word_size;
+        result[pos] = if ambig_count > 0 { NA_INTEGER } else { sum };
     }
 
     // Apply masking

@@ -142,15 +142,14 @@ pub fn learn_taxa(
     // Our taxonomy[0] = "Root;", taxonomy[1..] = "Root;" + prefix
     // So crossIndex[i] = position in all_taxa + 1 (for Root offset)
     // This should match R's 1-indexed crossIndex
+    let taxa_to_idx: HashMap<&str, usize> = all_taxa
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.as_str(), i + 1)) // +1 for Root offset
+        .collect();
     let cross_index: Vec<usize> = classes
         .iter()
-        .map(|c| {
-            all_taxa
-                .iter()
-                .position(|t| t == c)
-                .map(|p| p + 1) // +1 for Root offset; now 1-indexed in taxonomy
-                .unwrap_or(0)
-        })
+        .map(|c| *taxa_to_idx.get(c.as_str()).unwrap_or(&0))
         .collect();
 
     // Extract taxa names and levels (lines 172-174)
@@ -653,14 +652,25 @@ fn create_tree(
         keep_vec.sort_unstable();
         let keep_indices: Vec<i32> = keep_vec.iter().map(|&k| (k + 1) as i32).collect();
 
-        // Build profile matrix for kept k-mers: rows=subtrees, cols=kept kmers
-        // For each child profile, look up the kept k-mers
+        // Build profile matrix for kept k-mers: rows=subtrees, cols=kept kmers.
+        // Both profiles[i] and keep_vec are sorted by k-mer index, so use merge-join
+        // instead of building a HashMap per child.
         let selected_profiles: Vec<Vec<f64>> = profiles
             .iter()
             .map(|p| {
-                let p_map: HashMap<usize, f64> =
-                    p.iter().map(|&(k, v)| (k, v)).collect();
-                keep_vec.iter().map(|&k| *p_map.get(&k).unwrap_or(&0.0)).collect()
+                let mut result = Vec::with_capacity(keep_vec.len());
+                let mut pi = 0usize;
+                for &k in &keep_vec {
+                    while pi < p.len() && p[pi].0 < k {
+                        pi += 1;
+                    }
+                    if pi < p.len() && p[pi].0 == k {
+                        result.push(p[pi].1);
+                    } else {
+                        result.push(0.0);
+                    }
+                }
+                result
             })
             .collect();
 

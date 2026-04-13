@@ -318,6 +318,88 @@ fn bench_enumerate_scaling(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Scaling: train + classify at 1K/5K/10K ──────────────────────────────────
+
+fn filter_for_bench(seqs: &[String], taxonomy: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut out_seqs = Vec::new();
+    let mut out_tax = Vec::new();
+    for (i, seq) in seqs.iter().enumerate() {
+        let tax = &taxonomy[i];
+        let full_tax = format!("Root; {}", tax.replace(";", "; "));
+        let rank_count = full_tax.split("; ").count();
+        if rank_count < 4 || seq.len() < 30 { continue; }
+        let n_count = seq.bytes().filter(|&b| b == b'N' || b == b'n').count();
+        if (n_count as f64 / seq.len() as f64) > 0.3 { continue; }
+        out_seqs.push(seq.clone());
+        out_tax.push(full_tax);
+    }
+    (out_seqs, out_tax)
+}
+
+fn bench_learn_taxa_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("learn_taxa_scaling");
+    group.sample_size(10);
+
+    for n in &[1000, 5000, 10000] {
+        let fasta = bench_data_path(&format!("bench_{}_ref.fasta", n));
+        let tax_path = bench_data_path(&format!("bench_{}_ref_taxonomy.tsv", n));
+        if !std::path::Path::new(&fasta).exists() { continue; }
+
+        let (names, seqs) = read_fasta(&fasta).unwrap();
+        let taxonomy = oxidtaxa::fasta::read_taxonomy(&tax_path, &names).unwrap();
+        let (fseqs, ftax) = filter_for_bench(&seqs, &taxonomy);
+        let config = TrainConfig::default();
+
+        group.bench_with_input(
+            BenchmarkId::new("train", format!("{}refs", n)),
+            &(&fseqs, &ftax),
+            |b, (seqs, tax)| {
+                b.iter(|| {
+                    black_box(learn_taxa(black_box(seqs), black_box(tax), &config, 42, false).unwrap());
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_id_taxa_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("id_taxa_scaling");
+    group.sample_size(10);
+
+    for n in &[1000, 5000, 10000] {
+        let fasta = bench_data_path(&format!("bench_{}_ref.fasta", n));
+        let tax_path = bench_data_path(&format!("bench_{}_ref_taxonomy.tsv", n));
+        let query_fasta = bench_data_path(&format!("bench_{}_query.fasta", n));
+        if !std::path::Path::new(&fasta).exists() { continue; }
+        if !std::path::Path::new(&query_fasta).exists() { continue; }
+
+        let (names, seqs) = read_fasta(&fasta).unwrap();
+        let taxonomy = oxidtaxa::fasta::read_taxonomy(&tax_path, &names).unwrap();
+        let (fseqs, ftax) = filter_for_bench(&seqs, &taxonomy);
+        let config = TrainConfig::default();
+        let model = learn_taxa(&fseqs, &ftax, &config, 42, false).unwrap();
+
+        let (qnames, qseqs) = read_fasta(&query_fasta).unwrap();
+        let clean = oxidtaxa::sequence::remove_gaps(&qseqs);
+        let cconfig = ClassifyConfig { threshold: 60.0, ..Default::default() };
+
+        group.bench_with_input(
+            BenchmarkId::new("classify", format!("{}refs", n)),
+            &(&clean, &qnames, &model),
+            |b, (seqs, names, model)| {
+                b.iter(|| {
+                    black_box(id_taxa(
+                        black_box(seqs), black_box(names), black_box(model),
+                        &cconfig, StrandMode::Both, OutputType::Extended, 42, true,
+                    ));
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_enumerate_sequences,
@@ -332,5 +414,7 @@ criterion_group!(
     bench_learn_taxa,
     bench_id_taxa,
     bench_enumerate_scaling,
+    bench_learn_taxa_scaling,
+    bench_id_taxa_scaling,
 );
 criterion_main!(benches);

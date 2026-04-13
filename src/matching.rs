@@ -171,14 +171,18 @@ pub fn parallel_match_inverted(
     positions: &[usize],
     ranges: &[usize],
 ) -> (Vec<f64>, Vec<f64>) {
-    use std::collections::HashMap;
-
     let n = keep.len();
-    let keep_map: HashMap<u32, usize> = keep
-        .iter()
-        .enumerate()
-        .map(|(pos, &idx)| (idx as u32, pos))
-        .collect();
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    }
+
+    // Dense lookup array: O(1) per posting-list entry instead of HashMap.
+    // For typical IDTAXA usage (<100K training sequences), this is <400KB.
+    let max_idx = keep.iter().copied().max().unwrap_or(0);
+    let mut dense_map = vec![u32::MAX; max_idx + 1];
+    for (pos, &idx) in keep.iter().enumerate() {
+        dense_map[idx] = pos as u32;
+    }
 
     let mut hits_flat = vec![0.0f64; n * block_count];
 
@@ -191,10 +195,14 @@ pub fn parallel_match_inverted(
         let range_start = ranges[i];
         let range_end = ranges[i + 1];
         for &seq_idx in posting_list {
-            if let Some(&keep_pos) = keep_map.get(&seq_idx) {
-                let base = keep_pos * block_count;
-                for &pos in &positions[range_start..range_end] {
-                    hits_flat[base + pos] += w;
+            let si = seq_idx as usize;
+            if si < dense_map.len() {
+                let keep_pos = dense_map[si];
+                if keep_pos != u32::MAX {
+                    let base = keep_pos as usize * block_count;
+                    for &pos in &positions[range_start..range_end] {
+                        hits_flat[base + pos] += w;
+                    }
                 }
             }
         }
