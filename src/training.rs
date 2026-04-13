@@ -8,7 +8,7 @@ use crate::alphabet::alphabet_size;
 use crate::kmer::{enumerate_sequences, parse_seed_pattern, SpacedSeed, NA_INTEGER};
 use crate::matching::{int_match, vector_sum};
 use crate::rng::{mix_seed, RRng};
-use crate::types::{DecisionNode, ProblemSequence, TrainConfig, TrainingSet};
+use crate::types::{DecisionNode, DescendantWeighting, ProblemSequence, TrainConfig, TrainingSet};
 
 /// Train an IDTAXA classifier.
 /// Port of R/LearnTaxa.R (487 lines).
@@ -244,8 +244,6 @@ pub fn learn_taxa(
         .collect();
 
     // Build decision tree (lines 267-321)
-    let max_children = config.max_children;
-    let record_kmers_fraction = config.record_kmers_fraction;
     let mut decision_kmers: Vec<Option<DecisionNode>> = vec![None; taxonomy.len()];
     create_tree(
         0,
@@ -253,10 +251,54 @@ pub fn learn_taxa(
         &sequences_per_node,
         &kmers,
         n_kmers,
-        max_children,
-        record_kmers_fraction,
+        config,
         &mut decision_kmers,
     );
+
+    // Compute IDF weights early (needed by fraction loop when use_idf_in_training=true,
+    // and always stored in the final model). IDF doesn't depend on fractions.
+    let class_counts = {
+        let mut counts = HashMap::new();
+        for c in &classes {
+            *counts.entry(c.clone()).or_insert(0usize) += 1;
+        }
+        counts
+    };
+    let n_classes = class_counts.len();
+    let idf_seq_weights: Vec<f64> = classes
+        .iter()
+        .map(|c| 1.0 / *class_counts.get(c).unwrap() as f64)
+        .collect();
+
+    let chunk_size = 256;
+    let partial_counts: Vec<Vec<f64>> = kmers
+        .par_chunks(chunk_size)
+        .enumerate()
+        .map(|(chunk_idx, chunk_kmers)| {
+            let mut local = vec![0.0f64; n_kmers];
+            let base = chunk_idx * chunk_size;
+            for (local_i, class_kmers) in chunk_kmers.iter().enumerate() {
+                let w = idf_seq_weights[base + local_i];
+                for &km in class_kmers {
+                    if km > 0 && (km as usize) <= n_kmers {
+                        local[(km - 1) as usize] += w;
+                    }
+                }
+            }
+            local
+        })
+        .collect();
+
+    let mut idf_counts = vec![0.0f64; n_kmers];
+    for partial in &partial_counts {
+        for (i, &v) in partial.iter().enumerate() {
+            idf_counts[i] += v;
+        }
+    }
+    let idf_weights: Vec<f64> = idf_counts
+        .iter()
+        .map(|&c| (n_classes as f64 / (1.0 + c)).ln())
+        .collect();
 
     // Learn fractions (lines 323-420) — batch, order-independent
     // Pre-compute per-sequence identity hashes for deterministic PRNG seeding
@@ -326,10 +368,51 @@ pub fn learn_taxa(
                         let sampling = seq_rng.sample_int_replace(n, s * b);
 
                         let matches = int_match(&dk.keep, &kmers[i]);
+
+                        // LOO: find which subtree this sequence belongs to
+                        // and the group size for its subtree
+                        let loo_child_idx = if config.leave_one_out {
+                            subtrees.iter().enumerate().find(|(_, &st)| {
+                                classes[i].starts_with(&end_taxonomy[st])
+                            }).map(|(j, &st)| {
+                                let group_size = n_seqs[st];
+                                (j, group_size)
+                            })
+                        } else {
+                            None
+                        };
+
                         let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
                         for (j, _subtree) in subtrees.iter().enumerate() {
+                            let mut weights_j: Vec<f64> = if config.use_idf_in_training {
+                                dk.profiles[j].iter().zip(dk.keep.iter())
+                                    .map(|(&prof, &km)| {
+                                        let idf = if km > 0 && (km as usize) <= idf_weights.len() {
+                                            idf_weights[(km - 1) as usize]
+                                        } else { 0.0 };
+                                        prof * idf
+                                    })
+                                    .collect()
+                            } else {
+                                dk.profiles[j].clone()
+                            };
+
+                            // LOO adjustment: reduce weights for this sequence's own subtree
+                            if let Some((loo_j, group_size)) = loo_child_idx {
+                                if j == loo_j && group_size <= 5 {
+                                    if group_size <= 1 {
+                                        // Singleton: zero out weights (can't self-classify)
+                                        for w in &mut weights_j { *w = 0.0; }
+                                    } else {
+                                        // Scale by (n-1)/n to approximate removing this sequence
+                                        let scale = (group_size - 1) as f64 / group_size as f64;
+                                        for w in &mut weights_j { *w *= scale; }
+                                    }
+                                }
+                            }
+
                             hits[j] =
-                                vector_sum(&matches, &dk.profiles[j], &sampling, b);
+                                vector_sum(&matches, &weights_j, &sampling, b);
                         }
 
                         let mut vote_counts = vec![0usize; subtrees.len()];
@@ -352,7 +435,7 @@ pub fn learn_taxa(
                             .map(|(idx, _)| idx)
                             .unwrap_or(0);
 
-                        if vote_counts[w] < ((b as f64) * 0.8) as usize {
+                        if vote_counts[w] < ((b as f64) * config.training_threshold) as usize {
                             break;
                         }
 
@@ -435,51 +518,6 @@ pub fn learn_taxa(
         .map(|(i, _)| taxonomy[i].clone())
         .collect();
 
-    // Compute IDF weights (lines 443-452)
-    let class_counts = {
-        let mut counts = HashMap::new();
-        for c in &classes {
-            *counts.entry(c.clone()).or_insert(0usize) += 1;
-        }
-        counts
-    };
-    let n_classes = class_counts.len();
-    let weights: Vec<f64> = classes
-        .iter()
-        .map(|c| 1.0 / *class_counts.get(c).unwrap() as f64)
-        .collect();
-
-    // Parallel IDF accumulation: partition sequences across threads, merge partial counts
-    let chunk_size = 256;
-    let partial_counts: Vec<Vec<f64>> = kmers
-        .par_chunks(chunk_size)
-        .enumerate()
-        .map(|(chunk_idx, chunk_kmers)| {
-            let mut local = vec![0.0f64; n_kmers];
-            let base = chunk_idx * chunk_size;
-            for (local_i, class_kmers) in chunk_kmers.iter().enumerate() {
-                let w = weights[base + local_i];
-                for &km in class_kmers {
-                    if km > 0 && (km as usize) <= n_kmers {
-                        local[(km - 1) as usize] += w;
-                    }
-                }
-            }
-            local
-        })
-        .collect();
-
-    let mut idf_counts = vec![0.0f64; n_kmers];
-    for partial in &partial_counts {
-        for (i, &v) in partial.iter().enumerate() {
-            idf_counts[i] += v;
-        }
-    }
-    let idf_weights: Vec<f64> = idf_counts
-        .iter()
-        .map(|&c| (n_classes as f64 / (1.0 + c)).ln())
-        .collect();
-
     // Assemble result (lines 455-471)
     Ok(TrainingSet {
         taxonomy,
@@ -547,6 +585,24 @@ fn merge_sparse_profiles(profiles: &[SparseProfile], weights: &[f64], total_weig
     result
 }
 
+/// Absolute Pearson correlation between two profile vectors.
+/// Returns 0.0 for constant or zero-length vectors.
+fn pearson_abs(a: &[f64], b: &[f64]) -> f64 {
+    let n = a.len();
+    if n < 2 { return 0.0; }
+    let n_f = n as f64;
+    let sum_a: f64 = a.iter().sum();
+    let sum_b: f64 = b.iter().sum();
+    let sum_ab: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let sum_a2: f64 = a.iter().map(|x| x * x).sum();
+    let sum_b2: f64 = b.iter().map(|x| x * x).sum();
+    let num = n_f * sum_ab - sum_a * sum_b;
+    let den_a = (n_f * sum_a2 - sum_a * sum_a).sqrt();
+    let den_b = (n_f * sum_b2 - sum_b * sum_b).sqrt();
+    if den_a < 1e-15 || den_b < 1e-15 { return 0.0; }
+    (num / (den_a * den_b)).abs()
+}
+
 /// Recursive tree construction for decision k-mers.
 /// Uses sparse profiles to avoid processing 65K dense vectors.
 /// Port of R/LearnTaxa.R:.createTree (lines 267-319).
@@ -556,29 +612,33 @@ fn create_tree(
     sequences: &[Option<Vec<usize>>],
     kmers: &[Vec<i32>],
     n_kmers: usize,
-    max_children: usize,
-    record_kmers_fraction: f64,
+    config: &TrainConfig,
     decision_kmers: &mut Vec<Option<DecisionNode>>,
 ) -> (SparseProfile, usize) {
     let child_nodes = &children[node];
     let n_children = child_nodes.len();
 
-    if n_children > 0 && n_children <= max_children {
+    if n_children > 0 && n_children <= config.max_children {
         let mut profiles: Vec<SparseProfile> = Vec::with_capacity(n_children);
         let mut descendants = Vec::with_capacity(n_children);
 
         for &child in child_nodes {
             let (profile, desc) =
-                create_tree(child, children, sequences, kmers, n_kmers, max_children, record_kmers_fraction, decision_kmers);
+                create_tree(child, children, sequences, kmers, n_kmers, config, decision_kmers);
             profiles.push(profile);
             descendants.push(desc);
         }
 
         let total_desc: usize = descendants.iter().sum();
-        let desc_weights: Vec<f64> = descendants.iter().map(|&d| d as f64).collect();
+        let desc_weights: Vec<f64> = match config.descendant_weighting {
+            DescendantWeighting::Count => descendants.iter().map(|&d| d as f64).collect(),
+            DescendantWeighting::Equal => vec![1.0; descendants.len()],
+            DescendantWeighting::Log => descendants.iter().map(|&d| (1.0 + d as f64).ln()).collect(),
+        };
 
         // Compute weighted average profile q (sparse merge)
-        let q = merge_sparse_profiles(&profiles, &desc_weights, total_desc as f64);
+        let total_weight: f64 = desc_weights.iter().sum();
+        let q = merge_sparse_profiles(&profiles, &desc_weights, total_weight);
 
         // Build a lookup from k-mer index to q value for fast cross-entropy computation
         let q_map: HashMap<usize, f64> =
@@ -611,41 +671,122 @@ fn create_tree(
             h.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         }
 
-        // Round-robin selection of top k-mers (lines 290-306)
+        // Feature selection: choose top k-mers for this decision node
         let record_kmers = {
             let max_nonzero = profiles
                 .iter()
                 .map(|p| p.len())
                 .max()
                 .unwrap_or(0);
-            ((max_nonzero as f64) * record_kmers_fraction).ceil() as usize
+            ((max_nonzero as f64) * config.record_kmers_fraction).ceil() as usize
         };
 
-        let mut keep_set = HashSet::new();
-        let mut count = 0usize;
-        let mut kmer_idx = 0usize;
-        let mut group_idx = 0usize;
+        let keep_set: HashSet<usize> = if config.correlation_aware_features {
+            // Greedy forward selection: pick k-mers that maximize
+            // conditional information gain, penalizing redundancy.
+            //
+            // For each candidate, gain = base_entropy * (1 - max_corr_with_selected).
+            // Profile vectors across children serve as the feature representation.
 
-        while count < record_kmers {
-            group_idx += 1;
-            if group_idx > n_children {
-                group_idx = 1;
-                kmer_idx += 1;
-            }
-            // Check if this group has enough sorted entries
-            if kmer_idx >= sorted_h[group_idx - 1].len() {
-                // Check if all groups are exhausted
-                if sorted_h.iter().all(|h| kmer_idx >= h.len()) {
-                    break;
+            // Collect top candidates from each child's entropy ranking.
+            // Limit per-child to keep the candidate pool manageable.
+            let per_child_limit = record_kmers * 2;
+            let mut cand_set: HashSet<usize> = HashSet::new();
+            for child_h in &sorted_h {
+                for &(kmer_idx, _) in child_h.iter().take(per_child_limit) {
+                    cand_set.insert(kmer_idx);
                 }
-                continue;
             }
 
-            let selected_kmer = sorted_h[group_idx - 1][kmer_idx].0;
-            if keep_set.insert(selected_kmer) {
-                count += 1;
+            // Build dense arrays for O(1) indexed access in the hot loop.
+            // cand_kmers[ci] = kmer_index, cand_entropy[ci] = max entropy,
+            // cand_prof[ci] = profile vector across children.
+            let mut cand_data: Vec<(usize, f64, Vec<f64>)> = cand_set.iter().map(|&kmer_idx| {
+                let prof_vec: Vec<f64> = profiles.iter().map(|p| {
+                    match p.binary_search_by_key(&kmer_idx, |&(k, _)| k) {
+                        Ok(pos) => p[pos].1,
+                        Err(_) => 0.0,
+                    }
+                }).collect();
+                // Max entropy across children
+                let mut max_h = 0.0f64;
+                for child_h in &sorted_h {
+                    for &(ki, h) in child_h.iter() {
+                        if ki == kmer_idx && h > max_h { max_h = h; break; }
+                    }
+                }
+                (kmer_idx, max_h, prof_vec)
+            }).collect();
+            // Sort by entropy descending for better early-termination
+            cand_data.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            let n_cand = cand_data.len();
+            let mut is_selected = vec![false; n_cand];
+            let mut selected_indices: Vec<usize> = Vec::with_capacity(record_kmers);
+            let mut result_set = HashSet::new();
+
+            for _ in 0..record_kmers {
+                let mut best_ci = None;
+                let mut best_gain = f64::NEG_INFINITY;
+
+                for ci in 0..n_cand {
+                    if is_selected[ci] { continue; }
+                    let base_h = cand_data[ci].1;
+                    // Early exit: remaining candidates sorted by entropy,
+                    // so max possible gain <= base_h. If that can't beat best, stop.
+                    if base_h <= best_gain { break; }
+
+                    let mut max_corr: f64 = 0.0;
+                    for &si in &selected_indices {
+                        let corr = pearson_abs(&cand_data[ci].2, &cand_data[si].2);
+                        if corr > max_corr { max_corr = corr; }
+                        if max_corr >= 1.0 { break; }
+                    }
+
+                    let gain = base_h * (1.0 - max_corr);
+                    if gain > best_gain {
+                        best_gain = gain;
+                        best_ci = Some(ci);
+                    }
+                }
+
+                match best_ci {
+                    Some(ci) => {
+                        is_selected[ci] = true;
+                        selected_indices.push(ci);
+                        result_set.insert(cand_data[ci].0);
+                    }
+                    None => break,
+                }
             }
-        }
+            result_set
+        } else {
+            // Original round-robin selection (lines 290-306)
+            let mut keep_set = HashSet::new();
+            let mut count = 0usize;
+            let mut kmer_idx = 0usize;
+            let mut group_idx = 0usize;
+
+            while count < record_kmers {
+                group_idx += 1;
+                if group_idx > n_children {
+                    group_idx = 1;
+                    kmer_idx += 1;
+                }
+                if kmer_idx >= sorted_h[group_idx - 1].len() {
+                    if sorted_h.iter().all(|h| kmer_idx >= h.len()) {
+                        break;
+                    }
+                    continue;
+                }
+
+                let selected_kmer = sorted_h[group_idx - 1][kmer_idx].0;
+                if keep_set.insert(selected_kmer) {
+                    count += 1;
+                }
+            }
+            keep_set
+        };
 
         // Convert to sorted keep indices (1-indexed like R)
         let mut keep_vec: Vec<usize> = keep_set.into_iter().collect();

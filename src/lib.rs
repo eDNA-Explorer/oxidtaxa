@@ -17,8 +17,11 @@ mod python_bindings {
     #[pyo3(signature = (
         fasta_path, taxonomy_path, output_path,
         seed = 42, k = None, record_kmers_fraction = 0.10, verbose = true,
-        seed_pattern = None
+        seed_pattern = None, training_threshold = 0.8,
+        descendant_weighting = "count", use_idf_in_training = false,
+        leave_one_out = false, correlation_aware_features = false
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn train(
         fasta_path: &str,
         taxonomy_path: &str,
@@ -28,6 +31,11 @@ mod python_bindings {
         record_kmers_fraction: f64,
         verbose: bool,
         seed_pattern: Option<String>,
+        training_threshold: f64,
+        descendant_weighting: &str,
+        use_idf_in_training: bool,
+        leave_one_out: bool,
+        correlation_aware_features: bool,
     ) -> PyResult<()> {
         let (names, seqs) =
             crate::fasta::read_fasta(fasta_path).map_err(|e| PyValueError::new_err(e))?;
@@ -38,10 +46,16 @@ mod python_bindings {
         // Quality filtering (same as train_idtaxa.R)
         let (filtered_seqs, filtered_tax) = filter_for_training(&seqs, &taxonomy);
 
+        let dw = parse_descendant_weighting(descendant_weighting)?;
         let config = crate::types::TrainConfig {
             k,
             record_kmers_fraction,
             seed_pattern,
+            training_threshold,
+            descendant_weighting: dw,
+            use_idf_in_training,
+            leave_one_out,
+            correlation_aware_features,
             ..Default::default()
         };
         let model = crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
@@ -71,7 +85,8 @@ mod python_bindings {
         threshold = 60.0, bootstraps = 100, strand = "both",
         min_descend = 0.98, full_length = 0.0, processors = 1,
         sample_exponent = 0.47, seed = 42, deterministic = false,
-        length_normalize = false, rank_thresholds = None
+        length_normalize = false, rank_thresholds = None,
+        beam_width = 1
     ))]
     #[allow(clippy::too_many_arguments)]
     fn classify(
@@ -89,6 +104,7 @@ mod python_bindings {
         deterministic: bool,
         length_normalize: bool,
         rank_thresholds: Option<Vec<f64>>,
+        beam_width: usize,
     ) -> PyResult<Vec<crate::types::ClassificationResult>> {
         let model = crate::types::TrainingSet::load(model_path)
             .map_err(|e| PyValueError::new_err(e))?;
@@ -108,6 +124,7 @@ mod python_bindings {
             sample_exponent,
             length_normalize,
             rank_thresholds,
+            beam_width,
         };
         let results = crate::classify::id_taxa(
             &clean_seqs,
@@ -126,6 +143,17 @@ mod python_bindings {
         }
 
         Ok(results)
+    }
+
+    fn parse_descendant_weighting(s: &str) -> PyResult<crate::types::DescendantWeighting> {
+        match s {
+            "count" => Ok(crate::types::DescendantWeighting::Count),
+            "equal" => Ok(crate::types::DescendantWeighting::Equal),
+            "log" => Ok(crate::types::DescendantWeighting::Log),
+            _ => Err(PyValueError::new_err(format!(
+                "Invalid descendant_weighting: '{}'. Expected 'count', 'equal', or 'log'", s
+            ))),
+        }
     }
 
     fn parse_strand(strand: &str) -> PyResult<crate::types::StrandMode> {

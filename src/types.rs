@@ -96,6 +96,17 @@ pub struct TsvRow {
     pub confidence: f64,
 }
 
+/// Strategy for weighting child profiles during feature selection.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DescendantWeighting {
+    /// Weight by raw descendant count (original IDTAXA behavior).
+    Count,
+    /// Equal weight per immediate child (1/n_children each).
+    Equal,
+    /// Weight by log(1 + descendants).
+    Log,
+}
+
 /// Configuration for training (LearnTaxa).
 pub struct TrainConfig {
     pub k: Option<usize>,
@@ -110,6 +121,25 @@ pub struct TrainConfig {
     pub record_kmers_fraction: f64,
     /// Spaced seed pattern (e.g., "11011011011"). None = contiguous k-mers.
     pub seed_pattern: Option<String>,
+    /// Bootstrap vote fraction required to descend during fraction learning.
+    /// Default 0.8 matches R's hardcoded behavior. Set to match min_descend
+    /// (e.g., 0.98) for consistent training/classification thresholds.
+    pub training_threshold: f64,
+    /// Strategy for weighting child profiles during feature selection.
+    /// Default: Count (original behavior).
+    pub descendant_weighting: DescendantWeighting,
+    /// Use IDF weights (instead of profile weights) during the fraction-learning
+    /// tree descent. Makes training scoring match classification scoring.
+    /// Default false (original behavior uses profile weights).
+    pub use_idf_in_training: bool,
+    /// Exclude each sequence from its own node's profile during fraction
+    /// learning (leave-one-out). Reduces self-classification bias for small
+    /// groups. Default false (original behavior).
+    pub leave_one_out: bool,
+    /// Use correlation-aware greedy feature selection instead of independent
+    /// round-robin. Selects k-mers that maximize conditional information gain.
+    /// Produces a more efficient feature set but slower to train. Default false.
+    pub correlation_aware_features: bool,
 }
 
 impl Default for TrainConfig {
@@ -124,6 +154,11 @@ impl Default for TrainConfig {
             max_children: 200,
             record_kmers_fraction: 0.10,
             seed_pattern: None,
+            training_threshold: 0.8,
+            descendant_weighting: DescendantWeighting::Count,
+            use_idf_in_training: false,
+            leave_one_out: false,
+            correlation_aware_features: false,
         }
     }
 }
@@ -146,6 +181,10 @@ pub struct ClassifyConfig {
     /// Per-rank confidence thresholds. When Some, rank_thresholds[i] is used for
     /// depth i (0=Root). When None, uses single `threshold` for all ranks.
     pub rank_thresholds: Option<Vec<f64>>,
+    /// Number of candidate paths to maintain during tree descent.
+    /// 1 = greedy descent (original behavior). Higher values explore
+    /// alternative paths at ambiguous nodes. Default 1.
+    pub beam_width: usize,
 }
 
 impl Default for ClassifyConfig {
@@ -159,6 +198,7 @@ impl Default for ClassifyConfig {
             sample_exponent: 0.47,
             length_normalize: false,
             rank_thresholds: None,
+            beam_width: 1,
         }
     }
 }

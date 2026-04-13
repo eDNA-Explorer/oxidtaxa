@@ -172,21 +172,19 @@ fn classify_one_pass(
     ls: &[usize],
     rng: &mut RRng,
 ) -> Option<(ClassificationResult, f64)> {
+    if config.beam_width > 1 {
+        return classify_one_pass_beam(my_kmers, s, b, ts, config, full_length, ls, rng);
+    }
+
     let children = &ts.children;
-    let parents = &ts.parents;
     let fraction = &ts.fraction;
-    let sequences = &ts.sequences;
-    let train_kmers = &ts.kmers;
-    let cross_index = &ts.cross_index;
-    let counts = &ts.idf_weights;
     let decision_kmers = &ts.decision_kmers;
-    let taxa = &ts.taxa;
 
     if my_kmers.len() <= s {
         return None;
     }
 
-    // Tree descent
+    // Greedy tree descent (beam_width=1)
     let mut k_node = 0usize;
     let mut w_indices: Vec<usize>;
     loop {
@@ -206,7 +204,6 @@ fn classify_one_pass(
             let s_dk = ((n as f64) * frac).ceil() as usize;
             let sampling = rng.sample_int_replace(n, s_dk * b);
             let matches = int_match(&dk.keep, my_kmers);
-            // Flat hits: subtrees.len() rows x b columns, single allocation
             let n_sub = subtrees.len();
             let mut hits_flat = vec![0.0f64; n_sub * b];
             for j in 0..n_sub {
@@ -247,10 +244,229 @@ fn classify_one_pass(
         }
     }
 
+    leaf_phase_score(k_node, &w_indices, my_kmers, s, b, ts, config, full_length, ls, rng)
+}
+
+/// Beam search variant: maintain multiple candidate paths during tree descent.
+#[allow(clippy::too_many_arguments)]
+fn classify_one_pass_beam(
+    my_kmers: &[i32],
+    s: usize,
+    b: usize,
+    ts: &TrainingSet,
+    config: &ClassifyConfig,
+    full_length: (f64, f64),
+    ls: &[usize],
+    rng: &mut RRng,
+) -> Option<(ClassificationResult, f64)> {
+    let children = &ts.children;
+    let fraction = &ts.fraction;
+    let decision_kmers = &ts.decision_kmers;
+
+    if my_kmers.len() <= s {
+        return None;
+    }
+
+    struct BeamCandidate {
+        node: usize,
+        w_indices: Vec<usize>,
+        score: f64,
+    }
+
+    let beam_width = config.beam_width;
+    let mut active = vec![BeamCandidate { node: 0, w_indices: Vec::new(), score: 1.0 }];
+
+    loop {
+        let mut next: Vec<BeamCandidate> = Vec::new();
+        let mut any_expanded = false;
+
+        for candidate in &active {
+            let k_node = candidate.node;
+            let subtrees = &children[k_node];
+            let dk = &decision_kmers[k_node];
+
+            if dk.is_none() || fraction[k_node].is_none() {
+                next.push(BeamCandidate {
+                    node: k_node,
+                    w_indices: (0..subtrees.len()).collect(),
+                    score: candidate.score,
+                });
+                continue;
+            }
+
+            let dk = dk.as_ref().unwrap();
+            let n = dk.keep.len();
+
+            if n == 0 || subtrees.len() <= 1 {
+                if subtrees.len() == 1 && !children[subtrees[0]].is_empty() {
+                    next.push(BeamCandidate {
+                        node: subtrees[0],
+                        w_indices: Vec::new(),
+                        score: candidate.score,
+                    });
+                    any_expanded = true;
+                } else {
+                    next.push(BeamCandidate {
+                        node: k_node,
+                        w_indices: if subtrees.is_empty() { vec![] } else { (0..subtrees.len()).collect() },
+                        score: candidate.score,
+                    });
+                }
+                continue;
+            }
+
+            // Vote at this node
+            let frac = fraction[k_node].unwrap();
+            let s_dk = ((n as f64) * frac).ceil() as usize;
+            let sampling = rng.sample_int_replace(n, s_dk * b);
+            let matches = int_match(&dk.keep, my_kmers);
+
+            let n_sub = subtrees.len();
+            let mut hits_flat = vec![0.0f64; n_sub * b];
+            for j in 0..n_sub {
+                let row = vector_sum(&matches, &dk.profiles[j], &sampling, b);
+                hits_flat[j * b..(j + 1) * b].copy_from_slice(&row);
+            }
+            let mut vote_counts = vec![0usize; n_sub];
+            for rep in 0..b {
+                let max_val = (0..n_sub).map(|j| hits_flat[j * b + rep]).fold(0.0f64, f64::max);
+                if max_val > 0.0 {
+                    for j in 0..n_sub {
+                        if hits_flat[j * b + rep] == max_val { vote_counts[j] += 1; }
+                    }
+                }
+            }
+
+            // Collect children with votes, sorted by vote count descending
+            let mut children_by_votes: Vec<(usize, usize)> = vote_counts.iter()
+                .enumerate()
+                .filter(|(_, &c)| c > 0)
+                .map(|(j, &c)| (j, c))
+                .collect();
+            children_by_votes.sort_by(|a, b_| b_.1.cmp(&a.1));
+
+            if children_by_votes.is_empty() {
+                // No votes at all — terminal
+                next.push(BeamCandidate {
+                    node: k_node,
+                    w_indices: (0..n_sub).collect(),
+                    score: candidate.score,
+                });
+                continue;
+            }
+
+            let top_vote_frac = children_by_votes[0].1 as f64 / b as f64;
+
+            if top_vote_frac >= config.min_descend {
+                // Top child is confident — descend it
+                let winner_idx = children_by_votes[0].0;
+                let winner_child = subtrees[winner_idx];
+                if children[winner_child].is_empty() {
+                    next.push(BeamCandidate {
+                        node: k_node,
+                        w_indices: vec![winner_idx],
+                        score: candidate.score * top_vote_frac,
+                    });
+                } else {
+                    next.push(BeamCandidate {
+                        node: winner_child,
+                        w_indices: Vec::new(),
+                        score: candidate.score * top_vote_frac,
+                    });
+                    any_expanded = true;
+                }
+
+                // Keep runner-ups for beam
+                for &(j, votes) in children_by_votes.iter().skip(1) {
+                    let vf = votes as f64 / b as f64;
+                    let child = subtrees[j];
+                    if children[child].is_empty() {
+                        next.push(BeamCandidate {
+                            node: k_node,
+                            w_indices: vec![j],
+                            score: candidate.score * vf,
+                        });
+                    } else {
+                        next.push(BeamCandidate {
+                            node: child,
+                            w_indices: Vec::new(),
+                            score: candidate.score * vf,
+                        });
+                        any_expanded = true;
+                    }
+                }
+            } else {
+                // No confident winner — terminal (same fallback as greedy)
+                let w50: Vec<usize> = vote_counts.iter().enumerate()
+                    .filter(|(_, &c)| c >= ((b as f64) * 0.5) as usize)
+                    .map(|(i, _)| i).collect();
+                let w_indices = if w50.is_empty() {
+                    (0..vote_counts.len()).collect()
+                } else {
+                    let w_pos: Vec<usize> = vote_counts.iter().enumerate()
+                        .filter(|(_, &c)| c > 0).map(|(i, _)| i).collect();
+                    if w_pos.is_empty() { (0..vote_counts.len()).collect() } else { w_pos }
+                };
+                next.push(BeamCandidate {
+                    node: k_node,
+                    w_indices,
+                    score: candidate.score * top_vote_frac,
+                });
+            }
+        }
+
+        // Prune to beam_width
+        next.sort_by(|a, b_| b_.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        next.truncate(beam_width);
+        active = next;
+
+        if !any_expanded { break; }
+    }
+
+    // Score each candidate via leaf phase, pick best
+    let mut best: Option<(ClassificationResult, f64)> = None;
+    for candidate in &active {
+        if let Some((result, sim)) = leaf_phase_score(
+            candidate.node, &candidate.w_indices,
+            my_kmers, s, b, ts, config, full_length, ls, rng,
+        ) {
+            match &best {
+                None => best = Some((result, sim)),
+                Some((_, best_sim)) if sim > *best_sim => best = Some((result, sim)),
+                _ => {}
+            }
+        }
+    }
+    best
+}
+
+/// Leaf-phase scoring: gather training sequences, bootstrap match, compute confidence.
+/// Shared by both greedy and beam-search descent.
+#[allow(clippy::too_many_arguments)]
+fn leaf_phase_score(
+    k_node: usize,
+    w_indices: &[usize],
+    my_kmers: &[i32],
+    s: usize,
+    b: usize,
+    ts: &TrainingSet,
+    config: &ClassifyConfig,
+    full_length: (f64, f64),
+    ls: &[usize],
+    rng: &mut RRng,
+) -> Option<(ClassificationResult, f64)> {
+    let children = &ts.children;
+    let parents = &ts.parents;
+    let sequences = &ts.sequences;
+    let train_kmers = &ts.kmers;
+    let cross_index = &ts.cross_index;
+    let counts = &ts.idf_weights;
+    let taxa = &ts.taxa;
+
     // Gather training sequences
     let subtrees = &children[k_node];
     let mut keep: Vec<usize> = Vec::new();
-    for &wi in &w_indices {
+    for &wi in w_indices {
         if wi < subtrees.len() {
             if let Some(ref sq) = sequences[subtrees[wi]] { keep.extend(sq); }
         }
