@@ -140,6 +140,8 @@ pub struct TrainConfig {
     /// round-robin. Selects k-mers that maximize conditional information gain.
     /// Produces a more efficient feature set but slower to train. Default false.
     pub correlation_aware_features: bool,
+    /// Number of threads for the rayon thread pool. Default 1.
+    pub processors: usize,
 }
 
 impl Default for TrainConfig {
@@ -159,6 +161,7 @@ impl Default for TrainConfig {
             use_idf_in_training: false,
             leave_one_out: false,
             correlation_aware_features: false,
+            processors: 1,
         }
     }
 }

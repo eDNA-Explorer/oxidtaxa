@@ -28,6 +28,25 @@ pub fn learn_taxa(
         return Err("taxonomy must be the same length as train.".to_string());
     }
 
+    // Use a local thread pool so processors is always respected.
+    // Without this, par_chunks/par_iter hit the global Rayon pool
+    // which defaults to 1 thread per core.
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(config.processors)
+        .build()
+        .map_err(|e| format!("failed to create rayon thread pool: {e}"))?;
+
+    pool.install(|| _learn_taxa_inner(sequences, taxonomy_strings, config, seed))
+}
+
+fn _learn_taxa_inner(
+    sequences: &[String],
+    taxonomy_strings: &[String],
+    config: &TrainConfig,
+    seed: u32,
+) -> Result<TrainingSet, String> {
+    let l = sequences.len();
+
     // DNA-only: fixed alphabet size
     let size: usize = 4;
 

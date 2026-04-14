@@ -19,7 +19,8 @@ mod python_bindings {
         seed = 42, k = None, record_kmers_fraction = 0.10, verbose = true,
         seed_pattern = None, training_threshold = 0.8,
         descendant_weighting = "count", use_idf_in_training = false,
-        leave_one_out = false, correlation_aware_features = false
+        leave_one_out = false, correlation_aware_features = false,
+        processors = 1
     ))]
     #[allow(clippy::too_many_arguments)]
     fn train(
@@ -36,6 +37,7 @@ mod python_bindings {
         use_idf_in_training: bool,
         leave_one_out: bool,
         correlation_aware_features: bool,
+        processors: usize,
     ) -> PyResult<()> {
         let (names, seqs) =
             crate::fasta::read_fasta(fasta_path).map_err(|e| PyValueError::new_err(e))?;
@@ -56,6 +58,7 @@ mod python_bindings {
             use_idf_in_training,
             leave_one_out,
             correlation_aware_features,
+            processors,
             ..Default::default()
         };
         let model = crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
