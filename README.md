@@ -33,6 +33,11 @@ train(
     k=None,                            # k-mer size (None = auto from sequence lengths)
     record_kmers_fraction=0.10,        # fraction of top k-mers per decision node
     seed_pattern=None,                 # spaced seed (e.g., "11011011011"). None = contiguous
+    training_threshold=0.8,            # vote fraction to descend during fraction learning
+    descendant_weighting="count",      # "count", "equal", or "log"
+    use_idf_in_training=False,         # IDF-weighted scoring during training descent
+    leave_one_out=False,               # reduce self-classification bias for small groups
+    correlation_aware_features=False,  # greedy feature selection with redundancy penalty
 )
 
 # Classify — returns List[ClassificationResult] in-memory. Pass output_path
@@ -51,6 +56,7 @@ results = classify(
     seed=42,
     length_normalize=False,            # normalize scores by training sequence length
     rank_thresholds=None,              # per-rank thresholds (e.g., [90, 80, 70, 60, 50, 40])
+    beam_width=1,                      # candidate paths during tree descent (1 = greedy)
 )
 
 for r in results:
@@ -94,6 +100,7 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **sample_exponent** | 0.47 | 0.2-0.8 | Controls k-mers sampled per bootstrap: S = L^exponent where L = unique k-mers in query. Lower = fewer samples (faster, noisier). Higher = more samples (slower, more stable). |
 | **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). Corrects bias from longer references accumulating more k-mer hits. Most useful for variable-length markers. |
 | **rank_thresholds** | None | list of floats | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set, overrides the single `threshold` parameter. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). If shorter than the predicted path, the last value is reused. |
+| **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent (original IDTAXA). At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
 | **processors** | 1 | 1+ | Number of threads for parallel classification. |
 | **seed** | 42 | any u32 | PRNG seed. Each query gets an independent PRNG seeded with seed XOR query_index. |
 
@@ -104,6 +111,11 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **k** | auto | 1-15 | K-mer word size. When None, auto-computed as floor(ln(500 * L_99th) / ln(alphabet_size)). Typical values: 7-9 for DNA. When using a spaced seed, this is overridden by the seed's weight. |
 | **record_kmers_fraction** | 0.10 | 0.01-0.5 | Fraction of most-discriminating k-mers retained at each decision node. Higher = more features per node, larger model, potentially better discrimination. |
 | **seed_pattern** | None | binary string | Spaced seed pattern for mutation-robust k-mer enumeration. A string of 1s and 0s (e.g., `"11011011011"`). Positions with `1` are used; `0` positions are skipped. See [Spaced K-mers](#spaced-k-mers) below. |
+| **training_threshold** | 0.8 | 0.0-1.0 | Bootstrap vote fraction required to descend during fraction learning. R's IDTAXA hardcodes 0.8. Set closer to `min_descend` (e.g., 0.98) for consistent training/classification thresholds — sequences that wouldn't pass classification descent won't pass training descent either. |
+| **descendant_weighting** | "count" | count/equal/log | How to weight child profiles when computing the merged profile for cross-entropy feature selection. "count" = weight by raw descendant count (original IDTAXA). "equal" = 1/n_children each, preventing large clades from dominating feature selection. "log" = log(1+descendants), a middle ground. |
+| **use_idf_in_training** | false | true/false | Multiply profile weights by IDF weights during the fraction-learning tree descent. Without this, training uses raw profile frequencies while classification uses IDF-weighted scores — a train/test mismatch. Enabling this calibrates fractions under the same scoring regime used at classification time. |
+| **leave_one_out** | false | true/false | Reduce self-classification bias for small taxonomy groups during fraction learning. For groups with ≤5 sequences, adjusts profile weights to approximate excluding the test sequence from its own group's profile. Singletons get zero'd weights (can't self-classify). Most impactful for databases with many single-sequence species. |
+| **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. At each step, selects the k-mer maximizing `entropy * (1 - max_correlation_with_selected)`. Produces a more diverse, efficient feature set. Slower training but no impact on classification speed. |
 | **seed** | 42 | any u32 | PRNG seed for the training bootstrap loop. |
 
 ### Spaced K-mers
@@ -154,6 +166,7 @@ record_kmers_fractions = [0.05, 0.10, 0.15, 0.20]  # train separate model per fr
 ```python
 min_descend_values = [0.90, 0.95, 0.98, 0.99]
 length_normalize = [True, False]
+beam_width_values = [1, 2, 3]         # 1 = greedy (original), >1 = beam search
 rank_thresholds_options = [
     None,                              # single threshold (from Tier 1)
     [90, 80, 70, 60, 50, 40, 40],     # strict top, lenient bottom
@@ -161,7 +174,24 @@ rank_thresholds_options = [
 ]
 ```
 
-**Tier 4 — Spaced seeds (require retraining per pattern):**
+**Tier 4 — Algorithmic training variants (require retraining per combination):**
+
+These are experimental improvements to the IDTAXA training algorithm. Each changes how the model is built. Sweep independently against default, then combine the winners.
+
+```python
+# Feature selection strategy
+descendant_weighting_values = ["count", "equal", "log"]
+correlation_aware_features = [False, True]
+
+# Training/classification consistency
+training_threshold_values = [0.8, 0.9, 0.98]  # match min_descend for consistency
+use_idf_in_training = [False, True]
+
+# Bias correction (most useful for sparse databases)
+leave_one_out = [False, True]
+```
+
+**Tier 5 — Spaced seeds (require retraining per pattern):**
 
 Train one model per pattern, then sweep Tier 1 classification params for each. Fix weight to the best k from Tier 2.
 
@@ -190,7 +220,15 @@ for k in 6 7 8 9 10; do
     python train.py ref.fasta tax.tsv model_k${k}.bin --k $k
 done
 
-# Tier 4: train models with different spaced seeds (all weight=8)
+# Tier 4: train models with algorithmic variants
+python train.py ref.fasta tax.tsv model_default.bin
+python train.py ref.fasta tax.tsv model_equal.bin --descendant-weighting equal
+python train.py ref.fasta tax.tsv model_idf.bin --use-idf-in-training
+python train.py ref.fasta tax.tsv model_corr.bin --correlation-aware-features
+python train.py ref.fasta tax.tsv model_loo.bin --leave-one-out
+python train.py ref.fasta tax.tsv model_strict.bin --training-threshold 0.98
+
+# Tier 5: train models with different spaced seeds (all weight=8)
 python train.py ref.fasta tax.tsv model_contiguous.bin
 python train.py ref.fasta tax.tsv model_s11.bin --seed-pattern "11011011011"
 python train.py ref.fasta tax.tsv model_s13.bin --seed-pattern "1101001100101"
@@ -199,8 +237,10 @@ python train.py ref.fasta tax.tsv model_s15.bin --seed-pattern "110100110010101"
 # Sweep classification params for each model
 for model in model_*.bin; do
     for thresh in 20 30 40 50 60 70 80; do
-        python classify.py query.fasta $model out_${model}_t${thresh}.tsv \
-            $thresh both 0.98 0.0 8 --bootstraps 50
+        for bw in 1 3; do
+            python classify.py query.fasta $model out_${model}_t${thresh}_bw${bw}.tsv \
+                $thresh both 0.98 0.0 8 --bootstraps 50 --beam-width $bw
+        done
     done
 done
 ```
