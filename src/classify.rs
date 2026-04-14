@@ -28,7 +28,7 @@ struct PrecomputedData {
 ///   Each sequence gets an independent PRNG seeded with `seed ^ index`.
 ///   Statistically equivalent but not bit-identical to R.
 ///
-/// `config.processors` controls the rayon global thread pool size.
+/// `config.processors` controls the rayon thread pool size.
 #[allow(clippy::too_many_arguments)]
 pub fn id_taxa(
     test_sequences: &[String],
@@ -40,43 +40,46 @@ pub fn id_taxa(
     seed: u32,
     deterministic: bool,
 ) -> Vec<ClassificationResult> {
-    // Configure rayon thread pool
-    if config.processors > 1 {
-        let _ = rayon::ThreadPoolBuilder::new()
-            .num_threads(config.processors)
-            .build_global();
-    }
+    // Build a local thread pool so processors is always respected.
+    // build_global() can only succeed once per process — subsequent calls
+    // silently fail, leaving Rayon's default (1 thread per core).
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(config.processors)
+        .build()
+        .expect("failed to create rayon thread pool");
 
-    // De-replicate
-    let (unique_seqs, unique_map, unique_strands) = dereplicate(test_sequences, strand_mode);
-    let l = unique_seqs.len();
-    if l == 0 {
-        return Vec::new();
-    }
-
-    // Handle bottom strand
-    let mut seqs = unique_seqs.clone();
-    for (i, &s) in unique_strands.iter().enumerate() {
-        if s == 3 {
-            seqs[i] = reverse_complement(&seqs[i]);
+    pool.install(|| {
+        // De-replicate
+        let (unique_seqs, unique_map, unique_strands) = dereplicate(test_sequences, strand_mode);
+        let l = unique_seqs.len();
+        if l == 0 {
+            return Vec::new();
         }
-    }
 
-    // Pre-compute shared data
-    let pre = precompute(&seqs, &unique_strands, training_set, config);
+        // Handle bottom strand
+        let mut seqs = unique_seqs.clone();
+        for (i, &s) in unique_strands.iter().enumerate() {
+            if s == 3 {
+                seqs[i] = reverse_complement(&seqs[i]);
+            }
+        }
 
-    if deterministic {
-        let mut rng = RRng::new(seed);
-        let results = classify_sequential(
-            &pre, &unique_strands, training_set, config, &mut rng,
-        );
-        unique_map.iter().map(|&i| results[i].clone()).collect()
-    } else {
-        let results = classify_parallel(
-            &pre, &unique_strands, training_set, config, seed,
-        );
-        unique_map.iter().map(|&i| results[i].clone()).collect()
-    }
+        // Pre-compute shared data
+        let pre = precompute(&seqs, &unique_strands, training_set, config);
+
+        if deterministic {
+            let mut rng = RRng::new(seed);
+            let results = classify_sequential(
+                &pre, &unique_strands, training_set, config, &mut rng,
+            );
+            unique_map.iter().map(|&i| results[i].clone()).collect()
+        } else {
+            let results = classify_parallel(
+                &pre, &unique_strands, training_set, config, seed,
+            );
+            unique_map.iter().map(|&i| results[i].clone()).collect()
+        }
+    })
 }
 
 /// Pre-compute k-mers, S, B, and reverse complement k-mers.
