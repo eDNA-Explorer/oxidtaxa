@@ -24,6 +24,7 @@ mod python_bindings {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn train(
+        py: Python<'_>,
         fasta_path: &str,
         taxonomy_path: &str,
         output_path: &str,
@@ -61,8 +62,11 @@ mod python_bindings {
             processors,
             ..Default::default()
         };
-        let model = crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
-            .map_err(|e| PyValueError::new_err(e))?;
+
+        // Release the GIL so parallel Python threads can run concurrently
+        let model = py.allow_threads(|| {
+            crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
+        }).map_err(|e| PyValueError::new_err(e))?;
 
         model.save(output_path).map_err(|e| PyValueError::new_err(e))?;
         Ok(())
@@ -93,6 +97,7 @@ mod python_bindings {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn classify(
+        py: Python<'_>,
         query_path: &str,
         model_path: &str,
         output_path: Option<String>,
@@ -129,16 +134,20 @@ mod python_bindings {
             rank_thresholds,
             beam_width,
         };
-        let results = crate::classify::id_taxa(
-            &clean_seqs,
-            &names,
-            &model,
-            &config,
-            strand_mode,
-            crate::types::OutputType::Extended,
-            seed,
-            deterministic,
-        );
+
+        // Release the GIL so parallel Python threads can run concurrently
+        let results = py.allow_threads(|| {
+            crate::classify::id_taxa(
+                &clean_seqs,
+                &names,
+                &model,
+                &config,
+                strand_mode,
+                crate::types::OutputType::Extended,
+                seed,
+                deterministic,
+            )
+        });
 
         if let Some(ref path) = output_path {
             crate::fasta::write_classification_tsv(path, &names, &results)
