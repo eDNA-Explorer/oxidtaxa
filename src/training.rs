@@ -263,17 +263,20 @@ fn _learn_taxa_inner(
         .collect();
 
     // Build decision tree (lines 267-321)
+    // Sibling subtrees are processed in parallel via rayon; each returns
+    // its collected (node_index, DecisionNode) pairs which we scatter here.
     let mut decision_kmers: Vec<Option<DecisionNode>> = vec![None; taxonomy.len()];
-    create_tree(
+    let (_root_profile, _root_desc, nodes) = create_tree(
         0,
         &children,
         &sequences_per_node,
         &kmers,
         n_kmers,
         config,
-        &mut decision_kmers,
     );
-
+    for (idx, dk) in nodes {
+        decision_kmers[idx] = Some(dk);
+    }
     // Compute IDF weights early (needed by fraction loop when use_idf_in_training=true,
     // and always stored in the final model). IDF doesn't depend on fractions.
     let class_counts = {
@@ -604,8 +607,42 @@ fn merge_sparse_profiles(profiles: &[SparseProfile], weights: &[f64], total_weig
     result
 }
 
+/// Precomputed statistics for a profile vector, used to avoid redundant
+/// computation in the correlation-aware feature selection hot loop.
+#[derive(Clone)]
+struct ProfileStats {
+    sum: f64,
+    /// Precomputed denominator component: sqrt(n * sum_sq - sum * sum)
+    denom: f64,
+}
+
+impl ProfileStats {
+    fn new(v: &[f64]) -> Self {
+        let n_f = v.len() as f64;
+        let sum: f64 = v.iter().sum();
+        let sum_sq: f64 = v.iter().map(|x| x * x).sum();
+        let denom = (n_f * sum_sq - sum * sum).sqrt();
+        Self { sum, denom }
+    }
+}
+
+/// Pearson correlation using precomputed statistics for both vectors.
+/// Only computes the cross-product sum_ab, which is the only term that
+/// changes between different (a, b) pairings.
+#[inline]
+fn pearson_with_stats(a: &[f64], a_stats: &ProfileStats,
+                      b: &[f64], b_stats: &ProfileStats) -> f64 {
+    let n_f = a.len() as f64;
+    if a.len() < 2 { return 0.0; }
+    if a_stats.denom < 1e-15 || b_stats.denom < 1e-15 { return 0.0; }
+    let sum_ab: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let num = n_f * sum_ab - a_stats.sum * b_stats.sum;
+    (num / (a_stats.denom * b_stats.denom)).abs()
+}
+
 /// Absolute Pearson correlation between two profile vectors.
 /// Returns 0.0 for constant or zero-length vectors.
+#[allow(dead_code)]
 fn pearson_abs(a: &[f64], b: &[f64]) -> f64 {
     let n = a.len();
     if n < 2 { return 0.0; }
@@ -624,6 +661,7 @@ fn pearson_abs(a: &[f64], b: &[f64]) -> f64 {
 
 /// Recursive tree construction for decision k-mers.
 /// Uses sparse profiles to avoid processing 65K dense vectors.
+/// Sibling subtrees are processed in parallel via rayon.
 /// Port of R/LearnTaxa.R:.createTree (lines 267-319).
 fn create_tree(
     node: usize,
@@ -632,20 +670,55 @@ fn create_tree(
     kmers: &[Vec<i32>],
     n_kmers: usize,
     config: &TrainConfig,
-    decision_kmers: &mut Vec<Option<DecisionNode>>,
-) -> (SparseProfile, usize) {
+) -> (SparseProfile, usize, Vec<(usize, DecisionNode)>) {
     let child_nodes = &children[node];
     let n_children = child_nodes.len();
 
     if n_children > 0 && n_children <= config.max_children {
         let mut profiles: Vec<SparseProfile> = Vec::with_capacity(n_children);
-        let mut descendants = Vec::with_capacity(n_children);
+        let mut descendants: Vec<usize> = Vec::with_capacity(n_children);
+        let mut collected_nodes: Vec<(usize, DecisionNode)> = Vec::new();
 
-        for &child in child_nodes {
-            let (profile, desc) =
-                create_tree(child, children, sequences, kmers, n_kmers, config, decision_kmers);
-            profiles.push(profile);
-            descendants.push(desc);
+        if config.processors > 1 {
+            // Process sibling subtrees in parallel (they access disjoint
+            // data and all shared params are immutable borrows).
+            let child_results: Vec<(SparseProfile, usize, Vec<(usize, DecisionNode)>)> =
+                if n_children == 2 {
+                    let (r0, r1) = rayon::join(
+                        || create_tree(child_nodes[0], children, sequences, kmers, n_kmers, config),
+                        || create_tree(child_nodes[1], children, sequences, kmers, n_kmers, config),
+                    );
+                    vec![r0, r1]
+                } else {
+                    let mut results: Vec<Option<(SparseProfile, usize, Vec<(usize, DecisionNode)>)>> =
+                        (0..n_children).map(|_| None).collect();
+                    rayon::scope(|s| {
+                        for (i, result_slot) in results.iter_mut().enumerate() {
+                            let child = child_nodes[i];
+                            s.spawn(move |_| {
+                                *result_slot = Some(create_tree(
+                                    child, children, sequences, kmers, n_kmers, config,
+                                ));
+                            });
+                        }
+                    });
+                    results.into_iter().map(|r| r.unwrap()).collect()
+                };
+
+            for (profile, desc, nodes) in child_results {
+                profiles.push(profile);
+                descendants.push(desc);
+                collected_nodes.extend(nodes);
+            }
+        } else {
+            // Sequential path: no rayon overhead when processors == 1
+            for &child in child_nodes {
+                let (profile, desc, nodes) =
+                    create_tree(child, children, sequences, kmers, n_kmers, config);
+                profiles.push(profile);
+                descendants.push(desc);
+                collected_nodes.extend(nodes);
+            }
         }
 
         let total_desc: usize = descendants.iter().sum();
@@ -706,9 +779,11 @@ fn create_tree(
             //
             // For each candidate, gain = base_entropy * (1 - max_corr_with_selected).
             // Profile vectors across children serve as the feature representation.
+            //
+            // Uses struct-of-arrays with a flat contiguous matrix for cache-friendly
+            // access and precomputed Pearson statistics to avoid redundant work.
 
             // Collect top candidates from each child's entropy ranking.
-            // Limit per-child to keep the candidate pool manageable.
             let per_child_limit = record_kmers * 2;
             let mut cand_set: HashSet<usize> = HashSet::new();
             for child_h in &sorted_h {
@@ -717,32 +792,59 @@ fn create_tree(
                 }
             }
 
-            // Build dense arrays for O(1) indexed access in the hot loop.
-            // cand_kmers[ci] = kmer_index, cand_entropy[ci] = max entropy,
-            // cand_prof[ci] = profile vector across children.
-            let mut cand_data: Vec<(usize, f64, Vec<f64>)> = cand_set.iter().map(|&kmer_idx| {
-                let prof_vec: Vec<f64> = profiles.iter().map(|p| {
-                    match p.binary_search_by_key(&kmer_idx, |&(k, _)| k) {
+            // Build struct-of-arrays: flat row-major profile matrix for cache locality.
+            let mut kmer_indices = Vec::with_capacity(cand_set.len());
+            let mut entropies = Vec::with_capacity(cand_set.len());
+            let mut profiles_flat = Vec::with_capacity(cand_set.len() * n_children);
+
+            for &kmer_idx in &cand_set {
+                let mut prof_vec = Vec::with_capacity(n_children);
+                for p in profiles.iter() {
+                    let val = match p.binary_search_by_key(&kmer_idx, |&(k, _)| k) {
                         Ok(pos) => p[pos].1,
                         Err(_) => 0.0,
-                    }
-                }).collect();
-                // Max entropy across children
+                    };
+                    prof_vec.push(val);
+                }
                 let mut max_h = 0.0f64;
                 for child_h in &sorted_h {
                     for &(ki, h) in child_h.iter() {
                         if ki == kmer_idx && h > max_h { max_h = h; break; }
                     }
                 }
-                (kmer_idx, max_h, prof_vec)
-            }).collect();
-            // Sort by entropy descending for better early-termination
-            cand_data.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                kmer_indices.push(kmer_idx);
+                entropies.push(max_h);
+                profiles_flat.extend_from_slice(&prof_vec);
+            }
 
-            let n_cand = cand_data.len();
+            // Sort all arrays by entropy descending (permutation sort)
+            let mut order: Vec<usize> = (0..kmer_indices.len()).collect();
+            order.sort_by(|&a, &b| entropies[b].partial_cmp(&entropies[a])
+                .unwrap_or(std::cmp::Ordering::Equal));
+
+            let sorted_kmer_indices: Vec<usize> = order.iter().map(|&i| kmer_indices[i]).collect();
+            let sorted_entropies: Vec<f64> = order.iter().map(|&i| entropies[i]).collect();
+            let mut sorted_profiles_flat = vec![0.0f64; profiles_flat.len()];
+            for (new_idx, &old_idx) in order.iter().enumerate() {
+                let src = old_idx * n_children;
+                let dst = new_idx * n_children;
+                sorted_profiles_flat[dst..dst + n_children]
+                    .copy_from_slice(&profiles_flat[src..src + n_children]);
+            }
+
+            // Precompute Pearson statistics for all candidates
+            let cand_stats: Vec<ProfileStats> = (0..order.len()).map(|ci| {
+                ProfileStats::new(&sorted_profiles_flat[ci * n_children..(ci + 1) * n_children])
+            }).collect();
+
+            let n_cand = sorted_kmer_indices.len();
             let mut is_selected = vec![false; n_cand];
-            let mut selected_indices: Vec<usize> = Vec::with_capacity(record_kmers);
             let mut result_set = HashSet::new();
+
+            // Selected features: contiguous buffer for cache-friendly correlation
+            let mut sel_profiles_flat: Vec<f64> = Vec::with_capacity(record_kmers * n_children);
+            let mut sel_stats: Vec<ProfileStats> = Vec::with_capacity(record_kmers);
+            let mut n_selected: usize = 0;
 
             for _ in 0..record_kmers {
                 let mut best_ci = None;
@@ -750,14 +852,19 @@ fn create_tree(
 
                 for ci in 0..n_cand {
                     if is_selected[ci] { continue; }
-                    let base_h = cand_data[ci].1;
-                    // Early exit: remaining candidates sorted by entropy,
+                    let base_h = sorted_entropies[ci];
+                    // Early exit: candidates sorted by entropy descending,
                     // so max possible gain <= base_h. If that can't beat best, stop.
                     if base_h <= best_gain { break; }
 
+                    let cand_prof = &sorted_profiles_flat[ci * n_children..(ci + 1) * n_children];
+                    let cand_st = &cand_stats[ci];
+
                     let mut max_corr: f64 = 0.0;
-                    for &si in &selected_indices {
-                        let corr = pearson_abs(&cand_data[ci].2, &cand_data[si].2);
+                    for si in 0..n_selected {
+                        let sel_prof = &sel_profiles_flat[si * n_children..(si + 1) * n_children];
+                        let sel_st = &sel_stats[si];
+                        let corr = pearson_with_stats(cand_prof, cand_st, sel_prof, sel_st);
                         if corr > max_corr { max_corr = corr; }
                         if max_corr >= 1.0 { break; }
                     }
@@ -772,8 +879,14 @@ fn create_tree(
                 match best_ci {
                     Some(ci) => {
                         is_selected[ci] = true;
-                        selected_indices.push(ci);
-                        result_set.insert(cand_data[ci].0);
+                        result_set.insert(sorted_kmer_indices[ci]);
+                        // Append to selected buffers
+                        let src = ci * n_children;
+                        sel_profiles_flat.extend_from_slice(
+                            &sorted_profiles_flat[src..src + n_children]
+                        );
+                        sel_stats.push(cand_stats[ci].clone());
+                        n_selected += 1;
                     }
                     None => break,
                 }
@@ -834,12 +947,12 @@ fn create_tree(
             })
             .collect();
 
-        decision_kmers[node] = Some(DecisionNode {
+        collected_nodes.push((node, DecisionNode {
             keep: keep_indices,
             profiles: selected_profiles,
-        });
+        }));
 
-        (q, total_desc)
+        (q, total_desc, collected_nodes)
     } else {
         // Leaf node: tabulate k-mers as sparse profile
         let mut counts: HashMap<usize, f64> = HashMap::new();
@@ -859,6 +972,6 @@ fn create_tree(
             Vec::new()
         };
         profile.sort_by_key(|&(k, _)| k);
-        (profile, 1)
+        (profile, 1, Vec::new())
     }
 }

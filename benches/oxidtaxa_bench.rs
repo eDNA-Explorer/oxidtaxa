@@ -240,6 +240,45 @@ fn bench_learn_taxa(c: &mut Criterion) {
     });
 }
 
+fn bench_learn_taxa_correlation_aware(c: &mut Criterion) {
+    let (names, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
+    let taxonomy = oxidtaxa::fasta::read_taxonomy(
+        &test_data_path("test_ref_taxonomy.tsv"), &names
+    ).unwrap();
+
+    let mut filtered_seqs = Vec::new();
+    let mut filtered_tax = Vec::new();
+    for (i, seq) in seqs.iter().enumerate() {
+        let tax = &taxonomy[i];
+        let full_tax = format!("Root; {}", tax.replace(";", "; "));
+        let rank_count = full_tax.split("; ").count();
+        if rank_count < 4 { continue; }
+        if seq.len() < 30 { continue; }
+        let n_count = seq.bytes().filter(|&b| b == b'N' || b == b'n').count();
+        if (n_count as f64 / seq.len() as f64) > 0.3 { continue; }
+        filtered_seqs.push(seq.clone());
+        filtered_tax.push(full_tax);
+    }
+
+    let config = TrainConfig {
+        correlation_aware_features: true,
+        record_kmers_fraction: 0.44,
+        ..TrainConfig::default()
+    };
+
+    c.bench_function("learn_taxa/80seqs_corr_aware", |b| {
+        b.iter(|| {
+            black_box(learn_taxa(
+                black_box(&filtered_seqs),
+                black_box(&filtered_tax),
+                black_box(&config),
+                42,
+                false,
+            ).unwrap());
+        });
+    });
+}
+
 // ── id_taxa (classification) ───────────────��─────────────────────────────────
 
 fn bench_id_taxa(c: &mut Criterion) {
@@ -412,6 +451,7 @@ criterion_group!(
     bench_remove_gaps,
     bench_read_fasta,
     bench_learn_taxa,
+    bench_learn_taxa_correlation_aware,
     bench_id_taxa,
     bench_enumerate_scaling,
     bench_learn_taxa_scaling,
