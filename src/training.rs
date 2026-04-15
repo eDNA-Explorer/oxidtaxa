@@ -501,13 +501,9 @@ fn _learn_fractions_inner(
                             };
 
                             if let Some((loo_j, group_size)) = loo_child_idx {
-                                if j == loo_j && group_size <= 5 {
-                                    if group_size <= 1 {
-                                        for w in &mut weights_j { *w = 0.0; }
-                                    } else {
-                                        let scale = (group_size - 1) as f64 / group_size as f64;
-                                        for w in &mut weights_j { *w *= scale; }
-                                    }
+                                if j == loo_j && group_size > 1 && group_size <= 5 {
+                                    let scale = (group_size - 1) as f64 / group_size as f64;
+                                    for w in &mut weights_j { *w *= scale; }
                                 }
                             }
 
