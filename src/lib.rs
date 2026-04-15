@@ -10,8 +10,54 @@ pub mod types;
 
 #[cfg(feature = "python")]
 mod python_bindings {
+    use std::sync::Arc;
+
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
+
+    #[pyclass(frozen, name = "PreparedData")]
+    struct PyPreparedData {
+        inner: Arc<crate::types::PreparedData>,
+    }
+
+    #[pymethods]
+    impl PyPreparedData {
+        fn save(&self, path: &str) -> PyResult<()> {
+            self.inner.save(path).map_err(|e| PyValueError::new_err(e))
+        }
+        #[staticmethod]
+        fn load(path: &str) -> PyResult<Self> {
+            let inner = crate::types::PreparedData::load(path)
+                .map_err(|e| PyValueError::new_err(e))?;
+            Ok(Self { inner: Arc::new(inner) })
+        }
+        #[getter]
+        fn n_sequences(&self) -> usize { self.inner.kmers.len() }
+        #[getter]
+        fn k(&self) -> usize { self.inner.k }
+        #[getter]
+        fn n_taxa(&self) -> usize { self.inner.taxonomy.len() }
+    }
+
+    #[pyclass(frozen, name = "BuiltTree")]
+    struct PyBuiltTree {
+        inner: Arc<crate::types::BuiltTree>,
+    }
+
+    #[pymethods]
+    impl PyBuiltTree {
+        fn save(&self, path: &str) -> PyResult<()> {
+            self.inner.save(path).map_err(|e| PyValueError::new_err(e))
+        }
+        #[staticmethod]
+        fn load(path: &str) -> PyResult<Self> {
+            let inner = crate::types::BuiltTree::load(path)
+                .map_err(|e| PyValueError::new_err(e))?;
+            Ok(Self { inner: Arc::new(inner) })
+        }
+        #[getter]
+        fn n_nodes(&self) -> usize { self.inner.decision_kmers.len() }
+    }
 
     #[pyfunction]
     #[pyo3(signature = (
@@ -157,6 +203,98 @@ mod python_bindings {
         Ok(results)
     }
 
+    #[pyfunction]
+    #[pyo3(signature = (
+        fasta_path, taxonomy_path, k = None, n = 500.0,
+        seed_pattern = None, processors = 1
+    ))]
+    fn prepare_data_py(
+        py: Python<'_>,
+        fasta_path: &str,
+        taxonomy_path: &str,
+        k: Option<usize>,
+        n: f64,
+        seed_pattern: Option<String>,
+        processors: usize,
+    ) -> PyResult<PyPreparedData> {
+        let (names, seqs) =
+            crate::fasta::read_fasta(fasta_path).map_err(|e| PyValueError::new_err(e))?;
+        let taxonomy =
+            crate::fasta::read_taxonomy(taxonomy_path, &names).map_err(|e| PyValueError::new_err(e))?;
+        let (filtered_seqs, filtered_tax) = filter_for_training(&seqs, &taxonomy);
+
+        let inner = py.allow_threads(|| {
+            crate::training::prepare_data(
+                &filtered_seqs, &filtered_tax, k, n, seed_pattern, processors,
+            )
+        }).map_err(|e| PyValueError::new_err(e))?;
+        Ok(PyPreparedData { inner: Arc::new(inner) })
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (
+        prepared, record_kmers_fraction = 0.10, descendant_weighting = "count",
+        correlation_aware_features = false, processors = 1
+    ))]
+    fn build_tree_py(
+        py: Python<'_>,
+        prepared: &PyPreparedData,
+        record_kmers_fraction: f64,
+        descendant_weighting: &str,
+        correlation_aware_features: bool,
+        processors: usize,
+    ) -> PyResult<PyBuiltTree> {
+        let dw = parse_descendant_weighting(descendant_weighting)?;
+        let config = crate::types::BuildTreeConfig {
+            record_kmers_fraction,
+            descendant_weighting: dw,
+            correlation_aware_features,
+            max_children: 200,
+            processors,
+        };
+        let data = Arc::clone(&prepared.inner);
+        let built = py.allow_threads(move || {
+            crate::training::build_tree(&data, &config)
+        }).map_err(|e| PyValueError::new_err(e))?;
+        Ok(PyBuiltTree { inner: Arc::new(built) })
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (
+        prepared, built_tree, output_path, seed = 42, training_threshold = 0.8,
+        use_idf_in_training = false, leave_one_out = false, processors = 1
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn learn_fractions_py(
+        py: Python<'_>,
+        prepared: &PyPreparedData,
+        built_tree: &PyBuiltTree,
+        output_path: &str,
+        seed: u32,
+        training_threshold: f64,
+        use_idf_in_training: bool,
+        leave_one_out: bool,
+        processors: usize,
+    ) -> PyResult<()> {
+        let config = crate::types::LearnFractionsConfig {
+            training_threshold,
+            use_idf_in_training,
+            leave_one_out,
+            min_fraction: 0.01,
+            max_fraction: 0.06,
+            max_iterations: 10,
+            multiplier: 100.0,
+            processors,
+        };
+        let prep = Arc::clone(&prepared.inner);
+        let tree = Arc::clone(&built_tree.inner);
+        let model = py.allow_threads(move || {
+            crate::training::learn_fractions(&prep, &tree, &config, seed)
+        }).map_err(|e| PyValueError::new_err(e))?;
+        model.save(output_path).map_err(|e| PyValueError::new_err(e))?;
+        Ok(())
+    }
+
     fn parse_descendant_weighting(s: &str) -> PyResult<crate::types::DescendantWeighting> {
         match s {
             "count" => Ok(crate::types::DescendantWeighting::Count),
@@ -211,7 +349,12 @@ mod python_bindings {
     fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(pyo3::wrap_pyfunction!(train, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(classify, m)?)?;
+        m.add_function(pyo3::wrap_pyfunction!(prepare_data_py, m)?)?;
+        m.add_function(pyo3::wrap_pyfunction!(build_tree_py, m)?)?;
+        m.add_function(pyo3::wrap_pyfunction!(learn_fractions_py, m)?)?;
         m.add_class::<crate::types::ClassificationResult>()?;
+        m.add_class::<PyPreparedData>()?;
+        m.add_class::<PyBuiltTree>()?;
         Ok(())
     }
 }

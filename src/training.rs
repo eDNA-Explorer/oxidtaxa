@@ -8,7 +8,10 @@ use crate::alphabet::alphabet_size;
 use crate::kmer::{enumerate_sequences, parse_seed_pattern, SpacedSeed, NA_INTEGER};
 use crate::matching::{int_match, vector_sum};
 use crate::rng::{mix_seed, RRng};
-use crate::types::{DecisionNode, DescendantWeighting, ProblemSequence, TrainConfig, TrainingSet};
+use crate::types::{
+    BuildTreeConfig, BuiltTree, DecisionNode, DescendantWeighting, LearnFractionsConfig,
+    PreparedData, ProblemSequence, TrainConfig, TrainingSet,
+};
 
 /// Train an IDTAXA classifier.
 /// Port of R/LearnTaxa.R (487 lines).
@@ -39,32 +42,87 @@ pub fn learn_taxa(
     pool.install(|| _learn_taxa_inner(sequences, taxonomy_strings, config, seed))
 }
 
-fn _learn_taxa_inner(
+/// Phase 1: Enumerate k-mers, build taxonomy tree, compute IDF weights.
+///
+/// Depends only on (sequences, taxonomy, k, n, seed_pattern).
+pub fn prepare_data(
     sequences: &[String],
     taxonomy_strings: &[String],
-    config: &TrainConfig,
+    k: Option<usize>,
+    n: f64,
+    seed_pattern: Option<String>,
+    processors: usize,
+) -> Result<PreparedData, String> {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(processors)
+        .build()
+        .map_err(|e| format!("failed to create rayon thread pool: {e}"))?;
+    pool.install(|| _prepare_data_inner(sequences, taxonomy_strings, k, n, seed_pattern))
+}
+
+/// Phase 2: Build decision tree with feature selection at each node.
+///
+/// This is the most expensive phase when correlation_aware_features=true.
+pub fn build_tree(
+    prepared: &PreparedData,
+    config: &BuildTreeConfig,
+) -> Result<BuiltTree, String> {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(config.processors)
+        .build()
+        .map_err(|e| format!("failed to create rayon thread pool: {e}"))?;
+    pool.install(|| _build_tree_inner(prepared, config))
+}
+
+/// Phase 3: Iterative fraction-learning loop + model assembly.
+///
+/// The cheapest phase — re-run this when only training_threshold,
+/// use_idf_in_training, or leave_one_out changes.
+pub fn learn_fractions(
+    prepared: &PreparedData,
+    built_tree: &BuiltTree,
+    config: &LearnFractionsConfig,
     seed: u32,
 ) -> Result<TrainingSet, String> {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(config.processors)
+        .build()
+        .map_err(|e| format!("failed to create rayon thread pool: {e}"))?;
+    pool.install(|| _learn_fractions_inner(prepared, built_tree, config, seed))
+}
+
+fn _prepare_data_inner(
+    sequences: &[String],
+    taxonomy_strings: &[String],
+    k_param: Option<usize>,
+    n: f64,
+    seed_pattern: Option<String>,
+) -> Result<PreparedData, String> {
     let l = sequences.len();
+    if l < 2 {
+        return Err("At least two training sequences are required.".to_string());
+    }
+    if taxonomy_strings.len() != l {
+        return Err("taxonomy must be the same length as train.".to_string());
+    }
 
     // DNA-only: fixed alphabet size
     let size: usize = 4;
 
     // Parse spaced seed if provided
-    let spaced_seed: Option<SpacedSeed> = match &config.seed_pattern {
+    let spaced_seed: Option<SpacedSeed> = match &seed_pattern {
         Some(pat) => Some(parse_seed_pattern(pat)?),
         None => None,
     };
 
-    // Compute K if not specified (lines 47-75)
-    // When using a spaced seed, k = seed.weight (effective k-mer size)
-    let k = match (&spaced_seed, config.k) {
+    // Compute K if not specified
+    let k = match (&spaced_seed, k_param) {
         (Some(seed), _) => seed.weight,
         (None, Some(k)) => k,
         (None, None) => {
             let quant = percentile_nchar(sequences, 0.99);
             let as_val = alphabet_size(sequences);
-            let computed = ((config.n * quant as f64).ln() / as_val.ln()).floor() as usize;
+            let computed = ((n * quant as f64).ln() / as_val.ln()).floor() as usize;
             let max_k = 13;
             if computed < 1 {
                 1
@@ -77,9 +135,8 @@ fn _learn_taxa_inner(
     };
 
     let n_kmers = size.pow(k as u32);
-    let b: usize = 100;
 
-    // Parse taxonomy: strip "Root;" prefix, normalize (lines 122-131)
+    // Parse taxonomy: strip "Root;" prefix, normalize
     let classes: Vec<String> = taxonomy_strings
         .iter()
         .map(|t| {
@@ -98,7 +155,7 @@ fn _learn_taxa_inner(
         })
         .collect();
 
-    // Enumerate k-mers (lines 134-146)
+    // Enumerate k-mers
     let raw_kmers = enumerate_sequences(sequences, k, false, false, &[], true, spaced_seed.as_ref());
     let kmers: Vec<Vec<i32>> = raw_kmers
         .into_iter()
@@ -124,7 +181,7 @@ fn _learn_taxa_inner(
         }
     }
 
-    // Build taxonomy tree (lines 155-198)
+    // Build taxonomy tree
     let u_classes: Vec<String> = {
         let mut uc_set: HashSet<String> = HashSet::new();
         let mut uc: Vec<String> = Vec::new();
@@ -150,28 +207,21 @@ fn _learn_taxa_inner(
         }
     }
 
-    // taxonomy[0] = "Root;", taxonomy[1..] = "Root;" + each prefix
     let mut taxonomy: Vec<String> = vec!["Root;".to_string()];
     for t in &all_taxa {
         taxonomy.push(format!("Root;{}", t));
     }
 
-    // crossIndex: which taxonomy node each sequence belongs to (lines 169)
-    // R uses 1-indexed: match(classes, taxonomy) + 1 offset for Root
-    // Our taxonomy[0] = "Root;", taxonomy[1..] = "Root;" + prefix
-    // So crossIndex[i] = position in all_taxa + 1 (for Root offset)
-    // This should match R's 1-indexed crossIndex
     let taxa_to_idx: HashMap<&str, usize> = all_taxa
         .iter()
         .enumerate()
-        .map(|(i, t)| (t.as_str(), i + 1)) // +1 for Root offset
+        .map(|(i, t)| (t.as_str(), i + 1))
         .collect();
     let cross_index: Vec<usize> = classes
         .iter()
         .map(|c| *taxa_to_idx.get(c.as_str()).unwrap_or(&0))
         .collect();
 
-    // Extract taxa names and levels (lines 172-174)
     let taxa: Vec<String> = taxonomy
         .iter()
         .map(|t| {
@@ -185,11 +235,10 @@ fn _learn_taxa_inner(
         .map(|t| t.split(';').filter(|s| !s.is_empty()).count() as i32)
         .collect();
 
-    // Build children/parents (lines 176-202)
     let max_level = *levels.iter().max().unwrap_or(&1) - 1;
     let mut levs: Vec<Vec<usize>> = vec![Vec::new(); max_level as usize];
     for (i, &lev) in levels.iter().enumerate() {
-        let idx = lev - 2; // level (i+1) maps to levs[i-1], but we want level=lev at levs[lev-2]
+        let idx = lev - 2;
         if idx >= 0 && (idx as usize) < levs.len() {
             levs[idx as usize].push(i);
         }
@@ -198,7 +247,7 @@ fn _learn_taxa_inner(
     let mut starts = vec![0usize; max_level as usize];
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); taxonomy.len()];
     for i in 0..taxonomy.len() {
-        let j = levels[i] - 1; // 0-indexed level
+        let j = levels[i] - 1;
         if j >= 0 && (j as usize) < levs.len() {
             let j = j as usize;
             while starts[j] < levs[j].len() && levs[j][starts[j]] <= i {
@@ -222,30 +271,25 @@ fn _learn_taxa_inner(
         }
     }
 
-    // Find sequences for each taxonomy node (lines 252-264)
-    // O(n) approach: for each sequence, walk its taxonomy prefix chain and assign to all ancestors.
     let end_taxonomy: Vec<String> = taxonomy
         .iter()
         .map(|t| {
             if t.len() > 5 {
-                t[5..].to_string() // strip "Root;"
+                t[5..].to_string()
             } else {
                 String::new()
             }
         })
         .collect();
 
-    // Build end_taxonomy → taxonomy index for O(1) lookup
     let mut et_to_idx: HashMap<&str, usize> = HashMap::with_capacity(end_taxonomy.len());
     for (i, et) in end_taxonomy.iter().enumerate() {
         et_to_idx.insert(et.as_str(), i);
     }
 
     let mut sequences_per_node: Vec<Option<Vec<usize>>> = vec![None; taxonomy.len()];
-    // Root node (index 0, end_taxonomy="") matches all sequences via starts_with("")
     sequences_per_node[0] = Some((0..classes.len()).collect());
     for (seq_idx, class) in classes.iter().enumerate() {
-        // Walk all prefixes of this class string to assign to ancestor nodes
         let parts: Vec<&str> = class.split(';').filter(|s| !s.is_empty()).collect();
         for n in 1..=parts.len() {
             let prefix: String = parts[..n].iter().map(|s| format!("{};", s)).collect();
@@ -262,23 +306,7 @@ fn _learn_taxa_inner(
         .map(|s| s.as_ref().map_or(0, |v| v.len()))
         .collect();
 
-    // Build decision tree (lines 267-321)
-    // Sibling subtrees are processed in parallel via rayon; each returns
-    // its collected (node_index, DecisionNode) pairs which we scatter here.
-    let mut decision_kmers: Vec<Option<DecisionNode>> = vec![None; taxonomy.len()];
-    let (_root_profile, _root_desc, nodes) = create_tree(
-        0,
-        &children,
-        &sequences_per_node,
-        &kmers,
-        n_kmers,
-        config,
-    );
-    for (idx, dk) in nodes {
-        decision_kmers[idx] = Some(dk);
-    }
-    // Compute IDF weights early (needed by fraction loop when use_idf_in_training=true,
-    // and always stored in the final model). IDF doesn't depend on fractions.
+    // IDF computation (moved before create_tree — independent of tree output)
     let class_counts = {
         let mut counts = HashMap::new();
         for c in &classes {
@@ -322,9 +350,7 @@ fn _learn_taxa_inner(
         .map(|&c| (n_classes as f64 / (1.0 + c)).ln())
         .collect();
 
-    // Learn fractions (lines 323-420) — batch, order-independent
-    // Pre-compute per-sequence identity hashes for deterministic PRNG seeding
-    // regardless of input order. Hash(sequence content + taxonomy) → unique identity.
+    // Seq hash precompute (moved before create_tree — independent of tree output)
     let seq_hashes: Vec<u64> = sequences
         .iter()
         .zip(taxonomy_strings.iter())
@@ -336,8 +362,67 @@ fn _learn_taxa_inner(
         })
         .collect();
 
-    let mut fraction: Vec<Option<f64>> = vec![Some(config.max_fraction); taxonomy.len()];
-    let mut incorrect: Vec<Option<bool>> = vec![Some(true); l]; // Some(true)=incorrect, Some(false)=correct, None=gave up
+    Ok(PreparedData {
+        k,
+        n_kmers,
+        kmers,
+        inverted_index,
+        classes,
+        taxonomy,
+        taxa,
+        levels,
+        children,
+        parents,
+        end_taxonomy,
+        sequences_per_node,
+        n_seqs,
+        cross_index,
+        idf_weights,
+        seq_hashes,
+        seed_pattern,
+    })
+}
+
+fn _build_tree_inner(
+    prepared: &PreparedData,
+    config: &BuildTreeConfig,
+) -> Result<BuiltTree, String> {
+    let train_config = TrainConfig {
+        record_kmers_fraction: config.record_kmers_fraction,
+        descendant_weighting: config.descendant_weighting,
+        correlation_aware_features: config.correlation_aware_features,
+        max_children: config.max_children,
+        processors: config.processors,
+        ..Default::default()
+    };
+
+    let mut decision_kmers: Vec<Option<DecisionNode>> = vec![None; prepared.taxonomy.len()];
+    let (_root_profile, _root_desc, nodes) = create_tree(
+        0,
+        &prepared.children,
+        &prepared.sequences_per_node,
+        &prepared.kmers,
+        prepared.n_kmers,
+        &train_config,
+    );
+    for (idx, dk) in nodes {
+        decision_kmers[idx] = Some(dk);
+    }
+
+    Ok(BuiltTree { decision_kmers })
+}
+
+fn _learn_fractions_inner(
+    prepared: &PreparedData,
+    built_tree: &BuiltTree,
+    config: &LearnFractionsConfig,
+    seed: u32,
+) -> Result<TrainingSet, String> {
+    let l = prepared.kmers.len();
+    let b: usize = 100;
+
+    let mut fraction: Vec<Option<f64>> = vec![Some(config.max_fraction); prepared.taxonomy.len()];
+    let mut incorrect: Vec<Option<bool>> = vec![Some(true); l];
     let mut predicted = vec![String::new(); l];
     let delta = (config.max_fraction - config.min_fraction) * config.multiplier;
 
@@ -353,26 +438,24 @@ fn _learn_taxa_inner(
             break;
         }
 
-        // Snapshot fractions so all sequences see the same values this iteration
         let fraction_snapshot = fraction.clone();
 
-        // Classify all remaining sequences (order-independent, parallel)
         let results: Vec<(usize, bool, usize, String)> = remaining
             .par_iter()
             .map(|&i| {
-                if kmers[i].is_empty() {
+                if prepared.kmers[i].is_empty() {
                     return (i, true, 0, String::new());
                 }
 
                 let mut seq_rng =
-                    RRng::new(mix_seed(seed, (_it as u64) * 1_000_000 + seq_hashes[i]));
+                    RRng::new(mix_seed(seed, (_it as u64) * 1_000_000 + prepared.seq_hashes[i]));
                 let mut k_node = 0usize;
                 let mut correct = true;
                 let mut pred = String::new();
 
                 loop {
-                    let subtrees = &children[k_node];
-                    let dk = &decision_kmers[k_node];
+                    let subtrees = &prepared.children[k_node];
+                    let dk = &built_tree.decision_kmers[k_node];
 
                     if dk.is_none() || dk.as_ref().unwrap().keep.is_empty() {
                         break;
@@ -389,15 +472,13 @@ fn _learn_taxa_inner(
 
                         let sampling = seq_rng.sample_int_replace(n, s * b);
 
-                        let matches = int_match(&dk.keep, &kmers[i]);
+                        let matches = int_match(&dk.keep, &prepared.kmers[i]);
 
-                        // LOO: find which subtree this sequence belongs to
-                        // and the group size for its subtree
                         let loo_child_idx = if config.leave_one_out {
                             subtrees.iter().enumerate().find(|(_, &st)| {
-                                classes[i].starts_with(&end_taxonomy[st])
+                                prepared.classes[i].starts_with(&prepared.end_taxonomy[st])
                             }).map(|(j, &st)| {
-                                let group_size = n_seqs[st];
+                                let group_size = prepared.n_seqs[st];
                                 (j, group_size)
                             })
                         } else {
@@ -409,8 +490,8 @@ fn _learn_taxa_inner(
                             let mut weights_j: Vec<f64> = if config.use_idf_in_training {
                                 dk.profiles[j].iter().zip(dk.keep.iter())
                                     .map(|(&prof, &km)| {
-                                        let idf = if km > 0 && (km as usize) <= idf_weights.len() {
-                                            idf_weights[(km - 1) as usize]
+                                        let idf = if km > 0 && (km as usize) <= prepared.idf_weights.len() {
+                                            prepared.idf_weights[(km - 1) as usize]
                                         } else { 0.0 };
                                         prof * idf
                                     })
@@ -419,14 +500,11 @@ fn _learn_taxa_inner(
                                 dk.profiles[j].clone()
                             };
 
-                            // LOO adjustment: reduce weights for this sequence's own subtree
                             if let Some((loo_j, group_size)) = loo_child_idx {
                                 if j == loo_j && group_size <= 5 {
                                     if group_size <= 1 {
-                                        // Singleton: zero out weights (can't self-classify)
                                         for w in &mut weights_j { *w = 0.0; }
                                     } else {
-                                        // Scale by (n-1)/n to approximate removing this sequence
                                         let scale = (group_size - 1) as f64 / group_size as f64;
                                         for w in &mut weights_j { *w *= scale; }
                                     }
@@ -461,18 +539,18 @@ fn _learn_taxa_inner(
                             break;
                         }
 
-                        if !classes[i].starts_with(&end_taxonomy[subtrees[w]]) {
+                        if !prepared.classes[i].starts_with(&prepared.end_taxonomy[subtrees[w]]) {
                             correct = false;
-                            pred = taxonomy[subtrees[w]].clone();
+                            pred = prepared.taxonomy[subtrees[w]].clone();
                             break;
                         }
 
-                        if children[subtrees[w]].is_empty() {
+                        if prepared.children[subtrees[w]].is_empty() {
                             break;
                         }
                         k_node = subtrees[w];
                     } else {
-                        if children[subtrees[0]].is_empty() {
+                        if prepared.children[subtrees[0]].is_empty() {
                             break;
                         }
                         k_node = subtrees[0];
@@ -483,7 +561,6 @@ fn _learn_taxa_inner(
             })
             .collect();
 
-        // Apply batch updates: collect failures per node, then update fractions
         let mut node_failures: HashMap<usize, Vec<usize>> = HashMap::new();
         for &(seq_idx, correct, fail_node, ref pred) in &results {
             if correct {
@@ -494,12 +571,9 @@ fn _learn_taxa_inner(
             }
         }
 
-        // Apply capped decrements per node: each failure contributes delta/n_seqs,
-        // but the total per-iteration decrement is capped at half the remaining
-        // headroom to prevent a single batch from cratering the fraction.
         for (&node, seq_indices) in &node_failures {
             if let Some(f) = fraction[node] {
-                let per_failure = delta / n_seqs[node] as f64;
+                let per_failure = delta / prepared.n_seqs[node] as f64;
                 let raw_decrement = per_failure * seq_indices.len() as f64;
                 let headroom = f - config.min_fraction;
                 let capped_decrement = raw_decrement.min(headroom * 0.5);
@@ -513,7 +587,6 @@ fn _learn_taxa_inner(
                     fraction[node] = Some(new_f);
                 }
             } else {
-                // Node already at None — mark sequences as gave-up
                 for &si in seq_indices {
                     incorrect[si] = None;
                 }
@@ -521,13 +594,12 @@ fn _learn_taxa_inner(
         }
     }
 
-    // Record problem sequences and groups (lines 422-441)
     let mut problem_sequences: Vec<ProblemSequence> = Vec::new();
     for (i, inc) in incorrect.iter().enumerate() {
         if inc != &Some(false) {
             problem_sequences.push(ProblemSequence {
-                index: i + 1, // 1-indexed like R
-                expected: format!("Root;{}", classes[i]),
+                index: i + 1,
+                expected: format!("Root;{}", prepared.classes[i]),
                 predicted: predicted[i].clone(),
             });
         }
@@ -537,29 +609,42 @@ fn _learn_taxa_inner(
         .iter()
         .enumerate()
         .filter(|(_, f)| f.is_none())
-        .map(|(i, _)| taxonomy[i].clone())
+        .map(|(i, _)| prepared.taxonomy[i].clone())
         .collect();
 
-    // Assemble result (lines 455-471)
     Ok(TrainingSet {
-        taxonomy,
-        taxa,
+        taxonomy: prepared.taxonomy.clone(),
+        taxa: prepared.taxa.clone(),
         ranks: None,
-        levels,
-        children,
-        parents,
+        levels: prepared.levels.clone(),
+        children: prepared.children.clone(),
+        parents: prepared.parents.clone(),
         fraction,
-        sequences: sequences_per_node,
-        kmers,
-        cross_index,
-        k,
-        idf_weights,
-        decision_kmers,
+        sequences: prepared.sequences_per_node.clone(),
+        kmers: prepared.kmers.clone(),
+        cross_index: prepared.cross_index.clone(),
+        k: prepared.k,
+        idf_weights: prepared.idf_weights.clone(),
+        decision_kmers: built_tree.decision_kmers.clone(),
         problem_sequences,
         problem_groups,
-        seed_pattern: config.seed_pattern.clone(),
-        inverted_index: Some(inverted_index),
+        seed_pattern: prepared.seed_pattern.clone(),
+        inverted_index: Some(prepared.inverted_index.clone()),
     })
+}
+
+fn _learn_taxa_inner(
+    sequences: &[String],
+    taxonomy_strings: &[String],
+    config: &TrainConfig,
+    seed: u32,
+) -> Result<TrainingSet, String> {
+    let prepared = _prepare_data_inner(
+        sequences, taxonomy_strings,
+        config.k, config.n, config.seed_pattern.clone(),
+    )?;
+    let built_tree = _build_tree_inner(&prepared, &BuildTreeConfig::from(config))?;
+    _learn_fractions_inner(&prepared, &built_tree, &LearnFractionsConfig::from(config), seed)
 }
 
 /// Compute the p-th percentile of nchar values.

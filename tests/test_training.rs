@@ -1,8 +1,8 @@
 mod common;
 
 use common::{assert_approx_eq, golden_json_dir, load_json};
-use oxidtaxa::training::learn_taxa;
-use oxidtaxa::types::TrainConfig;
+use oxidtaxa::training::{learn_taxa, prepare_data, build_tree, learn_fractions};
+use oxidtaxa::types::{BuildTreeConfig, DescendantWeighting, LearnFractionsConfig, TrainConfig};
 
 /// Golden training set structure from JSON.
 #[derive(serde::Deserialize, Debug)]
@@ -178,4 +178,51 @@ fn test_training_8e_explicit_k() {
     let config_k10 = TrainConfig { k: Some(10), ..Default::default() };
     let result_k10 = learn_taxa(&seqs, &tax, &config_k10, 42, false).unwrap();
     compare_training_set("8e_k10", &golden_k10, &result_k10);
+}
+
+#[test]
+fn test_staged_training_equivalence() {
+    let (seqs, tax) = load_training_inputs("s08a_filtered_seqs", "s08a_taxonomy_vec");
+
+    // Single-phase (existing path)
+    let config = TrainConfig::default();
+    let single = learn_taxa(&seqs, &tax, &config, 42, false).unwrap();
+
+    // Three-phase
+    let prepared = prepare_data(&seqs, &tax, None, 500.0, None, 1).unwrap();
+    let build_config = BuildTreeConfig {
+        record_kmers_fraction: 0.10,
+        descendant_weighting: DescendantWeighting::Count,
+        correlation_aware_features: false,
+        max_children: 200,
+        processors: 1,
+    };
+    let built = build_tree(&prepared, &build_config).unwrap();
+    let frac_config = LearnFractionsConfig {
+        training_threshold: 0.8,
+        use_idf_in_training: false,
+        leave_one_out: false,
+        min_fraction: 0.01,
+        max_fraction: 0.06,
+        max_iterations: 10,
+        multiplier: 100.0,
+        processors: 1,
+    };
+    let staged = learn_fractions(&prepared, &built, &frac_config, 42).unwrap();
+
+    // Must be bit-identical
+    assert_eq!(single.k, staged.k);
+    assert_eq!(single.taxonomy, staged.taxonomy);
+    assert_eq!(single.kmers, staged.kmers);
+    assert_eq!(single.idf_weights, staged.idf_weights);
+    assert_eq!(single.fraction, staged.fraction);
+    assert_eq!(single.decision_kmers.len(), staged.decision_kmers.len());
+    assert_eq!(single.problem_sequences.len(), staged.problem_sequences.len());
+    assert_eq!(single.problem_groups, staged.problem_groups);
+    assert_eq!(single.taxa, staged.taxa);
+    assert_eq!(single.levels, staged.levels);
+    assert_eq!(single.children, staged.children);
+    assert_eq!(single.parents, staged.parents);
+    assert_eq!(single.cross_index, staged.cross_index);
+    assert_eq!(single.seed_pattern, staged.seed_pattern);
 }

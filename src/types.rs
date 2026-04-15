@@ -45,6 +45,111 @@ pub struct TrainingSet {
     pub inverted_index: Option<Vec<Vec<u32>>>,
 }
 
+/// Intermediate training data: k-mer enumeration, taxonomy tree, and IDF weights.
+///
+/// Output of the "prepare" phase — everything computed from
+/// (sequences, taxonomy, k, seed_pattern). Cache keyed on these params.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreparedData {
+    pub k: usize,
+    pub n_kmers: usize,
+    pub kmers: Vec<Vec<i32>>,
+    pub inverted_index: Vec<Vec<u32>>,
+    pub classes: Vec<String>,
+    pub taxonomy: Vec<String>,
+    pub taxa: Vec<String>,
+    pub levels: Vec<i32>,
+    pub children: Vec<Vec<usize>>,
+    pub parents: Vec<usize>,
+    pub end_taxonomy: Vec<String>,
+    pub sequences_per_node: Vec<Option<Vec<usize>>>,
+    pub n_seqs: Vec<usize>,
+    pub cross_index: Vec<usize>,
+    pub idf_weights: Vec<f64>,
+    pub seq_hashes: Vec<u64>,
+    pub seed_pattern: Option<String>,
+}
+
+/// Decision tree nodes produced by feature selection.
+///
+/// Output of the "build tree" phase. Does NOT embed PreparedData —
+/// learn_fractions() takes both as separate arguments. This keeps
+/// serialized tree files small (~5-10 MB vs ~45 MB if embedded).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuiltTree {
+    pub decision_kmers: Vec<Option<DecisionNode>>,
+}
+
+impl PreparedData {
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let encoded = bincode::serialize(self).map_err(|e| format!("serialize: {e}"))?;
+        std::fs::write(path, encoded).map_err(|e| format!("write {path}: {e}"))
+    }
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+        bincode::deserialize(&data).map_err(|e| format!("deserialize {path}: {e}"))
+    }
+}
+
+impl BuiltTree {
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let encoded = bincode::serialize(self).map_err(|e| format!("serialize: {e}"))?;
+        std::fs::write(path, encoded).map_err(|e| format!("write {path}: {e}"))
+    }
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+        bincode::deserialize(&data).map_err(|e| format!("deserialize {path}: {e}"))
+    }
+}
+
+/// Config for the tree-building phase.
+pub struct BuildTreeConfig {
+    pub record_kmers_fraction: f64,
+    pub descendant_weighting: DescendantWeighting,
+    pub correlation_aware_features: bool,
+    pub max_children: usize,
+    pub processors: usize,
+}
+
+/// Config for the fraction-learning phase.
+pub struct LearnFractionsConfig {
+    pub training_threshold: f64,
+    pub use_idf_in_training: bool,
+    pub leave_one_out: bool,
+    pub min_fraction: f64,
+    pub max_fraction: f64,
+    pub max_iterations: usize,
+    pub multiplier: f64,
+    pub processors: usize,
+}
+
+impl From<&TrainConfig> for BuildTreeConfig {
+    fn from(c: &TrainConfig) -> Self {
+        Self {
+            record_kmers_fraction: c.record_kmers_fraction,
+            descendant_weighting: c.descendant_weighting,
+            correlation_aware_features: c.correlation_aware_features,
+            max_children: c.max_children,
+            processors: c.processors,
+        }
+    }
+}
+
+impl From<&TrainConfig> for LearnFractionsConfig {
+    fn from(c: &TrainConfig) -> Self {
+        Self {
+            training_threshold: c.training_threshold,
+            use_idf_in_training: c.use_idf_in_training,
+            leave_one_out: c.leave_one_out,
+            min_fraction: c.min_fraction,
+            max_fraction: c.max_fraction,
+            max_iterations: c.max_iterations,
+            multiplier: c.multiplier,
+            processors: c.processors,
+        }
+    }
+}
+
 /// Classification result for a single query sequence.
 #[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
