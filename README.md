@@ -9,14 +9,14 @@ High-performance taxonomic classifier for eDNA metabarcoding. A Rust rewrite of 
 ```bash
 # Build (requires Rust toolchain + Python 3.10+)
 pip install maturin
-maturin develop --manifest-path rust/Cargo.toml --release
+maturin develop --release
+```
 
-# Train a model
-python train_idtaxa.py reference.fasta taxonomy.tsv model.bin
+```python
+from oxidtaxa import train, classify
 
-# Classify
-python classify_idtaxa.py query.fasta model.bin results.tsv \
-    40 both 0.98 0.0 8
+train("reference.fasta", "taxonomy.tsv", "model.bin")
+results = classify("query.fasta", "model.bin")
 ```
 
 ## Python API
@@ -32,12 +32,14 @@ train(
     seed=42,
     k=None,                            # k-mer size (None = auto from sequence lengths)
     record_kmers_fraction=0.10,        # fraction of top k-mers per decision node
+    verbose=True,                      # print progress during training
     seed_pattern=None,                 # spaced seed (e.g., "11011011011"). None = contiguous
     training_threshold=0.8,            # vote fraction to descend during fraction learning
     descendant_weighting="count",      # "count", "equal", or "log"
     use_idf_in_training=False,         # IDF-weighted scoring during training descent
     leave_one_out=False,               # reduce self-classification bias for small groups
     correlation_aware_features=False,  # greedy feature selection with redundancy penalty
+    processors=1,                      # threads for tree construction + fraction learning
 )
 
 # Classify — returns List[ClassificationResult] in-memory. Pass output_path
@@ -54,6 +56,7 @@ results = classify(
     processors=8,                      # threads
     sample_exponent=0.47,              # k-mers per bootstrap: S = L^exponent
     seed=42,
+    deterministic=False,               # True = R-compatible sequential PRNG
     length_normalize=False,            # normalize scores by training sequence length
     rank_thresholds=None,              # per-rank thresholds (e.g., [90, 80, 70, 60, 50, 40])
     beam_width=1,                      # candidate paths during tree descent (1 = greedy)
@@ -64,6 +67,27 @@ for r in results:
     print(r.confidence)    # list[float] — per-rank confidence percentages
     print(r.alternatives)  # list[str] — tied species (empty when unique)
 ```
+
+### Staged Training API
+
+For parameter sweeps (e.g., with Optuna), training can be decomposed into three independently serializable stages. This avoids recomputing expensive steps when only downstream parameters change.
+
+```python
+from oxidtaxa import prepare_data, build_tree, learn_fractions
+
+# Stage 1: K-mer enumeration + IDF weights (reuse across all tree/fraction configs)
+data = prepare_data("reference.fasta", "taxonomy.tsv", k=8, processors=8)
+
+# Stage 2: Feature selection + tree construction (reuse across fraction configs)
+tree = build_tree(data, record_kmers_fraction=0.10, processors=8)
+
+# Stage 3: Fraction learning (fast — only this needs to re-run per config)
+learn_fractions(data, tree, "model.bin", seed=42, training_threshold=0.8)
+learn_fractions(data, tree, "model_strict.bin", seed=42, training_threshold=0.98)
+learn_fractions(data, tree, "model_loo.bin", seed=42, leave_one_out=True)
+```
+
+`PreparedData` and `BuiltTree` objects can be saved/loaded with `.save(path)` / `.load(path)`.
 
 ### Tied-species resolution
 
@@ -101,8 +125,9 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). Corrects bias from longer references accumulating more k-mer hits. Most useful for variable-length markers. |
 | **rank_thresholds** | None | list of floats | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set, overrides the single `threshold` parameter. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). If shorter than the predicted path, the last value is reused. |
 | **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent (original IDTAXA). At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
+| **deterministic** | false | true/false | When true, uses a single shared PRNG for R-compatible sequential output. When false (default), each query gets an independent PRNG for parallel execution. |
 | **processors** | 1 | 1+ | Number of threads for parallel classification. |
-| **seed** | 42 | any u32 | PRNG seed. Each query gets an independent PRNG seeded with seed XOR query_index. |
+| **seed** | 42 | any u32 | PRNG seed. In non-deterministic mode, each query gets seed XOR query_index. |
 
 ### Training Parameters
 
@@ -114,9 +139,11 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **training_threshold** | 0.8 | 0.0-1.0 | Bootstrap vote fraction required to descend during fraction learning. R's IDTAXA hardcodes 0.8. Set closer to `min_descend` (e.g., 0.98) for consistent training/classification thresholds — sequences that wouldn't pass classification descent won't pass training descent either. |
 | **descendant_weighting** | "count" | count/equal/log | How to weight child profiles when computing the merged profile for cross-entropy feature selection. "count" = weight by raw descendant count (original IDTAXA). "equal" = 1/n_children each, preventing large clades from dominating feature selection. "log" = log(1+descendants), a middle ground. |
 | **use_idf_in_training** | false | true/false | Multiply profile weights by IDF weights during the fraction-learning tree descent. Without this, training uses raw profile frequencies while classification uses IDF-weighted scores — a train/test mismatch. Enabling this calibrates fractions under the same scoring regime used at classification time. |
-| **leave_one_out** | false | true/false | Reduce self-classification bias for small taxonomy groups during fraction learning. For groups with ≤5 sequences, adjusts profile weights to approximate excluding the test sequence from its own group's profile. Singletons get zero'd weights (can't self-classify). Most impactful for databases with many single-sequence species. |
+| **leave_one_out** | false | true/false | Reduce self-classification bias for small taxonomy groups during fraction learning. For groups with 2-5 sequences, scales profile weights by (n-1)/n to approximate excluding the test sequence from its own group's profile. Singletons are skipped (no meaningful LOO signal with one member). Most impactful for databases with many low-count species. |
 | **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. At each step, selects the k-mer maximizing `entropy * (1 - max_correlation_with_selected)`. Produces a more diverse, efficient feature set. Slower training but no impact on classification speed. |
+| **processors** | 1 | 1+ | Number of threads. Parallelizes tree construction (sibling subtrees) and fraction learning (sequences within each iteration). |
 | **seed** | 42 | any u32 | PRNG seed for the training bootstrap loop. |
+| **verbose** | true | true/false | Print progress during training (iteration counts, problem sequences/groups). |
 
 ### Spaced K-mers
 
@@ -319,9 +346,9 @@ src/
 
 Oxidtaxa was initially validated against R/C IDTAXA with 51 golden tests verifying bit-level agreement across 13 scenarios (threshold sweeps, strand modes, bootstrap counts, edge cases). Having proven algorithmic equivalence, Oxidtaxa now diverges from R in specific areas where the original design was constrained by R's single-threaded execution model rather than algorithmic necessity:
 
-**Classification (already diverged):** Each query gets an independent PRNG (`seed XOR index`) instead of R's shared sequential PRNG. This makes classification order-independent and fully parallelizable. Results are statistically equivalent but not bit-identical to R.
+**Classification:** Each query gets an independent PRNG (`seed XOR index`) instead of R's shared sequential PRNG. This makes classification order-independent and fully parallelizable. Results are statistically equivalent but not bit-identical to R.
 
-**Training fraction learning (planned):** R's LearnTaxa uses sequential per-sequence fraction updates — a Gauss-Seidel-style approach where each misclassification immediately decrements the sampling fraction, and subsequent sequences see the updated value within the same iteration. This has a useful self-correcting property (early corrections prevent over-decrementing at the same node), but it makes training inherently sequential. We preserve this sequential-within-node behavior but plan to parallelize across independent taxonomy nodes, since fraction updates at different nodes do not interact.
+**Training fraction learning:** R's LearnTaxa uses sequential per-sequence fraction updates — a Gauss-Seidel-style approach where each misclassification immediately decrements the sampling fraction, and subsequent sequences see the updated value within the same iteration. Oxidtaxa instead processes all sequences in parallel within each iteration and applies batch fraction updates at the end. This enables multi-threaded training but produces slightly different fractions — baseline tests show 87-93% path agreement with R on identical inputs.
 
 ## File Format
 
@@ -359,16 +386,13 @@ Binary (bincode). Not compatible with R's `.rds` format. Train separately for Ox
 
 ```bash
 # Run tests
-cargo test --manifest-path rust/Cargo.toml --release
+cargo test --release
 
 # Run benchmarks (Criterion)
-cargo bench --manifest-path rust/Cargo.toml
-
-# Run end-to-end comparison
-bash benchmarks/run_benchmark.sh
+cargo bench
 
 # Build Python wheel
-maturin develop --manifest-path rust/Cargo.toml --release
+maturin develop --release
 ```
 
 ## References
