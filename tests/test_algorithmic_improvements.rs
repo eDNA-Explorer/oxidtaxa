@@ -305,6 +305,71 @@ fn test_correlation_aware_changes_decision_kmers() {
     assert!(diffs > 0, "Expected correlation-aware selection to produce different k-mers");
 }
 
+#[test]
+fn test_correlation_aware_parallel_matches_sequential() {
+    let (seqs, tax) = load_standard_data();
+
+    let base = TrainConfig {
+        correlation_aware_features: true,
+        record_kmers_fraction: 0.44,
+        ..TrainConfig::default()
+    };
+    let seq_config = TrainConfig { processors: 1, ..base };
+    let par_config = TrainConfig {
+        processors: 4,
+        ..TrainConfig {
+            correlation_aware_features: true,
+            record_kmers_fraction: 0.44,
+            ..TrainConfig::default()
+        }
+    };
+
+    let m_seq = learn_taxa(&seqs, &tax, &seq_config, 42, false).unwrap();
+    let m_par = learn_taxa(&seqs, &tax, &par_config, 42, false).unwrap();
+
+    let b_seq = bincode::serialize(&m_seq.decision_kmers).unwrap();
+    let b_par = bincode::serialize(&m_par.decision_kmers).unwrap();
+    assert_eq!(
+        b_seq, b_par,
+        "parallel correlation-aware output must equal sequential output"
+    );
+}
+
+#[test]
+fn test_correlation_aware_deterministic_output() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let (seqs, tax) = load_standard_data();
+    let config = TrainConfig {
+        correlation_aware_features: true,
+        record_kmers_fraction: 0.44,
+        ..TrainConfig::default()
+    };
+
+    // Train twice and assert bit-exact equality across runs (determinism).
+    let m1 = learn_taxa(&seqs, &tax, &config, 42, false).unwrap();
+    let m2 = learn_taxa(&seqs, &tax, &config, 42, false).unwrap();
+
+    let bytes1 = bincode::serialize(&m1.decision_kmers).unwrap();
+    let bytes2 = bincode::serialize(&m2.decision_kmers).unwrap();
+    assert_eq!(bytes1, bytes2, "decision_kmers must be bit-exact across runs");
+
+    // Lock the expected hash. Update this constant ONLY after manual
+    // verification that the new output is intentional. Record in the commit.
+    let mut hasher = DefaultHasher::new();
+    bytes1.hash(&mut hasher);
+    let actual = hasher.finish();
+
+    // Locked at Phase 0 baseline. If a phase intentionally alters tie-breaking
+    // or FP reduction order, update this and document in the commit message.
+    const EXPECTED_HASH: u64 = 0x86d65b441ed02bd8;
+    assert_eq!(
+        actual, EXPECTED_HASH,
+        "decision_kmers hash changed. If intentional, update constant."
+    );
+}
+
 // ============================================================================
 // Integration: All improvements combined
 // ============================================================================

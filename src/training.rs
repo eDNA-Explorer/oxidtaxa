@@ -872,13 +872,18 @@ fn create_tree(
                     cand_set.insert(kmer_idx);
                 }
             }
+            // Sort candidates for deterministic iteration order. Without this,
+            // HashSet iteration randomness leaks into tie-breaking of feature
+            // selection, making the output non-reproducible across runs.
+            let mut cand_sorted: Vec<usize> = cand_set.into_iter().collect();
+            cand_sorted.sort_unstable();
 
             // Build struct-of-arrays: flat row-major profile matrix for cache locality.
-            let mut kmer_indices = Vec::with_capacity(cand_set.len());
-            let mut entropies = Vec::with_capacity(cand_set.len());
-            let mut profiles_flat = Vec::with_capacity(cand_set.len() * n_children);
+            let mut kmer_indices = Vec::with_capacity(cand_sorted.len());
+            let mut entropies = Vec::with_capacity(cand_sorted.len());
+            let mut profiles_flat = Vec::with_capacity(cand_sorted.len() * n_children);
 
-            for &kmer_idx in &cand_set {
+            for &kmer_idx in &cand_sorted {
                 let mut prof_vec = Vec::with_capacity(n_children);
                 for p in profiles.iter() {
                     let val = match p.binary_search_by_key(&kmer_idx, |&(k, _)| k) {
@@ -922,54 +927,99 @@ fn create_tree(
             let mut is_selected = vec![false; n_cand];
             let mut result_set = HashSet::new();
 
-            // Selected features: contiguous buffer for cache-friendly correlation
-            let mut sel_profiles_flat: Vec<f64> = Vec::with_capacity(record_kmers * n_children);
-            let mut sel_stats: Vec<ProfileStats> = Vec::with_capacity(record_kmers);
-            let mut n_selected: usize = 0;
+            // Per-candidate running-max correlation against all selected features so far.
+            // Updated incrementally: each outer iteration adds exactly one correlation
+            // computation per not-selected candidate (against the newly-selected one),
+            // reducing total correlation work from O(R^2 * C) to O(R * C).
+            let mut max_corr: Vec<f64> = vec![0.0; n_cand];
+
+            // Phase 3: parallelize argmax + update when candidate pool is large
+            // enough to amortize rayon overhead. For small pools, sequential is
+            // strictly faster due to zero parallelism overhead and the
+            // entropy-descending early-exit optimization.
+            const PAR_THRESHOLD: usize = 2048;
+            let use_par = n_cand >= PAR_THRESHOLD && config.processors > 1;
 
             for _ in 0..record_kmers {
-                let mut best_ci = None;
-                let mut best_gain = f64::NEG_INFINITY;
-
-                for ci in 0..n_cand {
-                    if is_selected[ci] { continue; }
-                    let base_h = sorted_entropies[ci];
-                    // Early exit: candidates sorted by entropy descending,
-                    // so max possible gain <= base_h. If that can't beat best, stop.
-                    if base_h <= best_gain { break; }
-
-                    let cand_prof = &sorted_profiles_flat[ci * n_children..(ci + 1) * n_children];
-                    let cand_st = &cand_stats[ci];
-
-                    let mut max_corr: f64 = 0.0;
-                    for si in 0..n_selected {
-                        let sel_prof = &sel_profiles_flat[si * n_children..(si + 1) * n_children];
-                        let sel_st = &sel_stats[si];
-                        let corr = pearson_with_stats(cand_prof, cand_st, sel_prof, sel_st);
-                        if corr > max_corr { max_corr = corr; }
-                        if max_corr >= 1.0 { break; }
-                    }
-
-                    let gain = base_h * (1.0 - max_corr);
-                    if gain > best_gain {
-                        best_gain = gain;
-                        best_ci = Some(ci);
-                    }
-                }
-
-                match best_ci {
-                    Some(ci) => {
-                        is_selected[ci] = true;
-                        result_set.insert(sorted_kmer_indices[ci]);
-                        // Append to selected buffers
-                        let src = ci * n_children;
-                        sel_profiles_flat.extend_from_slice(
-                            &sorted_profiles_flat[src..src + n_children]
+                // 1. Argmax over not-selected candidates using cached max_corr.
+                let best_ci = if use_par {
+                    // Parallel: deterministic reduction. Tie-break on lower index
+                    // so the output matches the sequential version (which picks
+                    // the first ci at a given gain).
+                    let (bc, _bg) = (0..n_cand)
+                        .into_par_iter()
+                        .filter(|&ci| !is_selected[ci])
+                        .map(|ci| {
+                            let gain =
+                                sorted_entropies[ci] * (1.0 - max_corr[ci]);
+                            (ci, gain)
+                        })
+                        .reduce(
+                            || (usize::MAX, f64::NEG_INFINITY),
+                            |a, b| {
+                                if b.1 > a.1 { b }
+                                else if b.1 < a.1 { a }
+                                else if b.0 < a.0 { b }
+                                else { a }
+                            },
                         );
-                        sel_stats.push(cand_stats[ci].clone());
-                        n_selected += 1;
+                    if bc == usize::MAX { None } else { Some(bc) }
+                } else {
+                    // Sequential: retains the entropy-descending early exit,
+                    // which cannot be cheaply expressed in a parallel reduction.
+                    let mut best_ci = None;
+                    let mut best_gain = f64::NEG_INFINITY;
+                    for ci in 0..n_cand {
+                        if is_selected[ci] { continue; }
+                        let base_h = sorted_entropies[ci];
+                        if base_h <= best_gain { break; }
+                        let gain = base_h * (1.0 - max_corr[ci]);
+                        if gain > best_gain {
+                            best_gain = gain;
+                            best_ci = Some(ci);
+                        }
                     }
-                    None => break,
+                    best_ci
+                };
+
+                let ci = match best_ci { Some(ci) => ci, None => break };
+
+                // 2. Commit selection.
+                is_selected[ci] = true;
+                result_set.insert(sorted_kmer_indices[ci]);
+                let src = ci * n_children;
+                let new_prof_slice: &[f64] =
+                    &sorted_profiles_flat[src..src + n_children];
+                let new_st = cand_stats[ci].clone();
+
+                // 3. Incremental max_corr update against the newly-selected feature.
+                //    Skip candidates that are already selected or already saturated
+                //    at 1.0 (cannot contribute any gain).
+                if use_par {
+                    max_corr
+                        .par_iter_mut()
+                        .enumerate()
+                        .zip(cand_stats.par_iter())
+                        .for_each(|((cj, max_c), cj_st)| {
+                            if is_selected[cj] || *max_c >= 1.0 { return; }
+                            let cj_prof = &sorted_profiles_flat
+                                [cj * n_children..(cj + 1) * n_children];
+                            let corr = pearson_with_stats(
+                                cj_prof, cj_st, new_prof_slice, &new_st,
+                            );
+                            if corr > *max_c { *max_c = corr; }
+                        });
+                } else {
+                    for cj in 0..n_cand {
+                        if is_selected[cj] { continue; }
+                        if max_corr[cj] >= 1.0 { continue; }
+                        let cj_prof = &sorted_profiles_flat
+                            [cj * n_children..(cj + 1) * n_children];
+                        let corr = pearson_with_stats(
+                            cj_prof, &cand_stats[cj], new_prof_slice, &new_st,
+                        );
+                        if corr > max_corr[cj] { max_corr[cj] = corr; }
+                    }
                 }
             }
             result_set

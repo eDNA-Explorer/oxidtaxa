@@ -402,6 +402,39 @@ fn bench_learn_taxa_scaling(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_learn_taxa_scaling_corr_aware(c: &mut Criterion) {
+    let mut group = c.benchmark_group("learn_taxa_scaling_corr_aware");
+    group.sample_size(10);
+    group.measurement_time(std::time::Duration::from_secs(30));
+
+    for n in &[1000, 5000, 10000] {
+        let fasta = bench_data_path(&format!("bench_{}_ref.fasta", n));
+        let tax_path = bench_data_path(&format!("bench_{}_ref_taxonomy.tsv", n));
+        if !std::path::Path::new(&fasta).exists() { continue; }
+
+        let (names, seqs) = read_fasta(&fasta).unwrap();
+        let taxonomy = oxidtaxa::fasta::read_taxonomy(&tax_path, &names).unwrap();
+        let (fseqs, ftax) = filter_for_bench(&seqs, &taxonomy);
+        let config = TrainConfig {
+            correlation_aware_features: true,
+            record_kmers_fraction: 0.44,
+            processors: 8,
+            ..TrainConfig::default()
+        };
+
+        group.bench_with_input(
+            BenchmarkId::new("train", format!("{}refs", n)),
+            &(&fseqs, &ftax),
+            |b, (seqs, tax)| {
+                b.iter(|| {
+                    black_box(learn_taxa(black_box(seqs), black_box(tax), &config, 42, false).unwrap());
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 fn bench_id_taxa_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("id_taxa_scaling");
     group.sample_size(10);
@@ -455,6 +488,7 @@ criterion_group!(
     bench_id_taxa,
     bench_enumerate_scaling,
     bench_learn_taxa_scaling,
+    bench_learn_taxa_scaling_corr_aware,
     bench_id_taxa_scaling,
 );
 criterion_main!(benches);
