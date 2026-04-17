@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/ryanmartin/idtaxa-optim && poetry run python .claude/hooks/approve-variants.py"
+            "command": "cd /Users/ryanmartin/oxidtaxa && poetry run python .claude/hooks/approve-variants.py"
           }
         ]
       },
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/ryanmartin/idtaxa-optim && poetry run python .claude/hooks/on-user-question.py"
+            "command": "cd /Users/ryanmartin/oxidtaxa && poetry run python .claude/hooks/on-user-question.py"
           }
         ]
       }
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/ryanmartin/idtaxa-optim && poetry run python .claude/hooks/on-stop.py"
+            "command": "cd /Users/ryanmartin/oxidtaxa && poetry run python .claude/hooks/on-stop.py"
           }
         ]
       }
