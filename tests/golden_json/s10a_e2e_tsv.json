@@ -27,7 +27,8 @@
   {
     "read_id": "query_006",
     "taxonomic_path": "",
-    "confidence": 0
+    "confidence": 0,
+    "reject_reason": "below_threshold"
   },
   {
     "read_id": "query_007",
@@ -37,7 +38,8 @@
   {
     "read_id": "query_008",
     "taxonomic_path": "",
-    "confidence": 0
+    "confidence": 0,
+    "reject_reason": "below_threshold"
   },
   {
     "read_id": "query_009",
@@ -71,7 +73,8 @@
   },
   {
     "read_id": "query_015",
-    "taxonomic_path": "Eukaryota;Arthropoda;Insecta;Diptera;Culicidae;Aedes;Aedes_aegypti",
-    "confidence": 60.916319965254509
+    "taxonomic_path": "",
+    "confidence": 0,
+    "reject_reason": "below_threshold"
   }
 ]

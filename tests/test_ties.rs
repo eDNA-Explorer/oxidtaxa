@@ -71,16 +71,11 @@ fn two_way_tie_caps_at_genus_and_populates_alternatives() {
     assert_eq!(results.len(), 1);
     let r = &results[0];
 
-    // Lineage should end at Canis, then the unclassified placeholder.
-    assert!(
-        r.taxon.contains(&"Canis".to_string()),
-        "expected Canis in taxon, got {:?}",
-        r.taxon
-    );
+    // Lineage should terminate at Canis (the LCA of the tied species).
     assert_eq!(
         r.taxon.last().unwrap(),
-        "unclassified_Canis",
-        "expected lineage to terminate at unclassified_Canis, got {:?}",
+        "Canis",
+        "expected lineage to terminate at Canis, got {:?}",
         r.taxon
     );
     assert!(
@@ -167,7 +162,10 @@ fn tied_alternatives_appear_in_tsv_output() {
     let content = std::fs::read_to_string(&output_path).unwrap();
     let lines: Vec<&str> = content.lines().collect();
 
-    assert_eq!(lines[0], "read_id\ttaxonomic_path\tconfidence\talternatives");
+    assert_eq!(
+        lines[0],
+        "read_id\ttaxonomic_path\tconfidence\talternatives\treject_reason\tsimilarity"
+    );
     assert_eq!(
         lines.len(),
         2,
@@ -176,7 +174,7 @@ fn tied_alternatives_appear_in_tsv_output() {
     );
 
     let parts: Vec<&str> = lines[1].split('\t').collect();
-    assert_eq!(parts.len(), 4, "expected 4 columns, got {}", parts.len());
+    assert_eq!(parts.len(), 6, "expected 6 columns, got {}", parts.len());
     assert_eq!(parts[0], "tied_query");
     assert_eq!(parts[3], "Canis_latrans|Canis_lupus");
 

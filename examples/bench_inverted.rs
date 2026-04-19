@@ -66,11 +66,14 @@ fn main() {
             ranges.push(positions.len());
         }
 
+        // Use the species-level row of the per-rank IDF matrix (= the old
+        // global IDF). Good enough for this benchmark.
+        let idf_row = ts.idf_weights_by_rank.last().unwrap();
         let u_weights: Vec<f64> = u_sampling
             .iter()
             .map(|&uk| {
-                if uk > 0 && (uk as usize) <= ts.idf_weights.len() {
-                    ts.idf_weights[(uk - 1) as usize]
+                if uk > 0 && (uk as usize) <= idf_row.len() {
+                    idf_row[(uk - 1) as usize]
                 } else {
                     0.0
                 }

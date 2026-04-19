@@ -57,12 +57,22 @@ pub fn read_taxonomy(
 }
 
 /// Write classification results as TSV.
+///
+/// Schema (6 columns):
+///   read_id, taxonomic_path, confidence, alternatives, reject_reason, similarity
+///
+/// Empty-path rows preserve `result.confidence[0]` (the Root-level
+/// accumulated confidence) in the confidence column rather than hardcoding 0,
+/// so Path-C abstentions (below-threshold) are distinguishable from Path-A/B
+/// abstentions (no signal at all) by confidence > 0.
 pub fn write_classification_tsv(
     path: &str,
     names: &[String],
     results: &[crate::types::ClassificationResult],
 ) -> Result<(), String> {
-    let mut output = String::from("read_id\ttaxonomic_path\tconfidence\talternatives\n");
+    let mut output = String::from(
+        "read_id\ttaxonomic_path\tconfidence\talternatives\treject_reason\tsimilarity\n",
+    );
 
     for (i, result) in results.iter().enumerate() {
         let read_id = names[i]
@@ -71,37 +81,35 @@ pub fn write_classification_tsv(
             .unwrap_or(&names[i]);
 
         let alternatives_field = result.alternatives.join("|");
+        let reject_reason_field = result.reject_reason.as_deref().unwrap_or("");
+        let similarity_field = result.similarity;
 
-        let mut taxa = result.taxon.clone();
-        let mut conf = result.confidence.clone();
-
-        // Skip Root, filter unclassified
-        if taxa.len() > 1 {
-            taxa.remove(0);
-            conf.remove(0);
-            let mut filtered_taxa = Vec::new();
-            let mut filtered_conf = Vec::new();
-            for (t, c) in taxa.iter().zip(conf.iter()) {
-                if !t.starts_with("unclassified_") {
-                    filtered_taxa.push(t.as_str());
-                    filtered_conf.push(*c);
-                }
-            }
-            if !filtered_taxa.is_empty() {
-                let path_str = filtered_taxa.join(";");
-                let min_conf = filtered_conf
-                    .iter()
-                    .cloned()
-                    .fold(f64::INFINITY, f64::min);
-                output.push_str(&format!(
-                    "{}\t{}\t{}\t{}\n",
-                    read_id, path_str, min_conf, alternatives_field
-                ));
-            } else {
-                output.push_str(&format!("{}\t\t0\t{}\n", read_id, alternatives_field));
-            }
+        // Skip the leading "Root" element; remaining ranks form the path.
+        if result.taxon.len() > 1 {
+            let path_str = result.taxon[1..].join(";");
+            let min_conf = result.confidence[1..]
+                .iter()
+                .cloned()
+                .fold(f64::INFINITY, f64::min);
+            output.push_str(&format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\n",
+                read_id,
+                path_str,
+                min_conf,
+                alternatives_field,
+                reject_reason_field,
+                similarity_field,
+            ));
         } else {
-            output.push_str(&format!("{}\t\t0\t{}\n", read_id, alternatives_field));
+            let c0 = result.confidence.first().copied().unwrap_or(0.0);
+            output.push_str(&format!(
+                "{}\t\t{}\t{}\t{}\t{}\n",
+                read_id,
+                c0,
+                alternatives_field,
+                reject_reason_field,
+                similarity_field,
+            ));
         }
     }
 

@@ -184,12 +184,16 @@ fn classify_one_pass(
     let decision_kmers = &ts.decision_kmers;
 
     if my_kmers.len() <= s {
-        return None;
+        return Some((ClassificationResult::unclassified("too_few_kmers"), 0.0));
     }
 
     // Greedy tree descent (beam_width=1)
     let mut k_node = 0usize;
     let mut w_indices: Vec<usize>;
+    // I6: per-descent-step ratio `(top - runner_up) / b`, floored at 0.1, used
+    // later in `leaf_phase_score` to discount per-rank confidences. Only
+    // populated when `config.confidence_uses_descent_margin` is on.
+    let mut descent_margins: Vec<f64> = Vec::new();
     loop {
         let subtrees = &children[k_node];
         let dk = &decision_kmers[k_node];
@@ -222,6 +226,20 @@ fn classify_one_pass(
                     }
                 }
             }
+
+            if config.confidence_uses_descent_margin {
+                let mut sorted = vote_counts.clone();
+                sorted.sort_unstable_by(|a, b_| b_.cmp(a));
+                let top = *sorted.first().unwrap_or(&0) as f64;
+                let runner_up = *sorted.get(1).unwrap_or(&0) as f64;
+                let margin = if top > 0.0 {
+                    ((top - runner_up) / (b as f64)).max(0.1)
+                } else {
+                    1.0
+                };
+                descent_margins.push(margin);
+            }
+
             let w: Vec<usize> = vote_counts.iter().enumerate()
                 .filter(|(_, &c)| c >= (config.min_descend * b as f64) as usize)
                 .map(|(i, _)| i).collect();
@@ -239,7 +257,19 @@ fn classify_one_pass(
                 break;
             }
             let winner = w[0];
-            if children[subtrees[winner]].is_empty() { w_indices = vec![winner]; break; }
+            if children[subtrees[winner]].is_empty() {
+                // I7: optionally widen to include any sibling with
+                // vote_counts[j] >= 0.5 * b (winner always retained).
+                w_indices = if config.sibling_aware_leaf {
+                    let min_votes = ((b as f64) * 0.5) as usize;
+                    vote_counts.iter().enumerate()
+                        .filter(|(i, &c)| c >= min_votes || *i == winner)
+                        .map(|(i, _)| i).collect()
+                } else {
+                    vec![winner]
+                };
+                break;
+            }
             k_node = subtrees[winner];
         } else {
             if children[subtrees[0]].is_empty() { w_indices = vec![0]; break; }
@@ -247,7 +277,10 @@ fn classify_one_pass(
         }
     }
 
-    leaf_phase_score(k_node, &w_indices, my_kmers, s, b, ts, config, full_length, ls, rng)
+    leaf_phase_score(
+        k_node, &w_indices, my_kmers, s, b, ts, config, full_length, ls, rng,
+        &descent_margins,
+    )
 }
 
 /// Beam search variant: maintain multiple candidate paths during tree descent.
@@ -267,7 +300,7 @@ fn classify_one_pass_beam(
     let decision_kmers = &ts.decision_kmers;
 
     if my_kmers.len() <= s {
-        return None;
+        return Some((ClassificationResult::unclassified("too_few_kmers"), 0.0));
     }
 
     struct BeamCandidate {
@@ -428,10 +461,12 @@ fn classify_one_pass_beam(
 
     // Score each candidate via leaf phase, pick best
     let mut best: Option<(ClassificationResult, f64)> = None;
+    let empty_margins: Vec<f64> = Vec::new();
     for candidate in &active {
         if let Some((result, sim)) = leaf_phase_score(
             candidate.node, &candidate.w_indices,
             my_kmers, s, b, ts, config, full_length, ls, rng,
+            &empty_margins,
         ) {
             match &best {
                 None => best = Some((result, sim)),
@@ -457,14 +492,19 @@ fn leaf_phase_score(
     full_length: (f64, f64),
     ls: &[usize],
     rng: &mut RRng,
+    descent_margins: &[f64],
 ) -> Option<(ClassificationResult, f64)> {
     let children = &ts.children;
     let parents = &ts.parents;
     let sequences = &ts.sequences;
     let train_kmers = &ts.kmers;
     let cross_index = &ts.cross_index;
-    let counts = &ts.idf_weights;
     let taxa = &ts.taxa;
+
+    // Per-rank IDF: pick the row at the descent node's depth.
+    let descent_depth = (ts.levels.get(k_node).copied().unwrap_or(1) - 1).max(0) as usize;
+    let rank_idx = descent_depth.min(ts.idf_weights_by_rank.len().saturating_sub(1));
+    let counts: &[f64] = &ts.idf_weights_by_rank[rank_idx];
 
     // Gather training sequences
     let subtrees = &children[k_node];
@@ -480,7 +520,9 @@ fn leaf_phase_score(
             let tl = ls[idx] as f64;
             tl >= full_length.0 * my_len && tl <= full_length.1 * my_len
         });
-        if keep.is_empty() { return None; }
+        if keep.is_empty() {
+            return Some((ClassificationResult::unclassified("no_training_match"), 0.0));
+        }
     }
 
     // Sample query k-mers
@@ -552,7 +594,9 @@ fn leaf_phase_score(
     } else {
         parallel_match(&u_sampling, train_kmers, &keep, &u_weights, b, &positions, &ranges)
     };
-    if hits_flat.is_empty() { return None; }
+    if hits_flat.is_empty() {
+        return Some((ClassificationResult::unclassified("no_training_match"), 0.0));
+    }
 
     // Length normalization: scale each training sequence's scores by sqrt(n_unique / avg)
     if config.length_normalize {
@@ -645,8 +689,17 @@ fn leaf_phase_score(
 
     // Choose best group
     let max_tot = tot_hits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let winners: Vec<usize> = tot_hits.iter().enumerate()
-        .filter(|(_, &v)| v == max_tot).map(|(i, _)| i).collect();
+    // I5: with `tie_margin > 0`, any group scoring within `(1 - tie_margin)`
+    // of `max_tot` joins the tied set, feeding LCA-cap and `alternatives`.
+    // Default `tie_margin = 0.0` preserves exact-equality semantics.
+    let winners: Vec<usize> = if config.tie_margin > 0.0 && max_tot > 0.0 {
+        let cutoff = max_tot * (1.0 - config.tie_margin);
+        tot_hits.iter().enumerate()
+            .filter(|(_, &v)| v >= cutoff).map(|(i, _)| i).collect()
+    } else {
+        tot_hits.iter().enumerate()
+            .filter(|(_, &v)| v == max_tot).map(|(i, _)| i).collect()
+    };
     let selected = if winners.len() > 1 {
         let idx = rng.sample_int_replace(winners.len(), 1)[0];
         winners[idx]
@@ -685,6 +738,19 @@ fn leaf_phase_score(
         }
     }
 
+    // I6: multiply each rank's confidence by the cumulative product of
+    // per-descent-step margins. Discounts lineages that descended through
+    // near-ties. No-op when `descent_margins` is empty (default behavior).
+    if config.confidence_uses_descent_margin && !descent_margins.is_empty() {
+        let mut cumulative = 1.0f64;
+        for i in 0..confidences.len() {
+            if i < descent_margins.len() {
+                cumulative *= descent_margins[i];
+            }
+            confidences[i] *= cumulative;
+        }
+    }
+
     // When multiple groups are tied at `max_tot`, the classifier cannot honestly
     // resolve below the LCA of the tied set. Compute that LCA's position in
     // `predicteds` so the `above` filter can cap the reportable lineage there.
@@ -717,35 +783,49 @@ fn leaf_phase_score(
         (None, Vec::new())
     };
 
-    let above: Vec<usize> = confidences.iter().enumerate()
-        .filter(|(i, &c)| {
-            // Cap: when there's a tie, never report below the LCA.
-            if let Some(cap) = lca_cap {
-                if *i > cap { return false; }
-            }
-            let thresh = match &config.rank_thresholds {
-                Some(rt) if *i < rt.len() => rt[*i],
-                Some(rt) if !rt.is_empty() => *rt.last().unwrap(),
-                _ => config.threshold,
-            };
-            c >= thresh
-        })
-        .map(|(i, _)| i).collect();
+    // Build `above` as a contiguous prefix by breaking at the first rank that
+    // fails its threshold. This guarantees the reported lineage is always a
+    // valid rooted path (e.g., K;P;C), never skipping an intermediate rank when
+    // `rank_thresholds` uses different values per depth. Confidences are
+    // monotonically non-decreasing toward Root, so the default (global
+    // threshold) case already produces a prefix — the loop form just makes the
+    // contiguity invariant explicit.
+    let mut above: Vec<usize> = Vec::with_capacity(confidences.len());
+    for (i, &c) in confidences.iter().enumerate() {
+        if let Some(cap) = lca_cap {
+            if i > cap { break; }
+        }
+        let thresh = match &config.rank_thresholds {
+            Some(rt) if i < rt.len() => rt[i],
+            Some(rt) if !rt.is_empty() => *rt.last().unwrap(),
+            _ => config.threshold,
+        };
+        if c >= thresh {
+            above.push(i);
+        } else {
+            break;
+        }
+    }
 
     let result = if above.len() == predicteds.len() {
         ClassificationResult {
             taxon: predicteds.iter().map(|&p| taxa[p].clone()).collect(),
             confidence: confidences,
             alternatives: alternatives.clone(),
+            reject_reason: None,
+            similarity,
         }
     } else {
         let w = if above.is_empty() { vec![0] } else { above };
-        let last_w = *w.last().unwrap();
-        let mut taxon: Vec<String> = w.iter().map(|&i| taxa[predicteds[i]].clone()).collect();
-        taxon.push(format!("unclassified_{}", taxa[predicteds[last_w]]));
-        let mut conf: Vec<f64> = w.iter().map(|&i| confidences[i]).collect();
-        conf.push(confidences[last_w]);
-        ClassificationResult { taxon, confidence: conf, alternatives }
+        let taxon: Vec<String> = w.iter().map(|&i| taxa[predicteds[i]].clone()).collect();
+        let conf: Vec<f64> = w.iter().map(|&i| confidences[i]).collect();
+        ClassificationResult {
+            taxon,
+            confidence: conf,
+            alternatives,
+            reject_reason: Some("below_threshold".to_string()),
+            similarity,
+        }
     };
 
     Some((result, similarity))
@@ -760,7 +840,7 @@ fn classify_sequential(
     rng: &mut RRng,
 ) -> Vec<ClassificationResult> {
     let n = pre.test_kmers.len();
-    let mut results = vec![ClassificationResult::unclassified(); n];
+    let mut results = vec![ClassificationResult::unclassified("no_result"); n];
     let mut sims = vec![0.0f64; n];
 
     // Build iteration order: forward then reverse
@@ -831,10 +911,11 @@ fn classify_parallel(
                     }
                     (Some((r, _)), None) => r,
                     (None, Some((r, _))) => r,
-                    (None, None) => ClassificationResult::unclassified(),
+                    (None, None) => ClassificationResult::unclassified("no_result"),
                 }
             } else {
-                fwd.map(|(r, _)| r).unwrap_or_else(ClassificationResult::unclassified)
+                fwd.map(|(r, _)| r)
+                    .unwrap_or_else(|| ClassificationResult::unclassified("no_result"))
             }
         })
         .collect()

@@ -88,13 +88,30 @@ fn compare_training_set(label: &str, golden: &GoldenTrainingSet, result: &oxidta
         assert_eq!(got, &exp_i32, "{}: kmers[{}] mismatch", label, i);
     }
 
-    // IDFweights (float comparison)
-    assert_eq!(result.idf_weights.len(), golden.idf_weights.len(), "{}: IDFweights length mismatch", label);
-    let max_diff: f64 = result.idf_weights.iter()
+    // IDFweights — the golden R output stored a single species-level IDF
+    // vector; our per-rank matrix's deepest row is the equivalent (distinct
+    // taxonomic prefixes at max depth = distinct species).
+    let deepest = result
+        .idf_weights_by_rank
+        .last()
+        .unwrap_or_else(|| panic!("{}: idf_weights_by_rank is empty", label));
+    assert_eq!(
+        deepest.len(),
+        golden.idf_weights.len(),
+        "{}: IDFweights length mismatch",
+        label
+    );
+    let max_diff: f64 = deepest
+        .iter()
         .zip(golden.idf_weights.iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f64, f64::max);
-    assert!(max_diff < 1e-10, "{}: IDFweights max diff {} >= 1e-10", label, max_diff);
+    assert!(
+        max_diff < 1e-10,
+        "{}: IDFweights max diff {} >= 1e-10",
+        label,
+        max_diff
+    );
 
     // fraction (with NA matching)
     assert_eq!(result.fraction.len(), golden.fraction.len(), "{}: fraction length mismatch", label);
@@ -214,7 +231,7 @@ fn test_staged_training_equivalence() {
     assert_eq!(single.k, staged.k);
     assert_eq!(single.taxonomy, staged.taxonomy);
     assert_eq!(single.kmers, staged.kmers);
-    assert_eq!(single.idf_weights, staged.idf_weights);
+    assert_eq!(single.idf_weights_by_rank, staged.idf_weights_by_rank);
     assert_eq!(single.fraction, staged.fraction);
     assert_eq!(single.decision_kmers.len(), staged.decision_kmers.len());
     assert_eq!(single.problem_sequences.len(), staged.problem_sequences.len());

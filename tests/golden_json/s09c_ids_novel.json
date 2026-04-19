@@ -1,14 +1,26 @@
 {
   "random1": {
-    "taxon": ["Root", "unclassified_Root"],
-    "confidence": [5.1351007536427709, 5.1351007536427709]
+    "taxon": [
+      "Root"
+    ],
+    "confidence": [
+      5.135100753642771
+    ]
   },
   "random2": {
-    "taxon": ["Root", "unclassified_Root"],
-    "confidence": [9.1236528575947258, 9.1236528575947258]
+    "taxon": [
+      "Root"
+    ],
+    "confidence": [
+      9.123652857594726
+    ]
   },
   "random3": {
-    "taxon": ["Root", "unclassified_Root"],
-    "confidence": [7.5144487992054296, 7.5144487992054296]
+    "taxon": [
+      "Root"
+    ],
+    "confidence": [
+      7.51444879920543
+    ]
   }
 }

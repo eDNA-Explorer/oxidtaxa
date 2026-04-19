@@ -93,7 +93,7 @@ learn_fractions(data, tree, "model_loo.bin", seed=42, leave_one_out=True)
 
 When two or more reference sequences produce identical top-scoring matches for a query (common for marker genes where congeneric species share 100% sequence identity), the classifier will:
 
-1. **Cap the primary assignment at the lowest common ancestor of the tied set.** For example, if *Canis lupus* and *Canis latrans* tie exactly, `taxon` ends at `Canis` followed by `unclassified_Canis` — never at either species, even if per-rank confidence at the species level would otherwise clear the threshold. The classifier never reports an assignment it cannot defend.
+1. **Cap the primary assignment at the lowest common ancestor of the tied set.** For example, if *Canis lupus* and *Canis latrans* tie exactly, `taxon` ends at `Canis` — never at either species, even if per-rank confidence at the species level would otherwise clear the threshold. The classifier never reports an assignment it cannot defend.
 2. **Report every tied species in `alternatives`**, as short-labels (e.g. `Canis_latrans`, `Canis_lupus`), sorted alphabetically.
 
 ```python
@@ -374,7 +374,7 @@ asv_4      Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis    100.00      Ca
 ```
 
 - `read_id`: First whitespace-delimited word from FASTA header
-- `taxonomic_path`: Semicolon-delimited, Root stripped, `unclassified_*` filtered
+- `taxonomic_path`: Semicolon-delimited, Root stripped. Truncated at the last confidently-classified rank; no synthetic placeholder ranks appended.
 - `confidence`: Minimum confidence across all reported ranks (0-100)
 - `alternatives`: Pipe-separated short-labels of tied species when the classifier capped at an LCA; empty otherwise (see [Tied-species resolution](#tied-species-resolution))
 

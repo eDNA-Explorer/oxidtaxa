@@ -33,7 +33,6 @@ pub struct TrainingSet {
     pub kmers: Vec<Vec<i32>>,
     pub cross_index: Vec<usize>,
     pub k: usize,
-    pub idf_weights: Vec<f64>,
     pub decision_kmers: Vec<Option<DecisionNode>>,
     pub problem_sequences: Vec<ProblemSequence>,
     pub problem_groups: Vec<String>,
@@ -43,6 +42,11 @@ pub struct TrainingSet {
     /// Inverted k-mer index: for each k-mer id (0-indexed), sorted list of
     /// training sequence indices that contain it.
     pub inverted_index: Option<Vec<Vec<u32>>>,
+    /// Per-rank IDF matrix. `idf_weights_by_rank[r][k]` is the IDF weight of
+    /// k-mer `k` computed across distinct taxonomic prefixes at depth `r + 1`
+    /// (so row 0 is Kingdom-level grouping, the deepest row is species-level).
+    /// Classification picks the row matching the descent node's depth.
+    pub idf_weights_by_rank: Vec<Vec<f64>>,
 }
 
 /// Intermediate training data: k-mer enumeration, taxonomy tree, and IDF weights.
@@ -65,7 +69,11 @@ pub struct PreparedData {
     pub sequences_per_node: Vec<Option<Vec<usize>>>,
     pub n_seqs: Vec<usize>,
     pub cross_index: Vec<usize>,
-    pub idf_weights: Vec<f64>,
+    /// Per-rank IDF matrix: row `r` is the IDF computed across distinct
+    /// taxonomic prefixes at depth `r + 1`. Used by fraction-learning descent
+    /// (when `use_idf_in_training = true`) AND at classify time, so training
+    /// and classification score with the same rank-appropriate IDF.
+    pub idf_weights_by_rank: Vec<Vec<f64>>,
     pub seq_hashes: Vec<u64>,
     pub seed_pattern: Option<String>,
 }
@@ -163,14 +171,27 @@ pub struct ClassificationResult {
     /// Entries are sorted alphabetically.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alternatives: Vec<String>,
+    /// Reason the classifier abstained (no/low signal). Values:
+    /// `None` (classified), `Some("too_few_kmers")` (Path A: query too short),
+    /// `Some("no_training_match")` (Path B: no compatible training seqs),
+    /// `Some("below_threshold")` (Path C: Root confidence below threshold).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reject_reason: Option<String>,
+    /// Leaf-phase similarity scalar. Average hits-per-bootstrap of the
+    /// selected training-sequence group, normalized by the query's IDF-weighted
+    /// k-mer sum. Zero on abstention paths.
+    #[serde(default)]
+    pub similarity: f64,
 }
 
 impl ClassificationResult {
-    pub fn unclassified() -> Self {
+    pub fn unclassified(reason: &str) -> Self {
         Self {
-            taxon: vec!["Root".to_string(), "unclassified_Root".to_string()],
-            confidence: vec![0.0, 0.0],
+            taxon: vec!["Root".to_string()],
+            confidence: vec![0.0],
             alternatives: Vec::new(),
+            reject_reason: Some(reason.to_string()),
+            similarity: 0.0,
         }
     }
 }
@@ -242,8 +263,10 @@ pub struct TrainConfig {
     /// groups. Default false (original behavior).
     pub leave_one_out: bool,
     /// Use correlation-aware greedy feature selection instead of independent
-    /// round-robin. Selects k-mers that maximize conditional information gain.
-    /// Produces a more efficient feature set but slower to train. Default false.
+    /// round-robin. Uses Bhattacharyya coefficient on L1-normalized sqrt
+    /// profiles as the redundancy metric (mathematically justified for any
+    /// split size). Produces a more efficient feature set but slower to
+    /// train. Default false.
     pub correlation_aware_features: bool,
     /// Number of threads for the rayon thread pool. Default 1.
     pub processors: usize,
@@ -293,6 +316,21 @@ pub struct ClassifyConfig {
     /// 1 = greedy descent (original behavior). Higher values explore
     /// alternative paths at ambiguous nodes. Default 1.
     pub beam_width: usize,
+    /// Relative margin below the max `tot_hits` within which sibling leaves are
+    /// treated as tied winners for LCA-cap and `alternatives` reporting. At 0.0
+    /// (default) only exact equalities fire, matching legacy behavior. At e.g.
+    /// 0.05, any group scoring within 95% of the winner joins the tied set.
+    pub tie_margin: f64,
+    /// When true, each rank's confidence is multiplied by the running product
+    /// of per-node descent margins `(top - runner_up) / b` observed during
+    /// greedy descent (floored at 0.1 to avoid zeroing). Down-weights lineages
+    /// that descended through near-ties. Default false (legacy behavior).
+    pub confidence_uses_descent_margin: bool,
+    /// When true, on single-winner descent at a leaf parent, widen `w_indices`
+    /// to include any sibling with `vote_counts[j] >= 0.5 * b`. Allows
+    /// near-sibling evidence to surface as `alternatives` / LCA cap. Default
+    /// false (legacy: only the single winner contributes to leaf-phase scoring).
+    pub sibling_aware_leaf: bool,
 }
 
 impl Default for ClassifyConfig {
@@ -307,6 +345,9 @@ impl Default for ClassifyConfig {
             length_normalize: false,
             rank_thresholds: None,
             beam_width: 1,
+            tie_margin: 0.0,
+            confidence_uses_descent_margin: false,
+            sibling_aware_leaf: false,
         }
     }
 }

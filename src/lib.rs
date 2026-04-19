@@ -139,7 +139,10 @@ mod python_bindings {
         min_descend = 0.98, full_length = 0.0, processors = 1,
         sample_exponent = 0.47, seed = 42, deterministic = false,
         length_normalize = false, rank_thresholds = None,
-        beam_width = 1
+        beam_width = 1,
+        tie_margin = 0.0,
+        confidence_uses_descent_margin = false,
+        sibling_aware_leaf = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn classify(
@@ -159,6 +162,9 @@ mod python_bindings {
         length_normalize: bool,
         rank_thresholds: Option<Vec<f64>>,
         beam_width: usize,
+        tie_margin: f64,
+        confidence_uses_descent_margin: bool,
+        sibling_aware_leaf: bool,
     ) -> PyResult<Vec<crate::types::ClassificationResult>> {
         let model = crate::types::TrainingSet::load(model_path)
             .map_err(|e| PyValueError::new_err(e))?;
@@ -179,6 +185,9 @@ mod python_bindings {
             length_normalize,
             rank_thresholds,
             beam_width,
+            tie_margin,
+            confidence_uses_descent_margin,
+            sibling_aware_leaf,
         };
 
         // Release the GIL so parallel Python threads can run concurrently
@@ -234,7 +243,8 @@ mod python_bindings {
     #[pyfunction]
     #[pyo3(signature = (
         prepared, record_kmers_fraction = 0.10, descendant_weighting = "count",
-        correlation_aware_features = false, processors = 1
+        correlation_aware_features = false,
+        processors = 1
     ))]
     fn build_tree_py(
         py: Python<'_>,

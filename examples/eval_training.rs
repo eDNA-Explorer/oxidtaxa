@@ -156,14 +156,11 @@ fn filter_for_training(seqs: &[String], taxonomy: &[String]) -> (Vec<String>, Ve
 }
 
 fn extract_path(r: &ClassificationResult) -> String {
-    let mut taxa = r.taxon.clone();
-    if taxa.len() > 1 {
-        taxa.remove(0); // skip Root
+    if r.taxon.len() > 1 {
+        r.taxon[1..].join(";")
+    } else {
+        String::new()
     }
-    taxa.into_iter()
-        .filter(|t| !t.starts_with("unclassified_"))
-        .collect::<Vec<_>>()
-        .join(";")
 }
 
 fn extract_confidence(r: &ClassificationResult) -> f64 {

@@ -81,7 +81,7 @@ fn save_golden(name: &str, ts: &oxidtaxa::types::TrainingSet) {
         "parents": parents_1idx,
         "crossIndex": cross_index_1idx,
         "kmers": kmers_f64,
-        "IDFweights": ts.idf_weights,
+        "IDFweights": ts.idf_weights_by_rank.last().unwrap_or(&Vec::new()),
         "fraction": ts.fraction,
         "decisionKmers": decision_kmers,
         "problemSequences": problem_sequences,

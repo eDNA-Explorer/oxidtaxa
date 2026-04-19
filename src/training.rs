@@ -306,49 +306,11 @@ fn _prepare_data_inner(
         .map(|s| s.as_ref().map_or(0, |v| v.len()))
         .collect();
 
-    // IDF computation (moved before create_tree — independent of tree output)
-    let class_counts = {
-        let mut counts = HashMap::new();
-        for c in &classes {
-            *counts.entry(c.clone()).or_insert(0usize) += 1;
-        }
-        counts
-    };
-    let n_classes = class_counts.len();
-    let idf_seq_weights: Vec<f64> = classes
-        .iter()
-        .map(|c| 1.0 / *class_counts.get(c).unwrap() as f64)
-        .collect();
-
-    let chunk_size = 256;
-    let partial_counts: Vec<Vec<f64>> = kmers
-        .par_chunks(chunk_size)
-        .enumerate()
-        .map(|(chunk_idx, chunk_kmers)| {
-            let mut local = vec![0.0f64; n_kmers];
-            let base = chunk_idx * chunk_size;
-            for (local_i, class_kmers) in chunk_kmers.iter().enumerate() {
-                let w = idf_seq_weights[base + local_i];
-                for &km in class_kmers {
-                    if km > 0 && (km as usize) <= n_kmers {
-                        local[(km - 1) as usize] += w;
-                    }
-                }
-            }
-            local
-        })
-        .collect();
-
-    let mut idf_counts = vec![0.0f64; n_kmers];
-    for partial in &partial_counts {
-        for (i, &v) in partial.iter().enumerate() {
-            idf_counts[i] += v;
-        }
-    }
-    let idf_weights: Vec<f64> = idf_counts
-        .iter()
-        .map(|&c| (n_classes as f64 / (1.0 + c)).ln())
-        .collect();
+    // Per-rank IDF: one row per taxonomic depth. Used by fraction-learning
+    // descent (when `use_idf_in_training = true`) AND at classify-time leaf
+    // phase so the two score against the same IDF. The deepest row is the
+    // species-level equivalent of the single IDF vector R IDTAXA produced.
+    let idf_weights_by_rank = compute_idf_by_rank(&classes, &kmers, n_kmers);
 
     // Seq hash precompute (moved before create_tree — independent of tree output)
     let seq_hashes: Vec<u64> = sequences
@@ -377,7 +339,7 @@ fn _prepare_data_inner(
         sequences_per_node,
         n_seqs,
         cross_index,
-        idf_weights,
+        idf_weights_by_rank,
         seq_hashes,
         seed_pattern,
     })
@@ -425,6 +387,8 @@ fn _learn_fractions_inner(
     let mut incorrect: Vec<Option<bool>> = vec![Some(true); l];
     let mut predicted = vec![String::new(); l];
     let delta = (config.max_fraction - config.min_fraction) * config.multiplier;
+
+    let idf_by_rank: &[Vec<f64>] = &prepared.idf_weights_by_rank;
 
     for _it in 0..config.max_iterations {
         let remaining: Vec<usize> = incorrect
@@ -485,13 +449,23 @@ fn _learn_fractions_inner(
                             None
                         };
 
+                        // Pick the per-rank IDF row matching the descent
+                        // node's depth. Matches classify-time semantics so
+                        // `use_idf_in_training = true` scores training and
+                        // classification against the same IDF.
+                        let idf_row: &[f64] = {
+                            let depth = (prepared.levels[k_node] - 1).max(0) as usize;
+                            let row_idx = depth.min(idf_by_rank.len().saturating_sub(1));
+                            &idf_by_rank[row_idx]
+                        };
+
                         let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
                         for (j, _subtree) in subtrees.iter().enumerate() {
                             let mut weights_j: Vec<f64> = if config.use_idf_in_training {
                                 dk.profiles[j].iter().zip(dk.keep.iter())
                                     .map(|(&prof, &km)| {
-                                        let idf = if km > 0 && (km as usize) <= prepared.idf_weights.len() {
-                                            prepared.idf_weights[(km - 1) as usize]
+                                        let idf = if km > 0 && (km as usize) <= idf_row.len() {
+                                            idf_row[(km - 1) as usize]
                                         } else { 0.0 };
                                         prof * idf
                                     })
@@ -620,12 +594,12 @@ fn _learn_fractions_inner(
         kmers: prepared.kmers.clone(),
         cross_index: prepared.cross_index.clone(),
         k: prepared.k,
-        idf_weights: prepared.idf_weights.clone(),
         decision_kmers: built_tree.decision_kmers.clone(),
         problem_sequences,
         problem_groups,
         seed_pattern: prepared.seed_pattern.clone(),
         inverted_index: Some(prepared.inverted_index.clone()),
+        idf_weights_by_rank: prepared.idf_weights_by_rank.clone(),
     })
 }
 
@@ -641,6 +615,93 @@ fn _learn_taxa_inner(
     )?;
     let built_tree = _build_tree_inner(&prepared, &BuildTreeConfig::from(config))?;
     _learn_fractions_inner(&prepared, &built_tree, &LearnFractionsConfig::from(config), seed)
+}
+
+/// Compute per-seq prefix strings at depth `rank` (1 = Kingdom-level group,
+/// 2 = Phylum-level, ...). If a class has fewer than `rank` components, the
+/// full class string is used (no truncation).
+fn prefixes_at_rank(classes: &[String], rank: usize) -> Vec<String> {
+    classes
+        .iter()
+        .map(|c| {
+            let parts: Vec<&str> = c.split(';').filter(|s| !s.is_empty()).collect();
+            let r = rank.min(parts.len());
+            parts[..r]
+                .iter()
+                .map(|s| format!("{};", s))
+                .collect::<String>()
+        })
+        .collect()
+}
+
+/// IDF vector computed against groupings at a given rank depth.
+/// Same formula as the global IDF but with `n_classes` replaced by the number
+/// of distinct prefixes at that rank, and per-seq weights normalized by
+/// rank-group size.
+fn compute_idf_at_rank(
+    classes: &[String],
+    kmers: &[Vec<i32>],
+    n_kmers: usize,
+    rank: usize,
+) -> Vec<f64> {
+    let prefixes = prefixes_at_rank(classes, rank);
+    let mut prefix_counts: HashMap<String, usize> = HashMap::new();
+    for p in &prefixes {
+        *prefix_counts.entry(p.clone()).or_insert(0) += 1;
+    }
+    let n_classes = prefix_counts.len();
+    let idf_seq_weights: Vec<f64> = prefixes
+        .iter()
+        .map(|p| 1.0 / *prefix_counts.get(p).unwrap_or(&1) as f64)
+        .collect();
+
+    let chunk_size = 256;
+    let partial_counts: Vec<Vec<f64>> = kmers
+        .par_chunks(chunk_size)
+        .enumerate()
+        .map(|(chunk_idx, chunk_kmers)| {
+            let mut local = vec![0.0f64; n_kmers];
+            let base = chunk_idx * chunk_size;
+            for (local_i, class_kmers) in chunk_kmers.iter().enumerate() {
+                let w = idf_seq_weights[base + local_i];
+                for &km in class_kmers {
+                    if km > 0 && (km as usize) <= n_kmers {
+                        local[(km - 1) as usize] += w;
+                    }
+                }
+            }
+            local
+        })
+        .collect();
+
+    let mut idf_counts = vec![0.0f64; n_kmers];
+    for partial in &partial_counts {
+        for (i, &v) in partial.iter().enumerate() {
+            idf_counts[i] += v;
+        }
+    }
+    idf_counts
+        .iter()
+        .map(|&c| (n_classes as f64 / (1.0 + c)).ln())
+        .collect()
+}
+
+/// Compute a per-rank IDF matrix: row `r-1` corresponds to depth `r`
+/// (Kingdom-level = row 0, Phylum-level = row 1, ..., Species-level = last).
+fn compute_idf_by_rank(
+    classes: &[String],
+    kmers: &[Vec<i32>],
+    n_kmers: usize,
+) -> Vec<Vec<f64>> {
+    let max_rank = classes
+        .iter()
+        .map(|c| c.split(';').filter(|s| !s.is_empty()).count())
+        .max()
+        .unwrap_or(0);
+    (1..=max_rank)
+        .into_par_iter()
+        .map(|r| compute_idf_at_rank(classes, kmers, n_kmers, r))
+        .collect()
 }
 
 /// Compute the p-th percentile of nchar values.
@@ -688,56 +749,54 @@ fn merge_sparse_profiles(profiles: &[SparseProfile], weights: &[f64], total_weig
     result
 }
 
-/// Precomputed statistics for a profile vector, used to avoid redundant
-/// computation in the correlation-aware feature selection hot loop.
+/// Precomputed √(p̃) values for a profile, where p̃ = p / Σp is the L1
+/// normalization. Pairwise Bhattacharyya coefficient is then a simple dot
+/// product of two √(p̃) vectors.
+///
+/// Bhattacharyya is the only redundancy metric oxidtaxa supports for
+/// correlation-aware feature selection. Absolute Pearson correlation was
+/// considered but rejected: it degenerates at `n_children = 2` (|r| = 1
+/// for any two 2D points, collapsing the selection back to round-robin)
+/// and isn't well-defined on probability-distribution-like profiles.
 #[derive(Clone)]
-struct ProfileStats {
-    sum: f64,
-    /// Precomputed denominator component: sqrt(n * sum_sq - sum * sum)
-    denom: f64,
+struct BhattacharyyaStats {
+    sqrt_profile: Vec<f64>,
+    /// True when the profile sums to 0 (all-zero entry); pairwise BC with any
+    /// candidate is 0 and the feature carries no signal.
+    is_empty: bool,
 }
 
-impl ProfileStats {
+impl BhattacharyyaStats {
     fn new(v: &[f64]) -> Self {
-        let n_f = v.len() as f64;
         let sum: f64 = v.iter().sum();
-        let sum_sq: f64 = v.iter().map(|x| x * x).sum();
-        let denom = (n_f * sum_sq - sum * sum).sqrt();
-        Self { sum, denom }
+        if sum <= 0.0 {
+            return Self {
+                sqrt_profile: vec![0.0; v.len()],
+                is_empty: true,
+            };
+        }
+        let sqrt_profile: Vec<f64> = v.iter().map(|&x| (x / sum).max(0.0).sqrt()).collect();
+        Self {
+            sqrt_profile,
+            is_empty: false,
+        }
     }
 }
 
-/// Pearson correlation using precomputed statistics for both vectors.
-/// Only computes the cross-product sum_ab, which is the only term that
-/// changes between different (a, b) pairings.
+/// Bhattacharyya coefficient on L1-normalized sqrt profiles.
+/// Range [0, 1]: 1 when the profiles agree after L1-normalization, 0 when
+/// disjoint. Equivalent to 1 − H²(p, q)/2 with H the Hellinger distance.
 #[inline]
-fn pearson_with_stats(a: &[f64], a_stats: &ProfileStats,
-                      b: &[f64], b_stats: &ProfileStats) -> f64 {
-    let n_f = a.len() as f64;
-    if a.len() < 2 { return 0.0; }
-    if a_stats.denom < 1e-15 || b_stats.denom < 1e-15 { return 0.0; }
-    let sum_ab: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let num = n_f * sum_ab - a_stats.sum * b_stats.sum;
-    (num / (a_stats.denom * b_stats.denom)).abs()
-}
-
-/// Absolute Pearson correlation between two profile vectors.
-/// Returns 0.0 for constant or zero-length vectors.
-#[allow(dead_code)]
-fn pearson_abs(a: &[f64], b: &[f64]) -> f64 {
-    let n = a.len();
-    if n < 2 { return 0.0; }
-    let n_f = n as f64;
-    let sum_a: f64 = a.iter().sum();
-    let sum_b: f64 = b.iter().sum();
-    let sum_ab: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let sum_a2: f64 = a.iter().map(|x| x * x).sum();
-    let sum_b2: f64 = b.iter().map(|x| x * x).sum();
-    let num = n_f * sum_ab - sum_a * sum_b;
-    let den_a = (n_f * sum_a2 - sum_a * sum_a).sqrt();
-    let den_b = (n_f * sum_b2 - sum_b * sum_b).sqrt();
-    if den_a < 1e-15 || den_b < 1e-15 { return 0.0; }
-    (num / (den_a * den_b)).abs()
+fn bhattacharyya_with_stats(a_stats: &BhattacharyyaStats, b_stats: &BhattacharyyaStats) -> f64 {
+    if a_stats.is_empty || b_stats.is_empty {
+        return 0.0;
+    }
+    a_stats
+        .sqrt_profile
+        .iter()
+        .zip(b_stats.sqrt_profile.iter())
+        .map(|(a, b)| a * b)
+        .sum()
 }
 
 /// Recursive tree construction for decision k-mers.
@@ -918,9 +977,14 @@ fn create_tree(
                     .copy_from_slice(&profiles_flat[src..src + n_children]);
             }
 
-            // Precompute Pearson statistics for all candidates
-            let cand_stats: Vec<ProfileStats> = (0..order.len()).map(|ci| {
-                ProfileStats::new(&sorted_profiles_flat[ci * n_children..(ci + 1) * n_children])
+            // Precompute Bhattacharyya stats for all candidates. This is the
+            // only supported redundancy metric: Pearson was removed because
+            // it degenerates at n_children = 2 and isn't well-defined on
+            // profile-like data.
+            let cand_bc_stats: Vec<BhattacharyyaStats> = (0..order.len()).map(|ci| {
+                BhattacharyyaStats::new(
+                    &sorted_profiles_flat[ci * n_children..(ci + 1) * n_children],
+                )
             }).collect();
 
             let n_cand = sorted_kmer_indices.len();
@@ -987,36 +1051,27 @@ fn create_tree(
                 // 2. Commit selection.
                 is_selected[ci] = true;
                 result_set.insert(sorted_kmer_indices[ci]);
-                let src = ci * n_children;
-                let new_prof_slice: &[f64] =
-                    &sorted_profiles_flat[src..src + n_children];
-                let new_st = cand_stats[ci].clone();
 
-                // 3. Incremental max_corr update against the newly-selected feature.
-                //    Skip candidates that are already selected or already saturated
-                //    at 1.0 (cannot contribute any gain).
+                // 3. Incremental max_corr update against the newly-selected
+                //    Bhattacharyya feature. Skip candidates already selected
+                //    or saturated at 1.0.
+                let new_bc = cand_bc_stats[ci].clone();
                 if use_par {
                     max_corr
                         .par_iter_mut()
                         .enumerate()
-                        .zip(cand_stats.par_iter())
+                        .zip(cand_bc_stats.par_iter())
                         .for_each(|((cj, max_c), cj_st)| {
                             if is_selected[cj] || *max_c >= 1.0 { return; }
-                            let cj_prof = &sorted_profiles_flat
-                                [cj * n_children..(cj + 1) * n_children];
-                            let corr = pearson_with_stats(
-                                cj_prof, cj_st, new_prof_slice, &new_st,
-                            );
+                            let corr = bhattacharyya_with_stats(cj_st, &new_bc);
                             if corr > *max_c { *max_c = corr; }
                         });
                 } else {
                     for cj in 0..n_cand {
                         if is_selected[cj] { continue; }
                         if max_corr[cj] >= 1.0 { continue; }
-                        let cj_prof = &sorted_profiles_flat
-                            [cj * n_children..(cj + 1) * n_children];
-                        let corr = pearson_with_stats(
-                            cj_prof, &cand_stats[cj], new_prof_slice, &new_st,
+                        let corr = bhattacharyya_with_stats(
+                            &cand_bc_stats[cj], &new_bc,
                         );
                         if corr > max_corr[cj] { max_corr[cj] = corr; }
                     }

@@ -111,26 +111,24 @@ fn test_baseline_1k_matches_r() {
     for (i, result) in results.iter().enumerate() {
         let gold = &baseline.results[i];
 
-        // Extract path: skip Root, filter unclassified_ ranks
-        let rust_path = {
-            let mut taxa = result.taxon.clone();
-            if taxa.len() > 1 {
-                taxa.remove(0); // skip Root
-            }
-            taxa.into_iter()
-                .filter(|t| !t.starts_with("unclassified_"))
-                .collect::<Vec<_>>()
-                .join(";")
+        // Extract path: skip the leading Root element.
+        let rust_path = if result.taxon.len() > 1 {
+            result.taxon[1..].join(";")
+        } else {
+            String::new()
         };
 
-        // Extract confidence: min of non-Root ranks
+        // Extract confidence: min of non-Root ranks. When the classifier
+        // collapses to `[Root]` (Path-C below-threshold or Path-A/B
+        // abstention), the sole confidence entry is the Root-level
+        // accumulated confidence — use it directly.
         let rust_conf = if result.confidence.len() > 1 {
             result.confidence[1..]
                 .iter()
                 .cloned()
                 .fold(f64::INFINITY, f64::min)
         } else {
-            0.0
+            result.confidence.first().copied().unwrap_or(0.0)
         };
 
         if rust_path != gold.path {

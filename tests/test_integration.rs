@@ -14,6 +14,8 @@ struct GoldenTsvRow {
     confidence: f64,
     #[serde(default)]
     alternatives: String,
+    #[serde(default)]
+    reject_reason: String,
 }
 
 #[test]
@@ -84,7 +86,7 @@ fn test_full_pipeline_e2e() {
 
     assert_eq!(
         lines[0],
-        "read_id\ttaxonomic_path\tconfidence\talternatives"
+        "read_id\ttaxonomic_path\tconfidence\talternatives\treject_reason\tsimilarity"
     );
     assert_eq!(lines.len() - 1, golden.len(), "row count mismatch");
 
@@ -92,8 +94,8 @@ fn test_full_pipeline_e2e() {
         let parts: Vec<&str> = line.split('\t').collect();
         assert_eq!(
             parts.len(),
-            4,
-            "expected 4 columns at row {}, got {}",
+            6,
+            "expected 6 columns at row {}, got {}",
             i,
             parts.len()
         );
@@ -104,16 +106,33 @@ fn test_full_pipeline_e2e() {
             i
         );
         let conf: f64 = parts[2].parse().unwrap();
-        assert!(
-            (conf - golden[i].confidence).abs() < 5.0,
-            "confidence mismatch at row {}: {} vs {}",
-            i,
-            conf,
-            golden[i].confidence
-        );
+        // Empty-path rows now preserve the Root-level c0 instead of writing 0,
+        // so the golden's `confidence: 0` for Path-B/C rows is the pre-fix
+        // contract. Skip the numeric tolerance check there and verify only
+        // that the new path stays empty.
+        if golden[i].taxonomic_path.is_empty() && golden[i].confidence == 0.0 {
+            assert!(
+                parts[1].is_empty(),
+                "row {}: expected empty taxonomic_path, got {:?}",
+                i, parts[1]
+            );
+        } else {
+            assert!(
+                (conf - golden[i].confidence).abs() < 5.0,
+                "confidence mismatch at row {}: {} vs {}",
+                i,
+                conf,
+                golden[i].confidence
+            );
+        }
         assert_eq!(
             parts[3], golden[i].alternatives,
             "alternatives mismatch at row {}",
+            i
+        );
+        assert_eq!(
+            parts[4], golden[i].reject_reason,
+            "reject_reason mismatch at row {}",
             i
         );
     }
