@@ -738,16 +738,20 @@ fn leaf_phase_score(
         }
     }
 
-    // I6: multiply each rank's confidence by the cumulative product of
-    // per-descent-step margins. Discounts lineages that descended through
-    // near-ties. No-op when `descent_margins` is empty (default behavior).
+    // I6: discount each rank's confidence by the margins of the decisions
+    // that reached it. `descent_margins[i]` is the decisiveness of the split
+    // at node i, which selects rank i+1 — so it should only affect ranks
+    // BELOW itself, never the rank it decided into or anything shallower.
+    // Concretely: confidence[Kingdom] gets margin[0] (the Root→Kingdom
+    // decision) only; it is NOT discounted by margins at Kingdom→Phylum or
+    // any deeper split. No-op when `descent_margins` is empty.
     if config.confidence_uses_descent_margin && !descent_margins.is_empty() {
         let mut cumulative = 1.0f64;
         for i in 0..confidences.len() {
+            confidences[i] *= cumulative;
             if i < descent_margins.len() {
                 cumulative *= descent_margins[i];
             }
-            confidences[i] *= cumulative;
         }
     }
 
