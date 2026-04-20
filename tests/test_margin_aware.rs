@@ -1,8 +1,8 @@
-//! Phase 2 tests: flag-gated margin-aware classification.
+//! Flag-gated margin-aware classification tests.
 //!
-//! Covers I5 (tie_margin), I6 (confidence_uses_descent_margin),
-//! I7 (sibling_aware_leaf). Each flag defaults to legacy behavior;
-//! these tests exercise both on and off to verify the guard holds.
+//! Covers `tie_margin`, `confidence_uses_descent_margin`, and
+//! `sibling_aware_leaf`. Each flag defaults to legacy behavior; these
+//! tests exercise both on and off to verify the guard holds.
 
 use oxidtaxa::classify::id_taxa;
 use oxidtaxa::training::learn_taxa;
@@ -81,7 +81,7 @@ fn build_near_tied_training_set() -> TrainingSet {
 }
 
 // ============================================================================
-// I5: tie_margin
+// tie_margin
 // ============================================================================
 
 #[test]
@@ -179,7 +179,7 @@ fn test_tie_margin_catches_near_ties() {
 }
 
 // ============================================================================
-// I6: confidence_uses_descent_margin
+// confidence_uses_descent_margin
 // ============================================================================
 
 #[test]
@@ -245,17 +245,18 @@ fn test_descent_margin_active_with_beam_width_3() {
     // Result: `confidence_uses_descent_margin=true` was a no-op whenever
     // `beam_width > 1`.
     //
-    // We test this by comparing beam+I6 output against greedy+I6 output on
-    // a 1K benchmark dataset known to produce real margin discounts. If the
-    // beam wiring is broken, beam+I6 would equal beam-without-I6, which in
-    // turn differs from greedy+I6. If the wiring is correct, beam+I6 and
-    // greedy+I6 will be within floating-point noise of each other at every
-    // reported rank (same descent path, same margins applied, same leaf).
+    // We test this by comparing beam+margin-on output against greedy+margin-on
+    // output on a 1K benchmark dataset known to produce real margin discounts.
+    // If the beam wiring is broken, beam+margin-on would equal beam+margin-off,
+    // which in turn differs from greedy+margin-on. If the wiring is correct,
+    // beam and greedy margin-on will be within floating-point noise of each
+    // other at every reported rank (same descent path, same margins applied,
+    // same leaf).
     use std::path::PathBuf;
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let data_dir = manifest_dir.join("benchmarks").join("data");
     if !data_dir.join("bench_1000_ref.fasta").exists() {
-        eprintln!("skipping beam-I6 plumbing test: benchmark data not present");
+        eprintln!("skipping beam descent-margin plumbing test: benchmark data not present");
         return;
     }
 
@@ -311,9 +312,9 @@ fn test_descent_margin_active_with_beam_width_3() {
     );
 
     // The real plumbing test: beam_width=3 must also apply margins. Compare
-    // beam-I6-on against beam-I6-off — they must differ on at least one
-    // query's confidence vector, since this benchmark is known to produce
-    // margin discounts under greedy.
+    // beam margin-on against beam margin-off — they must differ on at least
+    // one query's confidence vector, since this benchmark is known to
+    // produce margin discounts under greedy.
     let cfg_beam3_off = ClassifyConfig {
         beam_width: 3,
         confidence_uses_descent_margin: false,
@@ -332,8 +333,8 @@ fn test_descent_margin_active_with_beam_width_3() {
         &queries, &names, &model, &cfg_beam3_on, StrandMode::Both, OutputType::Extended, 42, true,
     );
 
-    // Also verify greedy+I6 actually does something on this dataset (anchor
-    // for the beam comparison).
+    // Also verify greedy+margin-on actually does something on this dataset
+    // (anchor for the beam comparison).
     let cfg_greedy_off = ClassifyConfig {
         beam_width: 1,
         confidence_uses_descent_margin: false,
@@ -359,8 +360,9 @@ fn test_descent_margin_active_with_beam_width_3() {
     assert!(
         any_beam3_changed,
         "beam_width=3 + confidence_uses_descent_margin=true produced identical \
-         confidences to I6=false on a dataset where greedy+I6 DID change them — \
-         the beam path is still ignoring margins (empty_margins regression)"
+         confidences to the flag-off path on a dataset where greedy + \
+         confidence_uses_descent_margin=true DID change them — the beam path \
+         is still ignoring margins (empty_margins regression)"
     );
 }
 
@@ -418,7 +420,7 @@ fn test_descent_margin_does_not_collapse_deep_ranks() {
 }
 
 // ============================================================================
-// I7: sibling_aware_leaf
+// sibling_aware_leaf
 // ============================================================================
 
 #[test]

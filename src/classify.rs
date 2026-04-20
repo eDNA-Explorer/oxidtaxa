@@ -190,7 +190,7 @@ fn classify_one_pass(
     // Greedy tree descent (beam_width=1)
     let mut k_node = 0usize;
     let mut w_indices: Vec<usize>;
-    // I6: per-descent-step ratio `(top - runner_up) / b`, floored at 0.1, used
+    // Per-descent-step ratio `(top - runner_up) / b`, floored at 0.1, used
     // later in `leaf_phase_score` to discount per-rank confidences. Only
     // populated when `config.confidence_uses_descent_margin` is on.
     let mut descent_margins: Vec<f64> = Vec::new();
@@ -258,8 +258,9 @@ fn classify_one_pass(
             }
             let winner = w[0];
             if children[subtrees[winner]].is_empty() {
-                // I7: optionally widen to include any sibling with
-                // vote_counts[j] >= 0.5 * b (winner always retained).
+                // Optionally widen to include any sibling with
+                // vote_counts[j] >= 0.5 * b (winner always retained). Gated
+                // on `config.sibling_aware_leaf`.
                 w_indices = if config.sibling_aware_leaf {
                     let min_votes = ((b as f64) * 0.5) as usize;
                     vote_counts.iter().enumerate()
@@ -308,7 +309,8 @@ fn classify_one_pass_beam(
         w_indices: Vec<usize>,
         score: f64,
         /// Margin history from root to this candidate's current node. Mirrors
-        /// the greedy path's `descent_margins` so I6 works for beam_width > 1.
+        /// the greedy path's `descent_margins` so descent-margin discounting
+        /// works for beam_width > 1.
         descent_margins: Vec<f64>,
     }
 
@@ -725,8 +727,8 @@ fn leaf_phase_score(
 
     // Choose best group
     let max_tot = tot_hits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    // I5: with `tie_margin > 0`, any group scoring within `(1 - tie_margin)`
-    // of `max_tot` joins the tied set, feeding LCA-cap and `alternatives`.
+    // With `tie_margin > 0`, any group scoring within `(1 - tie_margin)` of
+    // `max_tot` joins the tied set, feeding LCA-cap and `alternatives`.
     // Default `tie_margin = 0.0` preserves exact-equality semantics.
     let winners: Vec<usize> = if config.tie_margin > 0.0 && max_tot > 0.0 {
         let cutoff = max_tot * (1.0 - config.tie_margin);
@@ -774,18 +776,28 @@ fn leaf_phase_score(
         }
     }
 
-    // I6: discount each rank's confidence by the margin of the single
-    // decision that selected it — no compounding across ranks.
+    // Discount each rank's confidence by the margin of the single decision
+    // that selected it — no compounding across ranks.
     // `descent_margins[i]` is the decisiveness of the split at node i, which
     // picks rank i+1, so it discounts `confidences[i+1]` only. Root stays
     // untouched. Non-cumulative on purpose: margin is a decisiveness score,
     // not a probability, and raw per-rank confidence already encodes path
     // dependence via the bootstrap vote fraction — compounding margins on
     // top double-counts uncertainty and collapses deep ranks to zero.
+    //
+    // Scale note: `confidences[i]` is on a 0-100 percentage scale and is
+    // compared against `threshold` (default 60). Raw `margin ∈ [0.1, 1.0]`
+    // used as a direct multiplier would slash an 80-confidence rank to 8
+    // on a floor-margin split, truncating the reported lineage and
+    // collapsing species_f1. Apply an affine remap `[0, 1] → [FLOOR, 1]`
+    // so a barely-decisive split costs ~`1-FLOOR` of confidence and a
+    // fully decisive split leaves it untouched.
+    const MARGIN_FLOOR: f64 = 0.8;
     if config.confidence_uses_descent_margin && !descent_margins.is_empty() {
         for i in 1..confidences.len() {
             if let Some(&m) = descent_margins.get(i - 1) {
-                confidences[i] *= m;
+                let effective = MARGIN_FLOOR + (1.0 - MARGIN_FLOOR) * m;
+                confidences[i] *= effective;
             }
         }
     }

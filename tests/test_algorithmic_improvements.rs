@@ -30,7 +30,7 @@ fn train_and_classify(
 }
 
 // ============================================================================
-// Phase 1: Training Threshold Match
+// Training threshold match
 // ============================================================================
 
 #[test]
@@ -71,7 +71,7 @@ fn test_training_threshold_impossible_preserves_fractions() {
 }
 
 // ============================================================================
-// Phase 2: Descendant Weighting Alternatives
+// Descendant weighting alternatives
 // ============================================================================
 
 #[test]
@@ -123,7 +123,7 @@ fn test_descendant_weighting_equal_changes_decision_kmers() {
 }
 
 // ============================================================================
-// Phase 3: IDF Scoring During Training
+// IDF scoring during training
 // ============================================================================
 
 #[test]
@@ -195,7 +195,7 @@ fn test_idf_training_combined_with_permissive_threshold() {
 }
 
 // ============================================================================
-// Phase 5: Leave-One-Out Training
+// Leave-one-out training
 // ============================================================================
 
 #[test]
@@ -240,7 +240,7 @@ fn test_leave_one_out_standard_produces_valid_classification() {
 }
 
 // ============================================================================
-// Phase 6: Beam Search
+// Beam search
 // ============================================================================
 
 #[test]
@@ -281,7 +281,7 @@ fn test_beam_width_3_produces_valid_results() {
 }
 
 // ============================================================================
-// Phase 7: Correlation-Aware Feature Selection
+// Correlation-aware feature selection
 // ============================================================================
 
 #[test]
@@ -368,7 +368,7 @@ fn test_correlation_aware_deterministic_output() {
 }
 
 // ============================================================================
-// Phase 3 / I9: Bhattacharyya redundancy (only supported metric)
+// Bhattacharyya redundancy (only supported metric)
 // ============================================================================
 
 #[test]
@@ -412,7 +412,7 @@ fn test_correlation_aware_bhattacharyya_valid_model() {
 }
 
 // ============================================================================
-// Phase 4 / I10: Per-rank IDF weights (always on in v0.3.0+)
+// Per-rank IDF weights (always on in v0.3.0+)
 // ============================================================================
 
 #[test]

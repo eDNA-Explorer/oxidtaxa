@@ -277,15 +277,15 @@
     </thead>
     <tbody>
       <tr><td><code class="inline">k</code> / <code class="inline">seed_pattern</code></td><td>train</td><td>§3a</td><td>K-mer size &amp; spacing</td></tr>
-      <tr><td><code class="inline">per_rank_idf</code> <span class="tie">I10</span></td><td>train</td><td>§3b</td><td>IDF computed per rank depth instead of globally</td></tr>
+      <tr><td><code class="inline">per_rank_idf</code></td><td>train</td><td>§3b</td><td>IDF computed per rank depth instead of globally</td></tr>
       <tr><td><code class="inline">record_kmers_fraction</code></td><td>train</td><td>§3d</td><td>How many features per decision node</td></tr>
       <tr><td><code class="inline">descendant_weighting</code>, <code class="inline">correlation_aware_features</code></td><td>train</td><td>§3d</td><td>Feature-selection strategy</td></tr>
       <tr><td><code class="inline">training_threshold</code>, <code class="inline">leave_one_out</code>, <code class="inline">use_idf_in_training</code></td><td>train</td><td>§3e</td><td>Fraction-learning knobs</td></tr>
       <tr><td><code class="inline">bootstraps</code>, <code class="inline">sample_exponent</code></td><td>classify</td><td>§4b</td><td>Bootstrap count &amp; sample size</td></tr>
       <tr><td><code class="inline">min_descend</code></td><td>classify</td><td>§4c</td><td>Vote fraction required to descend a node</td></tr>
-      <tr><td><code class="inline">confidence_uses_descent_margin</code> <span class="tie">I6</span></td><td>classify</td><td>§4c</td><td>Per-rank confidence scaled by descent margin history</td></tr>
-      <tr><td><code class="inline">sibling_aware_leaf</code> <span class="tie">I7</span></td><td>classify</td><td>§4d</td><td>Widen candidate set at the terminal descent step</td></tr>
-      <tr><td><code class="inline">tie_margin</code> <span class="tie">I5</span></td><td>classify</td><td>§4e</td><td>Near-tied groups enter the tied-species report</td></tr>
+      <tr><td><code class="inline">confidence_uses_descent_margin</code></td><td>classify</td><td>§4c</td><td>Per-rank confidence scaled by descent margin history</td></tr>
+      <tr><td><code class="inline">sibling_aware_leaf</code></td><td>classify</td><td>§4d</td><td>Widen candidate set at the terminal descent step</td></tr>
+      <tr><td><code class="inline">tie_margin</code></td><td>classify</td><td>§4e</td><td>Near-tied groups enter the tied-species report</td></tr>
       <tr><td><code class="inline">threshold</code>, <code class="inline">rank_thresholds</code></td><td>classify</td><td>§4f</td><td>Final confidence cutoff</td></tr>
     </tbody>
   </table>
@@ -401,7 +401,7 @@ seq4 GGCCGGCCGG → unique sorted IDs: {21(CCG), 26(CGG), 37(GCC), 42(GGC)}</pre
   <div class="note" style="font-size: 0.9em;"><strong>Why Kingdom isn't zero:</strong> it would be if <em>every</em> Animalia sequence had ACG. But only 3 of 5 do, so Animalia "partially" carries ACG and the k-mer still has some kingdom-level discriminative power. The simpler formula <code class="inline">ln(N_r / (1 + n_prefixes_containing))</code> only gives the right answer when every sequence inside a prefix group shares the k-mer.</div>
 
   <div class="param-box">
-    <h4><span class="tag">I10</span> per_rank_idf — <em>always on in v0.3.0+</em></h4>
+    <h4>per_rank_idf — <em>always on in v0.3.0+</em></h4>
     <p style="margin:0 0 6px;">The model stores an IDF <strong>matrix</strong> (one row per rank) instead of a single global vector. At classification time the row used is determined by the descent node's depth.</p>
     <pre class="ascii" style="margin:6px 0 0; font-size: 0.78em;">idf_weights_by_rank[0]  →  used at Kingdom split  (e.g. ACG weight = 0.00)
 idf_weights_by_rank[1]  →  used at Family  split  (e.g. ACG weight = 0.41)
@@ -546,7 +546,7 @@ Bootstrap #100: ...</pre>
   # (sums > 100 because bootstraps can tie and vote for multiple)</pre>
 
   <div class="param-box">
-    <h4><span class="tag">I6</span> confidence_uses_descent_margin</h4>
+    <h4>confidence_uses_descent_margin</h4>
     <p style="margin:0 0 6px;">At each descent step, record how decisively the winner beat the runner-up:</p>
     <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">margin[node_i] = max( (top_votes − runner_up_votes) / B ,  0.1 )</pre>
 
@@ -575,7 +575,7 @@ Genus:    92  × 0.20   =  18.4    # × Canidae→Genus margin only
                                     (Genus penalty does NOT propagate down;
                                      Species below would be multiplied by
                                      its own margin, not Genus's.)</pre>
-    <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:230</code> (greedy record), <code class="inline">src/classify.rs:388</code> (beam record), <code class="inline">src/classify.rs:744</code> (apply). The beam path now carries a per-candidate <code class="inline">descent_margins</code> Vec so I6 is honored for <code class="inline">beam_width &gt; 1</code>.</p>
+    <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:230</code> (greedy record), <code class="inline">src/classify.rs:388</code> (beam record), <code class="inline">src/classify.rs:744</code> (apply). The beam path carries a per-candidate <code class="inline">descent_margins</code> Vec so the discount is honored for <code class="inline">beam_width &gt; 1</code>.</p>
   </div>
 </div>
 
@@ -589,7 +589,7 @@ Genus:    92  × 0.20   =  18.4    # × Canidae→Genus margin only
   only this leaf's reference sequences enter the leaf-phase match</pre>
 
   <div class="param-box">
-    <h4><span class="tag">I7</span> sibling_aware_leaf</h4>
+    <h4>sibling_aware_leaf</h4>
     <p style="margin:0 0 6px;">At the terminal step <em>only</em>, widen the candidate set:</p>
     <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">w_indices = {j : vote_counts[j] ≥ 0.5·B  or  j == winner}</pre>
 
@@ -610,7 +610,7 @@ Genus:    92  × 0.20   =  18.4    # × Canidae→Genus margin only
 <div class="panel">
   <p>For every candidate in <code class="inline">w_indices</code>, the classifier runs a k-mer match against each individual reference sequence behind that leaf. Scores are grouped by taxonomic leaf; the best group wins.</p>
 
-  <pre class="ascii">Per-reference hits (our example, with I7 on):
+  <pre class="ascii">Per-reference hits (our example, with sibling_aware_leaf on):
   seq1 (C. lupus)     tot_hits = 18.4   ← global max
   seq2 (C. lupus)     tot_hits = 18.1
   seq3 (C. latrans)   tot_hits = 18.3   ← very close runner-up
@@ -620,7 +620,7 @@ Group totals:
   C. latrans group    max over members = 18.3</pre>
 
   <div class="param-box">
-    <h4><span class="tag">I5</span> tie_margin</h4>
+    <h4>tie_margin</h4>
     <p style="margin:0 0 6px;">Baseline keeps only groups with <em>exactly</em> max score. With <code class="inline">tie_margin &gt; 0</code>, near-tied groups also qualify:</p>
     <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">winners = {g : tot_hits[g] == max_tot}                   if tie_margin == 0
         = {g : tot_hits[g] ≥ max_tot · (1 − tie_margin)} if tie_margin  > 0</pre>
@@ -635,7 +635,7 @@ Group totals:
     <p style="margin:8px 0 0; font-size: 0.9em;">When <code class="inline">|winners| &gt; 1</code>, the classifier caps the reported <code class="inline">taxon</code> at the winners' LCA and lists every winner in <code class="inline">alternatives</code>. Source: <code class="inline">src/classify.rs:706</code>.</p>
   </div>
 
-  <p><strong>I7 and I5 together:</strong> I7 <em>brings C. latrans into the match</em>; I5 <em>lets the close score actually count</em>. One without the other usually changes nothing — the typical configuration enables both.</p>
+  <p><strong>sibling_aware_leaf and tie_margin together:</strong> <code class="inline">sibling_aware_leaf</code> <em>brings C. latrans into the match</em>; <code class="inline">tie_margin</code> <em>lets the close score actually count</em>. One without the other usually changes nothing — the typical configuration enables both.</p>
 </div>
 
 <h3><span class="step-badge">4f</span>Tally votes, apply margin discount, apply threshold</h3>
@@ -655,11 +655,11 @@ Result:
   confidence   = [100, 98, 95, 92, 62]
   alternatives = []                              ← C. latrans silently dropped</pre>
 
-  <h4>Scenario B — with I6 (margin discount) + I7 + I5 on (tie_margin=0.02)</h4>
+  <h4>Scenario B — with <code class="inline">confidence_uses_descent_margin</code> + <code class="inline">sibling_aware_leaf</code> + <code class="inline">tie_margin=0.02</code> on</h4>
   <p>Same votes, but now:</p>
   <ul style="font-size: 0.9em; margin: 4px 0 10px;">
-    <li><strong>I6</strong> multiplies per-rank confidence by cumulative margin (from §4c): 0.96, 0.864, 0.173.</li>
-    <li><strong>I7</strong> brings C. latrans into leaf-phase; <strong>I5</strong> with margin 0.02 makes it a co-winner → LCA clamp.</li>
+    <li><code class="inline">confidence_uses_descent_margin</code> multiplies per-rank confidence by cumulative margin (from §4c): 0.96, 0.864, 0.173.</li>
+    <li><code class="inline">sibling_aware_leaf</code> brings C. latrans into leaf-phase; <code class="inline">tie_margin=0.02</code> makes it a co-winner → LCA clamp.</li>
   </ul>
   <div style="margin: 12px 0;">
     <div class="rankbar"><span class="label">Animalia (×0.96)</span><span class="bar" style="width: 310px;">98 × 0.96 = 94.1%</span></div>
@@ -672,13 +672,13 @@ Result:
   species not reported because the LCA clamp already stopped us at Canis.
 
 Result:
-  taxon         = [Root, Animalia, Canidae]     ← Canis dropped by I6 discount
+  taxon         = [Root, Animalia, Canidae]     ← Canis dropped by margin discount
   confidence    = [100, 94.1, 82.1]
   alternatives  = [Canis_latrans, Canis_lupus]  ← both tied species reported
   reject_reason = "below_threshold"</pre>
 
   <div class="note">
-    <strong>How the knobs interact:</strong> I7 widens candidates, I5 widens winners, I6 discounts confidence along near-tied descents. Individually each is mild — together they let the classifier honestly report "we got close, but we can't commit below genus, and here are the candidates you should consider."
+    <strong>How the knobs interact:</strong> <code class="inline">sibling_aware_leaf</code> widens candidates, <code class="inline">tie_margin</code> widens winners, <code class="inline">confidence_uses_descent_margin</code> discounts confidence along near-tied descents. Individually each is mild — together they let the classifier honestly report "we got close, but we can't commit below genus, and here are the candidates you should consider."
   </div>
 </div>
 
@@ -746,7 +746,7 @@ TTA(60)  →  [seq6]
           (k, seed_pattern)                                    │
                   │                                      ┌─────┴─────┐
                   ▼                                      │ bootstrap │ × bootstraps
-  compute per-rank IDF matrix ◄── <span class="tie">I10 per_rank_idf</span>  │ (S kmers) │
+  compute per-rank IDF matrix ◄── <span class="tie">per_rank_idf</span>      │ (S kmers) │
                   │                                      └─────┬─────┘
                   ▼                                            ▼
           build taxonomy tree                  at each node: vote, compute
@@ -758,11 +758,11 @@ TTA(60)  →  [seq6]
    correlation_aware_features)                 └──────────────┬──────────────┘
                   │                                           │
                   ▼                                 ┌─────────┴─────────┐
-  iterative fraction learning                       │ record margin     │◄── <span class="tie">I6</span>
+  iterative fraction learning                       │ record margin     │◄── <span class="tie">confidence_uses_descent_margin</span>
   (training_threshold,                              │ (top − runner)/B  │
    use_idf_in_training,                             └─────────┬─────────┘
    leave_one_out)                                             ▼
-                  │                             last descent step: widen     ◄── <span class="tie">I7</span>
+                  │                             last descent step: widen     ◄── <span class="tie">sibling_aware_leaf</span>
                   ▼                             w_indices to siblings ≥ 0.5B
              model.bin                                        │
                                                               ▼
@@ -770,11 +770,11 @@ TTA(60)  →  [seq6]
                                                group by leaf; find max_tot
                                                               │
                                                               ▼
-                                               winners = groups within       ◄── <span class="tie">I5</span>
+                                               winners = groups within       ◄── <span class="tie">tie_margin</span>
                                                  (1 − tie_margin)·max_tot
                                                               │
                                                               ▼
-                                               apply cumulative margin       ◄── <span class="tie">I6</span>
+                                               apply cumulative margin       ◄── <span class="tie">confidence_uses_descent_margin</span>
                                                discount to each rank's
                                                confidence
                                                               │
@@ -792,11 +792,13 @@ TTA(60)  →  [seq6]
 <div class="panel">
   <p style="font-size: 1.05em;">
     <strong>Bootstrapping on sub-sampled k-mers converts raw k-mer scoring into a voting system</strong>,
-    and the vote share becomes a natural per-rank confidence measurement. The margin/sibling/tie knobs
-    (I5, I6, I7) sharpen the system's ability to be honest about <em>uncertainty</em> —
-    they don't change what the classifier knows, only how generously it reports when the evidence is
-    close. The per-rank IDF (I10) complements them by making sure k-mer weights are
-    appropriate for <em>which rank is being split</em>, rather than being the same at every level.
+    and the vote share becomes a natural per-rank confidence measurement. The margin/sibling/tie
+    knobs (<code class="inline">tie_margin</code>, <code class="inline">confidence_uses_descent_margin</code>,
+    <code class="inline">sibling_aware_leaf</code>) sharpen the system's ability to be honest about
+    <em>uncertainty</em> — they don't change what the classifier knows, only how generously it reports
+    when the evidence is close. The per-rank IDF (<code class="inline">per_rank_idf</code>) complements
+    them by making sure k-mer weights are appropriate for <em>which rank is being split</em>, rather
+    than being the same at every level.
   </p>
 </div>
 
