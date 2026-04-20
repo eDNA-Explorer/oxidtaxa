@@ -550,28 +550,32 @@ Bootstrap #100: ...</pre>
     <p style="margin:0 0 6px;">At each descent step, record how decisively the winner beat the runner-up:</p>
     <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">margin[node_i] = max( (top_votes − runner_up_votes) / B ,  0.1 )</pre>
 
-    <p style="margin:6px 0 0;"><strong>Key scoping rule:</strong> the margin recorded at node <em>i</em> is the decisiveness of the decision that <em>selects</em> rank <em>i+1</em>. So it discounts the confidence of rank <em>i+1</em> and everything deeper — but <strong>never</strong> rank <em>i</em> or anything shallower. A near-tie at the genus split can't retroactively pull down kingdom's confidence.</p>
+    <p style="margin:6px 0 0;"><strong>Scoping rule:</strong> the margin recorded at node <em>i</em> is the decisiveness of the single decision that <em>selects</em> rank <em>i+1</em>. Its discount applies <em>only</em> to rank <em>i+1</em> — no compounding across ranks. Each rank's confidence is penalized by the one margin that chose it, and by nothing else.</p>
 
-    <pre class="ascii" style="margin:8px 0; font-size: 0.78em;">for each rank i (Root=0, Kingdom=1, ...):
-    confidence[i]  *=  Π margin[j]   for all j &lt; i</pre>
+    <pre class="ascii" style="margin:8px 0; font-size: 0.78em;">for each rank i &gt; 0 (Kingdom, Phylum, ...):
+    confidence[i]  *=  margin[i − 1]       # the margin of the decision
+                                           # that selected THIS rank, only</pre>
+
+    <p style="margin:6px 0 0;"><strong>Why non-cumulative.</strong> Margin is a decisiveness score, not a probability — multiplying them across ranks has no clean statistical meaning, it just compounds penalties. The raw vote-fraction confidence already encodes path dependence (a bootstrap only reaches rank <em>i</em> if it passed every prior split correctly). Compounding margins on top double-counts path uncertainty and collapses deep ranks to near-zero (e.g. 0.3⁶ ≈ 0.0007 for six 60/40 splits).</p>
 
     <table style="margin:10px 0 0; font-size:0.85em;">
       <thead><tr><th>Descent step</th><th>top/B</th><th>runner/B</th><th>margin recorded</th><th>applied to…</th></tr></thead>
       <tbody>
-        <tr><td>at Root, picks Kingdom</td><td>98</td><td>2</td><td>0.96</td><td>Kingdom and deeper</td></tr>
-        <tr><td>at Animalia, picks Family</td><td>95</td><td>5</td><td>0.90</td><td>Family and deeper</td></tr>
-        <tr><td>at Canidae, picks Genus</td><td>60</td><td>40</td><td>0.20</td><td>Genus and deeper</td></tr>
+        <tr><td>at Root, picks Kingdom</td><td>98</td><td>2</td><td>0.96</td><td>Kingdom only</td></tr>
+        <tr><td>at Animalia, picks Family</td><td>95</td><td>5</td><td>0.90</td><td>Family only</td></tr>
+        <tr><td>at Canidae, picks Genus</td><td>60</td><td>40</td><td>0.20</td><td>Genus only</td></tr>
       </tbody>
     </table>
 
     <p style="margin:10px 0 0;">So with raw confidences [100, 98, 95, 92]:</p>
-    <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">Root:    100 × 1                   = 100.0    # no upstream decisions
-Kingdom:  98 × 0.96                =  94.1    # only Root→Kingdom margin applies
-Family:   95 × 0.96 × 0.90         =  82.1
-Genus:    92 × 0.96 × 0.90 × 0.20  =  15.9    # near-tie at the genus split
-                                                 punishes Genus itself,
-                                                 NOT the ranks above</pre>
-    <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:230</code> (record), <code class="inline">src/classify.rs:741</code> (apply).</p>
+    <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">Root:    100  × 1      = 100.0    # no selecting decision
+Kingdom:  98  × 0.96   =  94.1    # × Root→Kingdom margin only
+Family:   95  × 0.90   =  85.5    # × Animalia→Family margin only
+Genus:    92  × 0.20   =  18.4    # × Canidae→Genus margin only
+                                    (Genus penalty does NOT propagate down;
+                                     Species below would be multiplied by
+                                     its own margin, not Genus's.)</pre>
+    <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:230</code> (greedy record), <code class="inline">src/classify.rs:388</code> (beam record), <code class="inline">src/classify.rs:744</code> (apply). The beam path now carries a per-candidate <code class="inline">descent_margins</code> Vec so I6 is honored for <code class="inline">beam_width &gt; 1</code>.</p>
   </div>
 </div>
 

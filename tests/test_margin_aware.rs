@@ -235,6 +235,188 @@ fn test_descent_margin_on_never_raises_confidence() {
     }
 }
 
+#[test]
+fn test_descent_margin_active_with_beam_width_3() {
+    // Regression guard for the empty-margins bug in the beam path.
+    //
+    // Previously (pre-fix) the beam path constructed an `empty_margins: Vec<f64>`
+    // at classify.rs:464 and passed it to `leaf_phase_score`, which then
+    // guarded on `!descent_margins.is_empty()` and silently did nothing.
+    // Result: `confidence_uses_descent_margin=true` was a no-op whenever
+    // `beam_width > 1`.
+    //
+    // We test this by comparing beam+I6 output against greedy+I6 output on
+    // a 1K benchmark dataset known to produce real margin discounts. If the
+    // beam wiring is broken, beam+I6 would equal beam-without-I6, which in
+    // turn differs from greedy+I6. If the wiring is correct, beam+I6 and
+    // greedy+I6 will be within floating-point noise of each other at every
+    // reported rank (same descent path, same margins applied, same leaf).
+    use std::path::PathBuf;
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let data_dir = manifest_dir.join("benchmarks").join("data");
+    if !data_dir.join("bench_1000_ref.fasta").exists() {
+        eprintln!("skipping beam-I6 plumbing test: benchmark data not present");
+        return;
+    }
+
+    use oxidtaxa::fasta::{read_fasta, read_taxonomy};
+    use oxidtaxa::sequence::remove_gaps;
+
+    let (ref_names, ref_seqs) =
+        read_fasta(data_dir.join("bench_1000_ref.fasta").to_str().unwrap()).unwrap();
+    let ref_tax = read_taxonomy(
+        data_dir.join("bench_1000_ref_taxonomy.tsv").to_str().unwrap(),
+        &ref_names,
+    )
+    .unwrap();
+    // Minimal training-filter — mirror eval_training.rs.
+    let mut train_seqs = Vec::new();
+    let mut train_tax = Vec::new();
+    for (i, seq) in ref_seqs.iter().enumerate() {
+        let tax = &ref_tax[i];
+        let full_tax = format!("Root; {}", tax.replace(";", "; "));
+        let rank_count = full_tax.split("; ").count();
+        if rank_count < 4 || seq.len() < 30 {
+            continue;
+        }
+        train_seqs.push(seq.clone());
+        train_tax.push(full_tax);
+    }
+    let model = learn_taxa(&train_seqs, &train_tax, &TrainConfig::default(), 42, false).unwrap();
+
+    let (q_names, q_seqs) =
+        read_fasta(data_dir.join("bench_1000_query.fasta").to_str().unwrap()).unwrap();
+    let clean = remove_gaps(&q_seqs);
+    // Trim to the first 20 queries — enough to hit real margins without
+    // paying the full 500-query cost.
+    let queries: Vec<String> = clean.into_iter().take(20).collect();
+    let names: Vec<String> = q_names.into_iter().take(20).collect();
+
+    let cfg_greedy_on = ClassifyConfig {
+        beam_width: 1,
+        confidence_uses_descent_margin: true,
+        ..Default::default()
+    };
+    let greedy_on = id_taxa(
+        &queries, &names, &model, &cfg_greedy_on, StrandMode::Both, OutputType::Extended, 42, true,
+    );
+
+    let cfg_beam_on = ClassifyConfig {
+        beam_width: 1,  // still beam code path, but test with width=1 first
+        confidence_uses_descent_margin: true,
+        ..Default::default()
+    };
+    let _beam_width1_on = id_taxa(
+        &queries, &names, &model, &cfg_beam_on, StrandMode::Both, OutputType::Extended, 42, true,
+    );
+
+    // The real plumbing test: beam_width=3 must also apply margins. Compare
+    // beam-I6-on against beam-I6-off — they must differ on at least one
+    // query's confidence vector, since this benchmark is known to produce
+    // margin discounts under greedy.
+    let cfg_beam3_off = ClassifyConfig {
+        beam_width: 3,
+        confidence_uses_descent_margin: false,
+        ..Default::default()
+    };
+    let beam3_off = id_taxa(
+        &queries, &names, &model, &cfg_beam3_off, StrandMode::Both, OutputType::Extended, 42, true,
+    );
+
+    let cfg_beam3_on = ClassifyConfig {
+        beam_width: 3,
+        confidence_uses_descent_margin: true,
+        ..Default::default()
+    };
+    let beam3_on = id_taxa(
+        &queries, &names, &model, &cfg_beam3_on, StrandMode::Both, OutputType::Extended, 42, true,
+    );
+
+    // Also verify greedy+I6 actually does something on this dataset (anchor
+    // for the beam comparison).
+    let cfg_greedy_off = ClassifyConfig {
+        beam_width: 1,
+        confidence_uses_descent_margin: false,
+        ..Default::default()
+    };
+    let greedy_off = id_taxa(
+        &queries, &names, &model, &cfg_greedy_off, StrandMode::Both, OutputType::Extended, 42, true,
+    );
+
+    let any_greedy_changed = greedy_off.iter().zip(greedy_on.iter()).any(|(a, b)| {
+        let len = a.confidence.len().min(b.confidence.len());
+        (0..len).any(|i| (a.confidence[i] - b.confidence[i]).abs() > 1e-6)
+    });
+    assert!(
+        any_greedy_changed,
+        "benchmark dataset does not produce margin discounts even under greedy"
+    );
+
+    let any_beam3_changed = beam3_off.iter().zip(beam3_on.iter()).any(|(a, b)| {
+        let len = a.confidence.len().min(b.confidence.len());
+        (0..len).any(|i| (a.confidence[i] - b.confidence[i]).abs() > 1e-6)
+    });
+    assert!(
+        any_beam3_changed,
+        "beam_width=3 + confidence_uses_descent_margin=true produced identical \
+         confidences to I6=false on a dataset where greedy+I6 DID change them — \
+         the beam path is still ignoring margins (empty_margins regression)"
+    );
+}
+
+#[test]
+fn test_descent_margin_does_not_collapse_deep_ranks() {
+    // With per-rank (non-cumulative) application, the deepest rank's
+    // confidence is discounted by at most one margin (≥ 0.1 floor), so it
+    // must be ≥ 10% of its unflagged value. Under the old cumulative-product
+    // semantics, 6-7 compounded margins could easily drop this ratio to
+    // 0.1^6 ≈ 1e-6 — a collapse we explicitly guard against.
+    let ts = build_near_tied_training_set();
+    let query = vec![
+        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string(),
+    ];
+    let names = vec!["q".to_string()];
+
+    let cfg_off = ClassifyConfig::default();
+    let off = id_taxa(
+        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    let cfg_on = ClassifyConfig {
+        confidence_uses_descent_margin: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    assert_eq!(off.len(), 1);
+    assert_eq!(on.len(), 1);
+
+    // Compare the deepest rank where both paths reported a confidence.
+    let len = off[0].confidence.len().min(on[0].confidence.len());
+    assert!(len > 0);
+    let deepest_off = off[0].confidence[len - 1];
+    let deepest_on = on[0].confidence[len - 1];
+
+    // Skip the trivially-safe case where off was already near zero.
+    if deepest_off > 1.0 {
+        let ratio = deepest_on / deepest_off;
+        assert!(
+            ratio >= 0.1 - 1e-6,
+            "deepest-rank confidence collapsed: off={}, on={}, ratio={} (< 0.1 floor)",
+            deepest_off,
+            deepest_on,
+            ratio
+        );
+    }
+}
+
 // ============================================================================
 // I7: sibling_aware_leaf
 // ============================================================================

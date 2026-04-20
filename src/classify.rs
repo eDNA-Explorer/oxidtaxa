@@ -307,10 +307,18 @@ fn classify_one_pass_beam(
         node: usize,
         w_indices: Vec<usize>,
         score: f64,
+        /// Margin history from root to this candidate's current node. Mirrors
+        /// the greedy path's `descent_margins` so I6 works for beam_width > 1.
+        descent_margins: Vec<f64>,
     }
 
     let beam_width = config.beam_width;
-    let mut active = vec![BeamCandidate { node: 0, w_indices: Vec::new(), score: 1.0 }];
+    let mut active = vec![BeamCandidate {
+        node: 0,
+        w_indices: Vec::new(),
+        score: 1.0,
+        descent_margins: Vec::new(),
+    }];
 
     loop {
         let mut next: Vec<BeamCandidate> = Vec::new();
@@ -326,6 +334,7 @@ fn classify_one_pass_beam(
                     node: k_node,
                     w_indices: (0..subtrees.len()).collect(),
                     score: candidate.score,
+                    descent_margins: candidate.descent_margins.clone(),
                 });
                 continue;
             }
@@ -339,6 +348,7 @@ fn classify_one_pass_beam(
                         node: subtrees[0],
                         w_indices: Vec::new(),
                         score: candidate.score,
+                        descent_margins: candidate.descent_margins.clone(),
                     });
                     any_expanded = true;
                 } else {
@@ -346,6 +356,7 @@ fn classify_one_pass_beam(
                         node: k_node,
                         w_indices: if subtrees.is_empty() { vec![] } else { (0..subtrees.len()).collect() },
                         score: candidate.score,
+                        descent_margins: candidate.descent_margins.clone(),
                     });
                 }
                 continue;
@@ -373,6 +384,26 @@ fn classify_one_pass_beam(
                 }
             }
 
+            // Record the margin for this decision step (mirrors greedy at
+            // classify.rs:230-241). All children produced from this candidate
+            // inherit the parent's margin history plus this one.
+            let next_margins = if config.confidence_uses_descent_margin {
+                let mut sorted = vote_counts.clone();
+                sorted.sort_unstable_by(|a, b_| b_.cmp(a));
+                let top = *sorted.first().unwrap_or(&0) as f64;
+                let runner_up = *sorted.get(1).unwrap_or(&0) as f64;
+                let margin = if top > 0.0 {
+                    ((top - runner_up) / (b as f64)).max(0.1)
+                } else {
+                    1.0
+                };
+                let mut m = candidate.descent_margins.clone();
+                m.push(margin);
+                m
+            } else {
+                candidate.descent_margins.clone()
+            };
+
             // Collect children with votes, sorted by vote count descending
             let mut children_by_votes: Vec<(usize, usize)> = vote_counts.iter()
                 .enumerate()
@@ -387,6 +418,7 @@ fn classify_one_pass_beam(
                     node: k_node,
                     w_indices: (0..n_sub).collect(),
                     score: candidate.score,
+                    descent_margins: next_margins,
                 });
                 continue;
             }
@@ -402,12 +434,14 @@ fn classify_one_pass_beam(
                         node: k_node,
                         w_indices: vec![winner_idx],
                         score: candidate.score * top_vote_frac,
+                        descent_margins: next_margins.clone(),
                     });
                 } else {
                     next.push(BeamCandidate {
                         node: winner_child,
                         w_indices: Vec::new(),
                         score: candidate.score * top_vote_frac,
+                        descent_margins: next_margins.clone(),
                     });
                     any_expanded = true;
                 }
@@ -421,12 +455,14 @@ fn classify_one_pass_beam(
                             node: k_node,
                             w_indices: vec![j],
                             score: candidate.score * vf,
+                            descent_margins: next_margins.clone(),
                         });
                     } else {
                         next.push(BeamCandidate {
                             node: child,
                             w_indices: Vec::new(),
                             score: candidate.score * vf,
+                            descent_margins: next_margins.clone(),
                         });
                         any_expanded = true;
                     }
@@ -447,6 +483,7 @@ fn classify_one_pass_beam(
                     node: k_node,
                     w_indices,
                     score: candidate.score * top_vote_frac,
+                    descent_margins: next_margins,
                 });
             }
         }
@@ -461,12 +498,11 @@ fn classify_one_pass_beam(
 
     // Score each candidate via leaf phase, pick best
     let mut best: Option<(ClassificationResult, f64)> = None;
-    let empty_margins: Vec<f64> = Vec::new();
     for candidate in &active {
         if let Some((result, sim)) = leaf_phase_score(
             candidate.node, &candidate.w_indices,
             my_kmers, s, b, ts, config, full_length, ls, rng,
-            &empty_margins,
+            &candidate.descent_margins,
         ) {
             match &best {
                 None => best = Some((result, sim)),
@@ -738,19 +774,18 @@ fn leaf_phase_score(
         }
     }
 
-    // I6: discount each rank's confidence by the margins of the decisions
-    // that reached it. `descent_margins[i]` is the decisiveness of the split
-    // at node i, which selects rank i+1 — so it should only affect ranks
-    // BELOW itself, never the rank it decided into or anything shallower.
-    // Concretely: confidence[Kingdom] gets margin[0] (the Root→Kingdom
-    // decision) only; it is NOT discounted by margins at Kingdom→Phylum or
-    // any deeper split. No-op when `descent_margins` is empty.
+    // I6: discount each rank's confidence by the margin of the single
+    // decision that selected it — no compounding across ranks.
+    // `descent_margins[i]` is the decisiveness of the split at node i, which
+    // picks rank i+1, so it discounts `confidences[i+1]` only. Root stays
+    // untouched. Non-cumulative on purpose: margin is a decisiveness score,
+    // not a probability, and raw per-rank confidence already encodes path
+    // dependence via the bootstrap vote fraction — compounding margins on
+    // top double-counts uncertainty and collapses deep ranks to zero.
     if config.confidence_uses_descent_margin && !descent_margins.is_empty() {
-        let mut cumulative = 1.0f64;
-        for i in 0..confidences.len() {
-            confidences[i] *= cumulative;
-            if i < descent_margins.len() {
-                cumulative *= descent_margins[i];
+        for i in 1..confidences.len() {
+            if let Some(&m) = descent_margins.get(i - 1) {
+                confidences[i] *= m;
             }
         }
     }
