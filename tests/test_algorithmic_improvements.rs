@@ -263,6 +263,40 @@ fn test_beam_width_1_matches_greedy() {
 }
 
 #[test]
+fn test_beam_runner_ups_must_pass_min_descend() {
+    // Fix A: runner-ups whose vote_frac < min_descend must be dropped,
+    // so beam can only "rescue" the genuine multi-child-passing case
+    // (where greedy halts) — never the sub-threshold-runner-up case.
+    // On the default test set most queries have a single confident path
+    // at each node, so post-fix beam-3 predictions should largely match
+    // beam-1 (greedy) predictions. Any divergence must come from the
+    // legitimate beam speciality (multiple children passing min_descend),
+    // not from spuriously-rescued weak runner-ups.
+    let cfg_greedy = ClassifyConfig { beam_width: 1, ..Default::default() };
+    let cfg_beam3 = ClassifyConfig { beam_width: 3, ..Default::default() };
+
+    let results_greedy = train_and_classify(&TrainConfig::default(), &cfg_greedy);
+    let results_beam3 = train_and_classify(&TrainConfig::default(), &cfg_beam3);
+
+    assert_eq!(results_greedy.len(), results_beam3.len());
+    let matches = results_greedy
+        .iter()
+        .zip(results_beam3.iter())
+        .filter(|(g, b)| g.taxon == b.taxon)
+        .count();
+    let total = results_greedy.len();
+    let match_rate = matches as f64 / total as f64;
+    assert!(
+        match_rate >= 0.80,
+        "After Fix A, beam-3 should match greedy on >=80% of queries \
+         (sub-threshold runner-ups dropped). Got {}/{} = {:.2}.",
+        matches,
+        total,
+        match_rate,
+    );
+}
+
+#[test]
 fn test_beam_width_3_produces_valid_results() {
     let results = train_and_classify(
         &TrainConfig::default(),

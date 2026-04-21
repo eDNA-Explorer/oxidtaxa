@@ -448,9 +448,18 @@ fn classify_one_pass_beam(
                     any_expanded = true;
                 }
 
-                // Keep runner-ups for beam
+                // Keep runner-ups that ALSO pass min_descend. Sub-threshold
+                // runner-ups are dropped: they would otherwise let beam
+                // "rescue" candidates greedy would correctly abandon, which
+                // inflates off-target classification rate without
+                // algorithmic justification. `children_by_votes` is
+                // vote-sorted descending, so once one runner-up fails, the
+                // rest fail too — break is safe.
                 for &(j, votes) in children_by_votes.iter().skip(1) {
                     let vf = votes as f64 / b as f64;
+                    if vf < config.min_descend {
+                        break;
+                    }
                     let child = subtrees[j];
                     if children[child].is_empty() {
                         next.push(BeamCandidate {
