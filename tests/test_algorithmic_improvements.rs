@@ -125,10 +125,8 @@ fn test_descendant_weighting_equal_changes_decision_kmers() {
         .iter()
         .zip(equal_model.decision_kmers.iter())
     {
-        if c.is_some() && e.is_some() {
-            if c.as_ref().unwrap().keep != e.as_ref().unwrap().keep {
-                diffs_equal += 1;
-            }
+        if c.is_some() && e.is_some() && c.as_ref().unwrap().keep != e.as_ref().unwrap().keep {
+            diffs_equal += 1;
         }
     }
     for (c, l) in count_model
@@ -136,10 +134,8 @@ fn test_descendant_weighting_equal_changes_decision_kmers() {
         .iter()
         .zip(log_model.decision_kmers.iter())
     {
-        if c.is_some() && l.is_some() {
-            if c.as_ref().unwrap().keep != l.as_ref().unwrap().keep {
-                diffs_log += 1;
-            }
+        if c.is_some() && l.is_some() && c.as_ref().unwrap().keep != l.as_ref().unwrap().keep {
+            diffs_log += 1;
         }
     }
 
@@ -385,7 +381,7 @@ fn test_beam_width_3_produces_valid_results() {
         assert!(r.taxon[0] == "Root", "first taxon should be Root");
         assert_eq!(r.taxon.len(), r.confidence.len());
         for &c in &r.confidence {
-            assert!(c >= 0.0 && c <= 200.0, "confidence {} out of range", c);
+            assert!((0.0..=200.0).contains(&c), "confidence {} out of range", c);
         }
     }
 }
@@ -418,10 +414,8 @@ fn test_correlation_aware_changes_decision_kmers() {
         .iter()
         .zip(corr_model.decision_kmers.iter())
     {
-        if d.is_some() && c.is_some() {
-            if d.as_ref().unwrap().keep != c.as_ref().unwrap().keep {
-                diffs += 1;
-            }
+        if d.is_some() && c.is_some() && d.as_ref().unwrap().keep != c.as_ref().unwrap().keep {
+            diffs += 1;
         }
     }
 

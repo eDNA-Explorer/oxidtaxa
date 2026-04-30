@@ -756,8 +756,8 @@ fn leaf_phase_score(
 
         let mut us: Vec<i32> = Vec::new();
         let mut rg: Vec<usize> = vec![0];
-        for km in 1..=n_possible {
-            let c = kmer_counts[km] as usize;
+        for (km, &count) in kmer_counts.iter().enumerate().take(n_possible + 1).skip(1) {
+            let c = count as usize;
             if c > 0 {
                 us.push(km as i32);
                 rg.push(rg.last().unwrap() + c);
@@ -974,8 +974,8 @@ fn leaf_phase_score(
         let mut keep_winner = vec![true; winners.len()];
         for i in 0..winners.len() {
             let i_path = winner_paths[i];
-            for j in 0..winners.len() {
-                if i != j && winner_paths[j].starts_with(i_path) {
+            for (j, j_path) in winner_paths.iter().enumerate() {
+                if i != j && j_path.starts_with(i_path) {
                     // i's full path is a strict prefix of j's.
                     keep_winner[i] = false;
                     break;
@@ -1064,10 +1064,10 @@ fn leaf_phase_score(
     // fully decisive split leaves it untouched.
     const MARGIN_FLOOR: f64 = 0.8;
     if config.confidence_uses_descent_margin && !descent_margins.is_empty() {
-        for i in 1..confidences.len() {
+        for (i, conf) in confidences.iter_mut().enumerate().skip(1) {
             if let Some(&m) = descent_margins.get(i - 1) {
                 let effective = MARGIN_FLOOR + (1.0 - MARGIN_FLOOR) * m;
-                confidences[i] *= effective;
+                *conf *= effective;
             }
         }
     }

@@ -856,29 +856,28 @@ fn create_tree(
         if config.processors > 1 {
             // Process sibling subtrees in parallel (they access disjoint
             // data and all shared params are immutable borrows).
-            let child_results: Vec<(SparseProfile, usize, Vec<(usize, DecisionNode)>)> =
-                if n_children == 2 {
-                    let (r0, r1) = rayon::join(
-                        || create_tree(child_nodes[0], children, sequences, kmers, n_kmers, config),
-                        || create_tree(child_nodes[1], children, sequences, kmers, n_kmers, config),
-                    );
-                    vec![r0, r1]
-                } else {
-                    let mut results: Vec<
-                        Option<(SparseProfile, usize, Vec<(usize, DecisionNode)>)>,
-                    > = (0..n_children).map(|_| None).collect();
-                    rayon::scope(|s| {
-                        for (i, result_slot) in results.iter_mut().enumerate() {
-                            let child = child_nodes[i];
-                            s.spawn(move |_| {
-                                *result_slot = Some(create_tree(
-                                    child, children, sequences, kmers, n_kmers, config,
-                                ));
-                            });
-                        }
-                    });
-                    results.into_iter().map(|r| r.unwrap()).collect()
-                };
+            type ChildBuildResult = (SparseProfile, usize, Vec<(usize, DecisionNode)>);
+            let child_results: Vec<ChildBuildResult> = if n_children == 2 {
+                let (r0, r1) = rayon::join(
+                    || create_tree(child_nodes[0], children, sequences, kmers, n_kmers, config),
+                    || create_tree(child_nodes[1], children, sequences, kmers, n_kmers, config),
+                );
+                vec![r0, r1]
+            } else {
+                let mut results: Vec<Option<ChildBuildResult>> =
+                    (0..n_children).map(|_| None).collect();
+                rayon::scope(|s| {
+                    for (i, result_slot) in results.iter_mut().enumerate() {
+                        let child = child_nodes[i];
+                        s.spawn(move |_| {
+                            *result_slot = Some(create_tree(
+                                child, children, sequences, kmers, n_kmers, config,
+                            ));
+                        });
+                    }
+                });
+                results.into_iter().map(|r| r.unwrap()).collect()
+            };
 
             for (profile, desc, nodes) in child_results {
                 profiles.push(profile);

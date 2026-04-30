@@ -1,6 +1,6 @@
 mod common;
 
-use common::{assert_approx_eq, golden_json_dir, load_json};
+use common::load_json;
 use oxidtaxa::training::{build_tree, learn_fractions, learn_taxa, prepare_data};
 use oxidtaxa::types::{BuildTreeConfig, DescendantWeighting, LearnFractionsConfig, TrainConfig};
 
@@ -29,12 +29,14 @@ struct GoldenTrainingSet {
 }
 
 #[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)] // fields populated by serde for shape validation
 struct GoldenDecisionNode {
     keep: Vec<f64>, // stored as float
     profiles: Vec<Vec<f64>>,
 }
 
 #[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)] // fields populated by serde for shape validation
 struct GoldenProblemSeq {
     index: usize,
     expected: String,
@@ -73,29 +75,10 @@ fn compare_training_set(
         label
     );
 
-    // parents: same offset
-    let rust_parents_1idx: Vec<usize> = result
-        .parents
-        .iter()
-        .map(|&p| {
-            if p == 0 && result.parents[0] == 0 {
-                0
-            } else {
-                p + 1
-            }
-        })
-        .collect();
-    // R's parents[1] = 0 (Root has no parent), parents[2] = 1, etc.
-    // Actually R stores parents as: Root's parent = 0, others = 1-indexed
-    // Our Rust: parents[0] = 0 (Root), parents[1] = 0 (child of Root), etc.
-    // R: parents[1] = 0, parents[2] = 1, parents[3] = 2 ...
-    // So for node i: R's parents[i+1] = Rust's parents[i] + 1 (except Root: R=0, Rust=0)
-    // But index 0 in R's parents array is parents[1] = 0. Let me just check:
-    // R parents are 1-indexed internally, and parents[Root] = 0 means "no parent"
-    // Our Rust parents[0] = 0 means Root is its own parent (or no parent)
-    // For other nodes: Rust parents[i] = j means j is parent (0-indexed)
-    // R parents[i] = j means j is parent (1-indexed), where 0 = no parent
-    // So: Rust parents[i] → R parents[i] = Rust parents[i] + 1, except Root (0→0)
+    // parents: Rust parents[i] → R parents[i] = Rust parents[i] + 1, except
+    // Root which stays at 0 in R (meaning "no parent"). Rust uses 0-indexed
+    // parents with parents[0] = 0 self-loop for Root; R uses 1-indexed with
+    // parents[1] = 0 as the "Root has no parent" sentinel.
     let rust_parents_as_r: Vec<usize> = result
         .parents
         .iter()

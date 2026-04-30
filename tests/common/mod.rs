@@ -1,12 +1,14 @@
 use std::path::PathBuf;
 
 /// Get the path to the golden_json directory.
+#[allow(dead_code)]
 pub fn golden_json_dir() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("tests").join("golden_json")
 }
 
 /// Load a JSON golden file and deserialize.
+#[allow(dead_code)]
 pub fn load_json<T: serde::de::DeserializeOwned>(name: &str) -> T {
     let path = golden_json_dir().join(format!("{}.json", name));
     let content = std::fs::read_to_string(&path)

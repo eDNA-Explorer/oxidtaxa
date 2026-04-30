@@ -209,9 +209,9 @@ pub fn parallel_match_inverted(
     }
 
     let mut col_sums = vec![0.0f64; n];
-    for k in 0..n {
+    for (k, sum) in col_sums.iter_mut().enumerate() {
         let base = k * block_count;
-        col_sums[k] = hits_flat[base..base + block_count].iter().sum();
+        *sum = hits_flat[base..base + block_count].iter().sum();
     }
     (hits_flat, col_sums)
 }

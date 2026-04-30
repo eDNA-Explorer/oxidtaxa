@@ -77,9 +77,7 @@ fn main() {
     // Show where problem sequences fail
     let mut fail_nodes: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for ps in &model.problem_sequences {
-        // The predicted field shows where misclassification happened
-        let depth = ps.predicted.split(';').filter(|s| !s.is_empty()).count();
-        let expected_depth = ps.expected.split(';').filter(|s| !s.is_empty()).count();
+        // Categorize whether the path stopped at Root or descended somewhere wrong.
         *fail_nodes
             .entry(if ps.predicted.is_empty() {
                 "(stopped at Root)"
@@ -99,18 +97,16 @@ fn main() {
     for ps in model.problem_sequences.iter().take(10) {
         let exp_short: String = ps
             .expected
-            .split(';')
-            .filter(|s| !s.is_empty())
-            .last()
+            .rsplit(';')
+            .find(|s| !s.is_empty())
             .unwrap_or("?")
             .to_string();
         let pred_short: String = if ps.predicted.is_empty() {
             "(gave up)".to_string()
         } else {
             ps.predicted
-                .split(';')
-                .filter(|s| !s.is_empty())
-                .last()
+                .rsplit(';')
+                .find(|s| !s.is_empty())
                 .unwrap_or("?")
                 .to_string()
         };

@@ -1164,8 +1164,10 @@ fn test_use_idf_in_descent_false_no_regression() {
     let sequences_for_default = build_idf_descent_fixture(false);
 
     // Identical fixture but trained with the explicit flag set to false.
-    let mut explicit_config = TrainConfig::default();
-    explicit_config.use_idf_in_descent = false;
+    let explicit_config = TrainConfig {
+        use_idf_in_descent: false,
+        ..TrainConfig::default()
+    };
     let base = "\
         ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
