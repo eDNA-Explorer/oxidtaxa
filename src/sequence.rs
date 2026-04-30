@@ -14,7 +14,8 @@ pub fn vcount_pattern(pattern: u8, sequences: &[String]) -> Vec<usize> {
 /// Port of R/seq_utils.R:reverseComplement.
 /// Works at byte level for performance (all DNA chars are ASCII).
 pub fn reverse_complement(seq: &str) -> String {
-    let bytes: Vec<u8> = seq.bytes()
+    let bytes: Vec<u8> = seq
+        .bytes()
         .rev()
         .map(|b| match b {
             b'A' | b'a' => b'T',

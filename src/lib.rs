@@ -27,16 +27,24 @@ mod python_bindings {
         }
         #[staticmethod]
         fn load(path: &str) -> PyResult<Self> {
-            let inner = crate::types::PreparedData::load(path)
-                .map_err(|e| PyValueError::new_err(e))?;
-            Ok(Self { inner: Arc::new(inner) })
+            let inner =
+                crate::types::PreparedData::load(path).map_err(|e| PyValueError::new_err(e))?;
+            Ok(Self {
+                inner: Arc::new(inner),
+            })
         }
         #[getter]
-        fn n_sequences(&self) -> usize { self.inner.kmers.len() }
+        fn n_sequences(&self) -> usize {
+            self.inner.kmers.len()
+        }
         #[getter]
-        fn k(&self) -> usize { self.inner.k }
+        fn k(&self) -> usize {
+            self.inner.k
+        }
         #[getter]
-        fn n_taxa(&self) -> usize { self.inner.taxonomy.len() }
+        fn n_taxa(&self) -> usize {
+            self.inner.taxonomy.len()
+        }
     }
 
     #[pyclass(frozen, name = "BuiltTree")]
@@ -51,12 +59,16 @@ mod python_bindings {
         }
         #[staticmethod]
         fn load(path: &str) -> PyResult<Self> {
-            let inner = crate::types::BuiltTree::load(path)
-                .map_err(|e| PyValueError::new_err(e))?;
-            Ok(Self { inner: Arc::new(inner) })
+            let inner =
+                crate::types::BuiltTree::load(path).map_err(|e| PyValueError::new_err(e))?;
+            Ok(Self {
+                inner: Arc::new(inner),
+            })
         }
         #[getter]
-        fn n_nodes(&self) -> usize { self.inner.decision_kmers.len() }
+        fn n_nodes(&self) -> usize {
+            self.inner.decision_kmers.len()
+        }
     }
 
     #[pyfunction]
@@ -89,8 +101,8 @@ mod python_bindings {
         let (names, seqs) =
             crate::fasta::read_fasta(fasta_path).map_err(|e| PyValueError::new_err(e))?;
 
-        let taxonomy =
-            crate::fasta::read_taxonomy(taxonomy_path, &names).map_err(|e| PyValueError::new_err(e))?;
+        let taxonomy = crate::fasta::read_taxonomy(taxonomy_path, &names)
+            .map_err(|e| PyValueError::new_err(e))?;
 
         // Quality filtering (same as train_idtaxa.R)
         let (filtered_seqs, filtered_tax) = filter_for_training(&seqs, &taxonomy);
@@ -110,11 +122,15 @@ mod python_bindings {
         };
 
         // Release the GIL so parallel Python threads can run concurrently
-        let model = py.allow_threads(|| {
-            crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
-        }).map_err(|e| PyValueError::new_err(e))?;
+        let model = py
+            .allow_threads(|| {
+                crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
+            })
+            .map_err(|e| PyValueError::new_err(e))?;
 
-        model.save(output_path).map_err(|e| PyValueError::new_err(e))?;
+        model
+            .save(output_path)
+            .map_err(|e| PyValueError::new_err(e))?;
         Ok(())
     }
 
@@ -168,8 +184,8 @@ mod python_bindings {
         sibling_aware_leaf: bool,
         suppress_ancestor_only_groups: bool,
     ) -> PyResult<Vec<crate::types::ClassificationResult>> {
-        let model = crate::types::TrainingSet::load(model_path)
-            .map_err(|e| PyValueError::new_err(e))?;
+        let model =
+            crate::types::TrainingSet::load(model_path).map_err(|e| PyValueError::new_err(e))?;
 
         let (names, seqs) =
             crate::fasta::read_fasta(query_path).map_err(|e| PyValueError::new_err(e))?;
@@ -231,16 +247,25 @@ mod python_bindings {
     ) -> PyResult<PyPreparedData> {
         let (names, seqs) =
             crate::fasta::read_fasta(fasta_path).map_err(|e| PyValueError::new_err(e))?;
-        let taxonomy =
-            crate::fasta::read_taxonomy(taxonomy_path, &names).map_err(|e| PyValueError::new_err(e))?;
+        let taxonomy = crate::fasta::read_taxonomy(taxonomy_path, &names)
+            .map_err(|e| PyValueError::new_err(e))?;
         let (filtered_seqs, filtered_tax) = filter_for_training(&seqs, &taxonomy);
 
-        let inner = py.allow_threads(|| {
-            crate::training::prepare_data(
-                &filtered_seqs, &filtered_tax, k, n, seed_pattern, processors,
-            )
-        }).map_err(|e| PyValueError::new_err(e))?;
-        Ok(PyPreparedData { inner: Arc::new(inner) })
+        let inner = py
+            .allow_threads(|| {
+                crate::training::prepare_data(
+                    &filtered_seqs,
+                    &filtered_tax,
+                    k,
+                    n,
+                    seed_pattern,
+                    processors,
+                )
+            })
+            .map_err(|e| PyValueError::new_err(e))?;
+        Ok(PyPreparedData {
+            inner: Arc::new(inner),
+        })
     }
 
     #[pyfunction]
@@ -266,10 +291,12 @@ mod python_bindings {
             processors,
         };
         let data = Arc::clone(&prepared.inner);
-        let built = py.allow_threads(move || {
-            crate::training::build_tree(&data, &config)
-        }).map_err(|e| PyValueError::new_err(e))?;
-        Ok(PyBuiltTree { inner: Arc::new(built) })
+        let built = py
+            .allow_threads(move || crate::training::build_tree(&data, &config))
+            .map_err(|e| PyValueError::new_err(e))?;
+        Ok(PyBuiltTree {
+            inner: Arc::new(built),
+        })
     }
 
     #[pyfunction]
@@ -301,10 +328,12 @@ mod python_bindings {
         };
         let prep = Arc::clone(&prepared.inner);
         let tree = Arc::clone(&built_tree.inner);
-        let model = py.allow_threads(move || {
-            crate::training::learn_fractions(&prep, &tree, &config, seed)
-        }).map_err(|e| PyValueError::new_err(e))?;
-        model.save(output_path).map_err(|e| PyValueError::new_err(e))?;
+        let model = py
+            .allow_threads(move || crate::training::learn_fractions(&prep, &tree, &config, seed))
+            .map_err(|e| PyValueError::new_err(e))?;
+        model
+            .save(output_path)
+            .map_err(|e| PyValueError::new_err(e))?;
         Ok(())
     }
 
@@ -314,7 +343,8 @@ mod python_bindings {
             "equal" => Ok(crate::types::DescendantWeighting::Equal),
             "log" => Ok(crate::types::DescendantWeighting::Log),
             _ => Err(PyValueError::new_err(format!(
-                "Invalid descendant_weighting: '{}'. Expected 'count', 'equal', or 'log'", s
+                "Invalid descendant_weighting: '{}'. Expected 'count', 'equal', or 'log'",
+                s
             ))),
         }
     }

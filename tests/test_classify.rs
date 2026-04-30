@@ -152,8 +152,14 @@ fn test_classify_9a_standard() {
 
     let config = ClassifyConfig::default();
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Both, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_dict("9a_standard", &golden, &results, &names);
@@ -167,12 +173,29 @@ fn test_classify_9b_perfect() {
     let ts = train_standard_model();
     let query_seqs: Vec<String> = load_json("s09b_perfect_query");
     let golden: HashMap<String, GoldenClassResult> = load_json("s09b_ids_perfect");
-    let names = vec!["seq_001".to_string(), "seq_020".to_string(), "seq_040".to_string(), "seq_060".to_string()];
+    let names = vec![
+        "seq_001".to_string(),
+        "seq_020".to_string(),
+        "seq_040".to_string(),
+        "seq_060".to_string(),
+    ];
 
-    let config = ClassifyConfig { threshold: 60.0, min_descend: 0.98, full_length: 0.0, processors: 1, ..Default::default() };
+    let config = ClassifyConfig {
+        threshold: 60.0,
+        min_descend: 0.98,
+        full_length: 0.0,
+        processors: 1,
+        ..Default::default()
+    };
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_dict("9b_perfect", &golden, &results, &names);
@@ -185,13 +208,23 @@ fn test_classify_9b_perfect() {
 fn test_classify_9c_novel() {
     let ts = train_standard_model();
     let query_seqs: Vec<String> = load_json("s09c_novel_seqs");
-    let names = vec!["random1".to_string(), "random2".to_string(), "random3".to_string()];
+    let names = vec![
+        "random1".to_string(),
+        "random2".to_string(),
+        "random3".to_string(),
+    ];
     let golden: HashMap<String, GoldenClassResult> = load_json("s09c_ids_novel");
 
     let config = ClassifyConfig::default();
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Both, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_dict("9c_novel", &golden, &results, &names);
@@ -211,13 +244,30 @@ fn test_classify_9d_threshold_sweep() {
         let golden_name = format!("s09d_ids_thresh_{}", thresh as i32);
         let golden: HashMap<String, GoldenClassResult> = load_json(&golden_name);
 
-        let config = ClassifyConfig { threshold: thresh, min_descend: 0.98, full_length: 0.0, processors: 1, ..Default::default() };
+        let config = ClassifyConfig {
+            threshold: thresh,
+            min_descend: 0.98,
+            full_length: 0.0,
+            processors: 1,
+            ..Default::default()
+        };
         let results = id_taxa(
-            &query_seqs, &names, &ts, &config,
-            StrandMode::Both, OutputType::Extended, 42, true,
+            &query_seqs,
+            &names,
+            &ts,
+            &config,
+            StrandMode::Both,
+            OutputType::Extended,
+            42,
+            true,
         );
 
-        compare_classification_dict(&format!("9d_thresh_{}", thresh as i32), &golden, &results, &names);
+        compare_classification_dict(
+            &format!("9d_thresh_{}", thresh as i32),
+            &golden,
+            &results,
+            &names,
+        );
     }
 }
 
@@ -234,8 +284,14 @@ fn test_classify_9e_strand_top() {
 
     let config = ClassifyConfig::default();
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_dict("9e_top", &golden, &results, &names);
@@ -251,8 +307,14 @@ fn test_classify_9e_strand_bottom() {
 
     let config = ClassifyConfig::default();
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Bottom, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Bottom,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_dict("9e_bottom", &golden, &results, &names);
@@ -268,8 +330,14 @@ fn test_classify_9e_strand_both() {
 
     let config = ClassifyConfig::default();
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Both, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_dict("9e_both", &golden, &results, &names);
@@ -282,13 +350,21 @@ fn test_classify_9e_strand_both() {
 fn test_classify_9f_duplicates() {
     let ts = train_standard_model();
     let query_seqs: Vec<String> = load_json("s09f_dup_query");
-    let names: Vec<String> = (0..query_seqs.len()).map(|i| format!("dup_{}", i + 1)).collect();
+    let names: Vec<String> = (0..query_seqs.len())
+        .map(|i| format!("dup_{}", i + 1))
+        .collect();
     let golden: HashMap<String, GoldenClassResult> = load_json("s09f_ids_dup");
 
     let config = ClassifyConfig::default();
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Both, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_dict("9f_dup", &golden, &results, &names);
@@ -315,15 +391,28 @@ fn test_classify_9g_short() {
     let golden: Vec<GoldenClassResult> = match serde_json::from_str(&golden_content) {
         Ok(v) => v,
         Err(_) => {
-            let g: HashMap<String, GoldenClassResult> = serde_json::from_str(&golden_content).unwrap();
+            let g: HashMap<String, GoldenClassResult> =
+                serde_json::from_str(&golden_content).unwrap();
             g.into_values().collect()
         }
     };
 
-    let config = ClassifyConfig { threshold: 60.0, min_descend: 0.98, full_length: 0.0, processors: 1, ..Default::default() };
+    let config = ClassifyConfig {
+        threshold: 60.0,
+        min_descend: 0.98,
+        full_length: 0.0,
+        processors: 1,
+        ..Default::default()
+    };
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_array("9g_short", &golden, &results);
@@ -346,12 +435,23 @@ fn test_classify_9h_bootstrap_sweep() {
 
         let config = ClassifyConfig::default();
         let results = id_taxa(
-            &query_seqs, &names, &ts, &config,
-            StrandMode::Both, OutputType::Extended, 42, true,
+            &query_seqs,
+            &names,
+            &ts,
+            &config,
+            StrandMode::Both,
+            OutputType::Extended,
+            42,
+            true,
         );
 
         let tol = CONF_TOLERANCE;
-        assert_eq!(results.len(), golden.len(), "9h_boots_{}: count mismatch", boots);
+        assert_eq!(
+            results.len(),
+            golden.len(),
+            "9h_boots_{}: count mismatch",
+            boots
+        );
         let mut all_taxa_ok = true;
         let mut max_diff = 0.0f64;
         for (i, result) in results.iter().enumerate() {
@@ -363,12 +463,20 @@ fn test_classify_9h_bootstrap_sweep() {
                 }
                 for (&g, &e) in result.confidence.iter().zip(gold.confidence.iter()) {
                     let d = (g - e).abs();
-                    if d > max_diff { max_diff = d; }
+                    if d > max_diff {
+                        max_diff = d;
+                    }
                 }
             }
         }
         assert!(all_taxa_ok, "9h_boots_{}: taxa mismatch", boots);
-        assert!(max_diff < tol, "9h_boots_{}: conf diff {} >= {}", boots, max_diff, tol);
+        assert!(
+            max_diff < tol,
+            "9h_boots_{}: conf diff {} >= {}",
+            boots,
+            max_diff,
+            tol
+        );
     }
 }
 
@@ -387,10 +495,22 @@ fn test_classify_9i_mindescend_sweep() {
         let golden_name = format!("s09i_ids_minDescend_{}", md_str);
         let golden: HashMap<String, GoldenClassResult> = load_json(&golden_name);
 
-        let config = ClassifyConfig { threshold: 60.0, min_descend: md, full_length: 0.0, processors: 1, ..Default::default() };
+        let config = ClassifyConfig {
+            threshold: 60.0,
+            min_descend: md,
+            full_length: 0.0,
+            processors: 1,
+            ..Default::default()
+        };
         let results = id_taxa(
-            &query_seqs, &names, &ts, &config,
-            StrandMode::Both, OutputType::Extended, 42, true,
+            &query_seqs,
+            &names,
+            &ts,
+            &config,
+            StrandMode::Both,
+            OutputType::Extended,
+            42,
+            true,
         );
 
         compare_classification_dict(&format!("9i_md_{}", md_str), &golden, &results, &names);
@@ -407,10 +527,22 @@ fn test_classify_9k_problem() {
     let names = make_names("problem", query_seqs.len());
     let golden: Vec<GoldenClassResult> = load_json("s09k_ids_problem");
 
-    let config = ClassifyConfig { threshold: 60.0, min_descend: 0.98, full_length: 0.0, processors: 1, ..Default::default() };
+    let config = ClassifyConfig {
+        threshold: 60.0,
+        min_descend: 0.98,
+        full_length: 0.0,
+        processors: 1,
+        ..Default::default()
+    };
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_array("9k_problem", &golden, &results);
@@ -426,10 +558,22 @@ fn test_classify_9l_singleton() {
     let names = make_names("singleton", query_seqs.len());
     let golden: Vec<GoldenClassResult> = load_json("s09l_ids_singleton");
 
-    let config = ClassifyConfig { threshold: 60.0, min_descend: 0.98, full_length: 0.0, processors: 1, ..Default::default() };
+    let config = ClassifyConfig {
+        threshold: 60.0,
+        min_descend: 0.98,
+        full_length: 0.0,
+        processors: 1,
+        ..Default::default()
+    };
     let results = id_taxa(
-        &query_seqs, &names, &ts, &config,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     compare_classification_array("9l_singleton", &golden, &results);

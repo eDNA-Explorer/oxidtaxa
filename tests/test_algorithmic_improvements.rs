@@ -3,9 +3,7 @@ mod common;
 use common::load_json;
 use oxidtaxa::classify::id_taxa;
 use oxidtaxa::training::learn_taxa;
-use oxidtaxa::types::{
-    ClassifyConfig, DescendantWeighting, OutputType, StrandMode, TrainConfig,
-};
+use oxidtaxa::types::{ClassifyConfig, DescendantWeighting, OutputType, StrandMode, TrainConfig};
 
 fn load_standard_data() -> (Vec<String>, Vec<String>) {
     let seqs: Vec<String> = load_json("s08a_filtered_seqs");
@@ -24,8 +22,14 @@ fn train_and_classify(
         .map(|i| format!("query_{:03}", i + 1))
         .collect();
     id_taxa(
-        &query_seqs, &names, &model, classify_config,
-        StrandMode::Both, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &model,
+        classify_config,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     )
 }
 
@@ -61,13 +65,18 @@ fn test_training_threshold_impossible_preserves_fractions() {
             assert!(
                 (*v - config.max_fraction).abs() < 1e-10,
                 "fraction[{}] = {} but expected max_fraction {} (no descent should occur)",
-                i, v, config.max_fraction
+                i,
+                v,
+                config.max_fraction
             );
         }
     }
     // No problem sequences either (nothing was ever classified)
-    assert_eq!(model.problem_sequences.len(), 0,
-        "Expected 0 problem sequences with impossible threshold");
+    assert_eq!(
+        model.problem_sequences.len(),
+        0,
+        "Expected 0 problem sequences with impossible threshold"
+    );
 }
 
 // ============================================================================
@@ -86,27 +95,47 @@ fn test_descendant_weighting_equal_changes_decision_kmers() {
 
     let count_model = learn_taxa(&seqs, &tax, &TrainConfig::default(), 42, false).unwrap();
     let equal_model = learn_taxa(
-        &seqs, &tax,
-        &TrainConfig { descendant_weighting: DescendantWeighting::Equal, ..Default::default() },
-        42, false,
-    ).unwrap();
+        &seqs,
+        &tax,
+        &TrainConfig {
+            descendant_weighting: DescendantWeighting::Equal,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
     let log_model = learn_taxa(
-        &seqs, &tax,
-        &TrainConfig { descendant_weighting: DescendantWeighting::Log, ..Default::default() },
-        42, false,
-    ).unwrap();
+        &seqs,
+        &tax,
+        &TrainConfig {
+            descendant_weighting: DescendantWeighting::Log,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
 
     // Decision kmers should differ between strategies for at least some nodes
     let mut diffs_equal = 0;
     let mut diffs_log = 0;
-    for (c, e) in count_model.decision_kmers.iter().zip(equal_model.decision_kmers.iter()) {
+    for (c, e) in count_model
+        .decision_kmers
+        .iter()
+        .zip(equal_model.decision_kmers.iter())
+    {
         if c.is_some() && e.is_some() {
             if c.as_ref().unwrap().keep != e.as_ref().unwrap().keep {
                 diffs_equal += 1;
             }
         }
     }
-    for (c, l) in count_model.decision_kmers.iter().zip(log_model.decision_kmers.iter()) {
+    for (c, l) in count_model
+        .decision_kmers
+        .iter()
+        .zip(log_model.decision_kmers.iter())
+    {
         if c.is_some() && l.is_some() {
             if c.as_ref().unwrap().keep != l.as_ref().unwrap().keep {
                 diffs_log += 1;
@@ -135,24 +164,37 @@ fn test_idf_training_produces_valid_model() {
 
     // IDF-weighted training should produce a valid model
     let idf_model = learn_taxa(
-        &seqs, &tax,
-        &TrainConfig { use_idf_in_descent: true, ..Default::default() },
-        42, false,
-    ).unwrap();
+        &seqs,
+        &tax,
+        &TrainConfig {
+            use_idf_in_descent: true,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
 
     // Model structure should be identical (IDF only affects fraction learning weights)
     assert_eq!(idf_model.taxonomy.len(), default_model.taxonomy.len());
-    assert_eq!(idf_model.decision_kmers.len(), default_model.decision_kmers.len());
+    assert_eq!(
+        idf_model.decision_kmers.len(),
+        default_model.decision_kmers.len()
+    );
     assert!(!idf_model.idf_weights_by_rank.is_empty());
     for row in &idf_model.idf_weights_by_rank {
         assert!(!row.is_empty(), "each per-rank IDF row should be populated");
     }
 
     // Decision k-mers should be identical (IDF doesn't affect create_tree)
-    for (d, i) in default_model.decision_kmers.iter().zip(idf_model.decision_kmers.iter()) {
+    for (d, i) in default_model
+        .decision_kmers
+        .iter()
+        .zip(idf_model.decision_kmers.iter())
+    {
         match (d, i) {
             (Some(dk_d), Some(dk_i)) => assert_eq!(dk_d.keep, dk_i.keep),
-            (None, None) => {},
+            (None, None) => {}
             _ => panic!("Decision k-mer presence differs"),
         }
     }
@@ -163,8 +205,14 @@ fn test_idf_training_produces_valid_model() {
         .map(|i| format!("query_{:03}", i + 1))
         .collect();
     let results = id_taxa(
-        &query_seqs, &names, &idf_model, &ClassifyConfig::default(),
-        StrandMode::Both, OutputType::Extended, 42, true,
+        &query_seqs,
+        &names,
+        &idf_model,
+        &ClassifyConfig::default(),
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
     assert_eq!(results.len(), query_seqs.len());
     for r in &results {
@@ -181,14 +229,17 @@ fn test_idf_training_combined_with_permissive_threshold() {
     let tax: Vec<String> = load_json("s08c_problem_tax");
 
     let idf_model = learn_taxa(
-        &seqs, &tax,
+        &seqs,
+        &tax,
         &TrainConfig {
             use_idf_in_descent: true,
             training_threshold: 0.3,
             ..Default::default()
         },
-        42, false,
-    ).unwrap();
+        42,
+        false,
+    )
+    .unwrap();
 
     // Should produce a valid model
     assert!(!idf_model.taxonomy.is_empty());
@@ -207,21 +258,34 @@ fn test_leave_one_out_produces_valid_model() {
 
     let default_model = learn_taxa(&seqs, &tax, &TrainConfig::default(), 42, false).unwrap();
     let loo_model = learn_taxa(
-        &seqs, &tax,
-        &TrainConfig { leave_one_out: true, ..Default::default() },
-        42, false,
-    ).unwrap();
+        &seqs,
+        &tax,
+        &TrainConfig {
+            leave_one_out: true,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
 
     // Both should produce valid models
     assert!(!loo_model.taxonomy.is_empty());
     assert_eq!(loo_model.taxonomy.len(), default_model.taxonomy.len());
 
     // LOO shouldn't affect tree structure, only fractions
-    assert_eq!(loo_model.decision_kmers.len(), default_model.decision_kmers.len());
-    for (d, l) in default_model.decision_kmers.iter().zip(loo_model.decision_kmers.iter()) {
+    assert_eq!(
+        loo_model.decision_kmers.len(),
+        default_model.decision_kmers.len()
+    );
+    for (d, l) in default_model
+        .decision_kmers
+        .iter()
+        .zip(loo_model.decision_kmers.iter())
+    {
         match (d, l) {
             (Some(dk_d), Some(dk_l)) => assert_eq!(dk_d.keep, dk_l.keep),
-            (None, None) => {},
+            (None, None) => {}
             _ => panic!("Decision k-mer presence differs with LOO"),
         }
     }
@@ -230,7 +294,10 @@ fn test_leave_one_out_produces_valid_model() {
 #[test]
 fn test_leave_one_out_standard_produces_valid_classification() {
     let results = train_and_classify(
-        &TrainConfig { leave_one_out: true, ..Default::default() },
+        &TrainConfig {
+            leave_one_out: true,
+            ..Default::default()
+        },
         &ClassifyConfig::default(),
     );
     for r in &results {
@@ -246,13 +313,13 @@ fn test_leave_one_out_standard_produces_valid_classification() {
 #[test]
 fn test_beam_width_1_matches_greedy() {
     // beam_width=1 should produce identical results to default (which is also 1)
-    let results_default = train_and_classify(
-        &TrainConfig::default(),
-        &ClassifyConfig::default(),
-    );
+    let results_default = train_and_classify(&TrainConfig::default(), &ClassifyConfig::default());
     let results_beam1 = train_and_classify(
         &TrainConfig::default(),
-        &ClassifyConfig { beam_width: 1, ..Default::default() },
+        &ClassifyConfig {
+            beam_width: 1,
+            ..Default::default()
+        },
     );
 
     assert_eq!(results_default.len(), results_beam1.len());
@@ -272,8 +339,14 @@ fn test_beam_runner_ups_must_pass_min_descend() {
     // beam-1 (greedy) predictions. Any divergence must come from the
     // legitimate beam speciality (multiple children passing min_descend),
     // not from spuriously-rescued weak runner-ups.
-    let cfg_greedy = ClassifyConfig { beam_width: 1, ..Default::default() };
-    let cfg_beam3 = ClassifyConfig { beam_width: 3, ..Default::default() };
+    let cfg_greedy = ClassifyConfig {
+        beam_width: 1,
+        ..Default::default()
+    };
+    let cfg_beam3 = ClassifyConfig {
+        beam_width: 3,
+        ..Default::default()
+    };
 
     let results_greedy = train_and_classify(&TrainConfig::default(), &cfg_greedy);
     let results_beam3 = train_and_classify(&TrainConfig::default(), &cfg_beam3);
@@ -300,7 +373,10 @@ fn test_beam_runner_ups_must_pass_min_descend() {
 fn test_beam_width_3_produces_valid_results() {
     let results = train_and_classify(
         &TrainConfig::default(),
-        &ClassifyConfig { beam_width: 3, ..Default::default() },
+        &ClassifyConfig {
+            beam_width: 3,
+            ..Default::default()
+        },
     );
 
     // All results should be valid
@@ -324,14 +400,24 @@ fn test_correlation_aware_changes_decision_kmers() {
 
     let default_model = learn_taxa(&seqs, &tax, &TrainConfig::default(), 42, false).unwrap();
     let corr_model = learn_taxa(
-        &seqs, &tax,
-        &TrainConfig { correlation_aware_features: true, ..Default::default() },
-        42, false,
-    ).unwrap();
+        &seqs,
+        &tax,
+        &TrainConfig {
+            correlation_aware_features: true,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
 
     // Should produce different decision k-mer selections
     let mut diffs = 0;
-    for (d, c) in default_model.decision_kmers.iter().zip(corr_model.decision_kmers.iter()) {
+    for (d, c) in default_model
+        .decision_kmers
+        .iter()
+        .zip(corr_model.decision_kmers.iter())
+    {
         if d.is_some() && c.is_some() {
             if d.as_ref().unwrap().keep != c.as_ref().unwrap().keep {
                 diffs += 1;
@@ -339,7 +425,10 @@ fn test_correlation_aware_changes_decision_kmers() {
         }
     }
 
-    assert!(diffs > 0, "Expected correlation-aware selection to produce different k-mers");
+    assert!(
+        diffs > 0,
+        "Expected correlation-aware selection to produce different k-mers"
+    );
 }
 
 #[test]
@@ -351,7 +440,10 @@ fn test_correlation_aware_parallel_matches_sequential() {
         record_kmers_fraction: 0.44,
         ..TrainConfig::default()
     };
-    let seq_config = TrainConfig { processors: 1, ..base };
+    let seq_config = TrainConfig {
+        processors: 1,
+        ..base
+    };
     let par_config = TrainConfig {
         processors: 4,
         ..TrainConfig {
@@ -390,7 +482,10 @@ fn test_correlation_aware_deterministic_output() {
 
     let bytes1 = bincode::serialize(&m1.decision_kmers).unwrap();
     let bytes2 = bincode::serialize(&m2.decision_kmers).unwrap();
-    assert_eq!(bytes1, bytes2, "decision_kmers must be bit-exact across runs");
+    assert_eq!(
+        bytes1, bytes2,
+        "decision_kmers must be bit-exact across runs"
+    );
 
     // Hash is recorded in output for manual tracking but NOT asserted —
     // the Pearson→Bhattacharyya switch intentionally changed the selected

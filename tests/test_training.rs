@@ -1,7 +1,7 @@
 mod common;
 
 use common::{assert_approx_eq, golden_json_dir, load_json};
-use oxidtaxa::training::{learn_taxa, prepare_data, build_tree, learn_fractions};
+use oxidtaxa::training::{build_tree, learn_fractions, learn_taxa, prepare_data};
 use oxidtaxa::types::{BuildTreeConfig, DescendantWeighting, LearnFractionsConfig, TrainConfig};
 
 /// Golden training set structure from JSON.
@@ -47,20 +47,44 @@ fn load_training_inputs(seqs_name: &str, tax_name: &str) -> (Vec<String>, Vec<St
     (seqs, tax)
 }
 
-fn compare_training_set(label: &str, golden: &GoldenTrainingSet, result: &oxidtaxa::types::TrainingSet) {
+fn compare_training_set(
+    label: &str,
+    golden: &GoldenTrainingSet,
+    result: &oxidtaxa::types::TrainingSet,
+) {
     assert_eq!(result.k, golden.k, "{}: K mismatch", label);
-    assert_eq!(result.taxonomy, golden.taxonomy, "{}: taxonomy mismatch", label);
+    assert_eq!(
+        result.taxonomy, golden.taxonomy,
+        "{}: taxonomy mismatch",
+        label
+    );
     assert_eq!(result.taxa, golden.taxa, "{}: taxa mismatch", label);
     assert_eq!(result.levels, golden.levels, "{}: levels mismatch", label);
 
     // children: Rust is 0-indexed, R golden is 1-indexed → add 1 to Rust values
-    let rust_children_1idx: Vec<Vec<usize>> = result.children.iter()
+    let rust_children_1idx: Vec<Vec<usize>> = result
+        .children
+        .iter()
         .map(|ch| ch.iter().map(|&c| c + 1).collect())
         .collect();
-    assert_eq!(rust_children_1idx, golden.children, "{}: children mismatch", label);
+    assert_eq!(
+        rust_children_1idx, golden.children,
+        "{}: children mismatch",
+        label
+    );
 
     // parents: same offset
-    let rust_parents_1idx: Vec<usize> = result.parents.iter().map(|&p| if p == 0 && result.parents[0] == 0 { 0 } else { p + 1 }).collect();
+    let rust_parents_1idx: Vec<usize> = result
+        .parents
+        .iter()
+        .map(|&p| {
+            if p == 0 && result.parents[0] == 0 {
+                0
+            } else {
+                p + 1
+            }
+        })
+        .collect();
     // R's parents[1] = 0 (Root has no parent), parents[2] = 1, etc.
     // Actually R stores parents as: Root's parent = 0, others = 1-indexed
     // Our Rust: parents[0] = 0 (Root), parents[1] = 0 (child of Root), etc.
@@ -72,17 +96,33 @@ fn compare_training_set(label: &str, golden: &GoldenTrainingSet, result: &oxidta
     // For other nodes: Rust parents[i] = j means j is parent (0-indexed)
     // R parents[i] = j means j is parent (1-indexed), where 0 = no parent
     // So: Rust parents[i] → R parents[i] = Rust parents[i] + 1, except Root (0→0)
-    let rust_parents_as_r: Vec<usize> = result.parents.iter().enumerate()
+    let rust_parents_as_r: Vec<usize> = result
+        .parents
+        .iter()
+        .enumerate()
         .map(|(i, &p)| if i == 0 { 0 } else { p + 1 })
         .collect();
-    assert_eq!(rust_parents_as_r, golden.parents, "{}: parents mismatch", label);
+    assert_eq!(
+        rust_parents_as_r, golden.parents,
+        "{}: parents mismatch",
+        label
+    );
 
     // crossIndex: Rust 0-indexed → R 1-indexed
     let rust_ci_1idx: Vec<usize> = result.cross_index.iter().map(|&c| c + 1).collect();
-    assert_eq!(rust_ci_1idx, golden.cross_index, "{}: crossIndex mismatch", label);
+    assert_eq!(
+        rust_ci_1idx, golden.cross_index,
+        "{}: crossIndex mismatch",
+        label
+    );
 
     // kmers: golden stores as float, convert
-    assert_eq!(result.kmers.len(), golden.kmers.len(), "{}: kmers length mismatch", label);
+    assert_eq!(
+        result.kmers.len(),
+        golden.kmers.len(),
+        "{}: kmers length mismatch",
+        label
+    );
     for (i, (got, exp)) in result.kmers.iter().zip(golden.kmers.iter()).enumerate() {
         let exp_i32: Vec<i32> = exp.iter().map(|&v| v as i32).collect();
         assert_eq!(got, &exp_i32, "{}: kmers[{}] mismatch", label, i);
@@ -114,26 +154,59 @@ fn compare_training_set(label: &str, golden: &GoldenTrainingSet, result: &oxidta
     );
 
     // fraction (with NA matching)
-    assert_eq!(result.fraction.len(), golden.fraction.len(), "{}: fraction length mismatch", label);
-    for (i, (got, exp)) in result.fraction.iter().zip(golden.fraction.iter()).enumerate() {
+    assert_eq!(
+        result.fraction.len(),
+        golden.fraction.len(),
+        "{}: fraction length mismatch",
+        label
+    );
+    for (i, (got, exp)) in result
+        .fraction
+        .iter()
+        .zip(golden.fraction.iter())
+        .enumerate()
+    {
         match (got, exp) {
-            (None, None) => {},
+            (None, None) => {}
             (Some(g), Some(e)) => {
-                assert!((g - e).abs() < 1e-10, "{}: fraction[{}] mismatch: {} vs {}", label, i, g, e);
-            },
-            _ => panic!("{}: fraction[{}] NA pattern mismatch: {:?} vs {:?}", label, i, got, exp),
+                assert!(
+                    (g - e).abs() < 1e-10,
+                    "{}: fraction[{}] mismatch: {} vs {}",
+                    label,
+                    i,
+                    g,
+                    e
+                );
+            }
+            _ => panic!(
+                "{}: fraction[{}] NA pattern mismatch: {:?} vs {:?}",
+                label, i, got, exp
+            ),
         }
     }
 
     // decisionKmers structure
-    assert_eq!(result.decision_kmers.len(), golden.decision_kmers.len(), "{}: decisionKmers length mismatch", label);
+    assert_eq!(
+        result.decision_kmers.len(),
+        golden.decision_kmers.len(),
+        "{}: decisionKmers length mismatch",
+        label
+    );
 
     // problemSequences count
-    assert_eq!(result.problem_sequences.len(), golden.problem_sequences.len(),
-        "{}: problemSequences count mismatch", label);
+    assert_eq!(
+        result.problem_sequences.len(),
+        golden.problem_sequences.len(),
+        "{}: problemSequences count mismatch",
+        label
+    );
 
     // problemGroups
-    assert_eq!(result.problem_groups, golden.problem_groups, "{}: problemGroups mismatch", label);
+    assert_eq!(
+        result.problem_groups, golden.problem_groups,
+        "{}: problemGroups mismatch",
+        label
+    );
 }
 
 #[test]
@@ -186,13 +259,19 @@ fn test_training_8e_explicit_k() {
 
     // K=5
     let golden_k5: GoldenTrainingSet = load_json("s08e_training_set_k5");
-    let config_k5 = TrainConfig { k: Some(5), ..Default::default() };
+    let config_k5 = TrainConfig {
+        k: Some(5),
+        ..Default::default()
+    };
     let result_k5 = learn_taxa(&seqs, &tax, &config_k5, 42, false).unwrap();
     compare_training_set("8e_k5", &golden_k5, &result_k5);
 
     // K=10
     let golden_k10: GoldenTrainingSet = load_json("s08e_training_set_k10");
-    let config_k10 = TrainConfig { k: Some(10), ..Default::default() };
+    let config_k10 = TrainConfig {
+        k: Some(10),
+        ..Default::default()
+    };
     let result_k10 = learn_taxa(&seqs, &tax, &config_k10, 42, false).unwrap();
     compare_training_set("8e_k10", &golden_k10, &result_k10);
 }
@@ -234,7 +313,10 @@ fn test_staged_training_equivalence() {
     assert_eq!(single.idf_weights_by_rank, staged.idf_weights_by_rank);
     assert_eq!(single.fraction, staged.fraction);
     assert_eq!(single.decision_kmers.len(), staged.decision_kmers.len());
-    assert_eq!(single.problem_sequences.len(), staged.problem_sequences.len());
+    assert_eq!(
+        single.problem_sequences.len(),
+        staged.problem_sequences.len()
+    );
     assert_eq!(single.problem_groups, staged.problem_groups);
     assert_eq!(single.taxa, staged.taxa);
     assert_eq!(single.levels, staged.levels);

@@ -24,10 +24,6 @@ fn test_fasta_read_matches_golden() {
     }
 
     for (i, seq) in seqs.iter().enumerate() {
-        assert_eq!(
-            seq, &golden_seqs[i],
-            "sequence mismatch at index {}",
-            i
-        );
+        assert_eq!(seq, &golden_seqs[i], "sequence mismatch at index {}", i);
     }
 }

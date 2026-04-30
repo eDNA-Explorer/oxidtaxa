@@ -69,14 +69,11 @@ pub fn id_taxa(
 
         if deterministic {
             let mut rng = RRng::new(seed);
-            let results = classify_sequential(
-                &pre, &unique_strands, training_set, config, &mut rng,
-            );
+            let results =
+                classify_sequential(&pre, &unique_strands, training_set, config, &mut rng);
             unique_map.iter().map(|&i| results[i].clone()).collect()
         } else {
-            let results = classify_parallel(
-                &pre, &unique_strands, training_set, config, seed,
-            );
+            let results = classify_parallel(&pre, &unique_strands, training_set, config, seed);
             unique_map.iter().map(|&i| results[i].clone()).collect()
         }
     })
@@ -95,7 +92,9 @@ fn precompute(
     let min_s = compute_min_sample_size(&ls, n_kmers_total, ts.kmers.len());
 
     // Parse spaced seed from model (authoritative source)
-    let spaced_seed: Option<SpacedSeed> = ts.seed_pattern.as_ref()
+    let spaced_seed: Option<SpacedSeed> = ts
+        .seed_pattern
+        .as_ref()
         .map(|pat| parse_seed_pattern(pat).expect("Invalid seed pattern in model"));
 
     let raw_kmers = enumerate_sequences(seqs, k, false, false, &[], true, spaced_seed.as_ref());
@@ -107,14 +106,22 @@ fn precompute(
     let bootstraps = config.bootstraps;
     let s_values: Vec<usize> = not_nas
         .iter()
-        .map(|&nn| (nn as f64).powf(config.sample_exponent).ceil().max(min_s as f64) as usize)
+        .map(|&nn| {
+            (nn as f64)
+                .powf(config.sample_exponent)
+                .ceil()
+                .max(min_s as f64) as usize
+        })
         .collect();
 
     let test_kmers: Vec<Vec<i32>> = raw_kmers
         .into_iter()
         .map(|v| {
-            let mut sorted: Vec<i32> = v.into_iter()
-                .filter(|&x| x != NA_INTEGER).map(|x| x + 1).collect();
+            let mut sorted: Vec<i32> = v
+                .into_iter()
+                .filter(|&x| x != NA_INTEGER)
+                .map(|x| x + 1)
+                .collect();
             sorted.sort_unstable();
             sorted.dedup();
             sorted
@@ -125,25 +132,42 @@ fn precompute(
         .iter()
         .zip(s_values.iter())
         .map(|(km, &s)| {
-            if s == 0 { bootstraps }
-            else { (5.0 * km.len() as f64 / s as f64).min(bootstraps as f64).max(1.0) as usize }
+            if s == 0 {
+                bootstraps
+            } else {
+                (5.0 * km.len() as f64 / s as f64)
+                    .min(bootstraps as f64)
+                    .max(1.0) as usize
+            }
         })
         .collect();
 
-    let boths: Vec<usize> = strands.iter().enumerate()
-        .filter(|(_, &s)| s == 1).map(|(i, _)| i).collect();
+    let boths: Vec<usize> = strands
+        .iter()
+        .enumerate()
+        .filter(|(_, &s)| s == 1)
+        .map(|(i, _)| i)
+        .collect();
 
-    let boths_map: HashMap<usize, usize> = boths.iter().enumerate()
+    let boths_map: HashMap<usize, usize> = boths
+        .iter()
+        .enumerate()
         .map(|(rev_idx, &orig_idx)| (orig_idx, rev_idx))
         .collect();
 
     let rev_kmers = if !boths.is_empty() {
-        let rev_seqs: Vec<String> = boths.iter().map(|&i| reverse_complement(&seqs[i])).collect();
+        let rev_seqs: Vec<String> = boths
+            .iter()
+            .map(|&i| reverse_complement(&seqs[i]))
+            .collect();
         let raw = enumerate_sequences(&rev_seqs, k, false, false, &[], true, spaced_seed.as_ref());
         raw.into_iter()
             .map(|v| {
-                let mut sorted: Vec<i32> = v.into_iter()
-                    .filter(|&x| x != NA_INTEGER).map(|x| x + 1).collect();
+                let mut sorted: Vec<i32> = v
+                    .into_iter()
+                    .filter(|&x| x != NA_INTEGER)
+                    .map(|x| x + 1)
+                    .collect();
                 sorted.sort_unstable();
                 sorted.dedup();
                 sorted
@@ -159,7 +183,16 @@ fn precompute(
         (1.0 / config.full_length, config.full_length)
     };
 
-    PrecomputedData { test_kmers, rev_kmers, s_values, b_values, boths, boths_map, ls, full_length }
+    PrecomputedData {
+        test_kmers,
+        rev_kmers,
+        s_values,
+        b_values,
+        boths,
+        boths_map,
+        ls,
+        full_length,
+    }
 }
 
 /// Classify a single pass (one strand) of one sequence.
@@ -227,11 +260,15 @@ fn classify_one_pass(
             let mut hits_flat = vec![0.0f64; n_sub * b];
             for j in 0..n_sub {
                 let row = if let Some(idf_row) = idf_row {
-                    let weights_j: Vec<f64> = dk.profiles[j].iter().zip(dk.keep.iter())
+                    let weights_j: Vec<f64> = dk.profiles[j]
+                        .iter()
+                        .zip(dk.keep.iter())
                         .map(|(&prof, &km)| {
                             let idf = if km > 0 && (km as usize) <= idf_row.len() {
                                 idf_row[(km - 1) as usize]
-                            } else { 0.0 };
+                            } else {
+                                0.0
+                            };
                             prof * idf
                         })
                         .collect();
@@ -243,10 +280,14 @@ fn classify_one_pass(
             }
             let mut vote_counts = vec![0usize; n_sub];
             for rep in 0..b {
-                let max_val = (0..n_sub).map(|j| hits_flat[j * b + rep]).fold(0.0f64, f64::max);
+                let max_val = (0..n_sub)
+                    .map(|j| hits_flat[j * b + rep])
+                    .fold(0.0f64, f64::max);
                 if max_val > 0.0 {
                     for j in 0..n_sub {
-                        if hits_flat[j * b + rep] == max_val { vote_counts[j] += 1; }
+                        if hits_flat[j * b + rep] == max_val {
+                            vote_counts[j] += 1;
+                        }
                     }
                 }
             }
@@ -264,19 +305,31 @@ fn classify_one_pass(
                 descent_margins.push(margin);
             }
 
-            let w: Vec<usize> = vote_counts.iter().enumerate()
+            let w: Vec<usize> = vote_counts
+                .iter()
+                .enumerate()
                 .filter(|(_, &c)| c >= (config.min_descend * b as f64) as usize)
-                .map(|(i, _)| i).collect();
+                .map(|(i, _)| i)
+                .collect();
             if w.len() != 1 {
-                let w50: Vec<usize> = vote_counts.iter().enumerate()
+                let w50: Vec<usize> = vote_counts
+                    .iter()
+                    .enumerate()
                     .filter(|(_, &c)| c >= ((b as f64) * 0.5) as usize)
-                    .map(|(i, _)| i).collect();
+                    .map(|(i, _)| i)
+                    .collect();
                 if w50.is_empty() {
                     w_indices = (0..vote_counts.len()).collect();
                 } else {
-                    w_indices = vote_counts.iter().enumerate()
-                        .filter(|(_, &c)| c > 0).map(|(i, _)| i).collect();
-                    if w_indices.is_empty() { w_indices = (0..vote_counts.len()).collect(); }
+                    w_indices = vote_counts
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, &c)| c > 0)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if w_indices.is_empty() {
+                        w_indices = (0..vote_counts.len()).collect();
+                    }
                 }
                 break;
             }
@@ -287,9 +340,12 @@ fn classify_one_pass(
                 // on `config.sibling_aware_leaf`.
                 w_indices = if config.sibling_aware_leaf {
                     let min_votes = ((b as f64) * 0.5) as usize;
-                    vote_counts.iter().enumerate()
+                    vote_counts
+                        .iter()
+                        .enumerate()
                         .filter(|(i, &c)| c >= min_votes || *i == winner)
-                        .map(|(i, _)| i).collect()
+                        .map(|(i, _)| i)
+                        .collect()
                 } else {
                     vec![winner]
                 };
@@ -297,13 +353,25 @@ fn classify_one_pass(
             }
             k_node = subtrees[winner];
         } else {
-            if children[subtrees[0]].is_empty() { w_indices = vec![0]; break; }
+            if children[subtrees[0]].is_empty() {
+                w_indices = vec![0];
+                break;
+            }
             k_node = subtrees[0];
         }
     }
 
     leaf_phase_score(
-        k_node, &w_indices, my_kmers, s, b, ts, config, full_length, ls, rng,
+        k_node,
+        &w_indices,
+        my_kmers,
+        s,
+        b,
+        ts,
+        config,
+        full_length,
+        ls,
+        rng,
         &descent_margins,
     )
 }
@@ -380,7 +448,11 @@ fn classify_one_pass_beam(
                 } else {
                     next.push(BeamCandidate {
                         node: k_node,
-                        w_indices: if subtrees.is_empty() { vec![] } else { (0..subtrees.len()).collect() },
+                        w_indices: if subtrees.is_empty() {
+                            vec![]
+                        } else {
+                            (0..subtrees.len()).collect()
+                        },
                         score: candidate.score,
                         descent_margins: candidate.descent_margins.clone(),
                     });
@@ -407,11 +479,15 @@ fn classify_one_pass_beam(
             let mut hits_flat = vec![0.0f64; n_sub * b];
             for j in 0..n_sub {
                 let row = if let Some(idf_row) = idf_row {
-                    let weights_j: Vec<f64> = dk.profiles[j].iter().zip(dk.keep.iter())
+                    let weights_j: Vec<f64> = dk.profiles[j]
+                        .iter()
+                        .zip(dk.keep.iter())
                         .map(|(&prof, &km)| {
                             let idf = if km > 0 && (km as usize) <= idf_row.len() {
                                 idf_row[(km - 1) as usize]
-                            } else { 0.0 };
+                            } else {
+                                0.0
+                            };
                             prof * idf
                         })
                         .collect();
@@ -423,10 +499,14 @@ fn classify_one_pass_beam(
             }
             let mut vote_counts = vec![0usize; n_sub];
             for rep in 0..b {
-                let max_val = (0..n_sub).map(|j| hits_flat[j * b + rep]).fold(0.0f64, f64::max);
+                let max_val = (0..n_sub)
+                    .map(|j| hits_flat[j * b + rep])
+                    .fold(0.0f64, f64::max);
                 if max_val > 0.0 {
                     for j in 0..n_sub {
-                        if hits_flat[j * b + rep] == max_val { vote_counts[j] += 1; }
+                        if hits_flat[j * b + rep] == max_val {
+                            vote_counts[j] += 1;
+                        }
                     }
                 }
             }
@@ -452,7 +532,8 @@ fn classify_one_pass_beam(
             };
 
             // Collect children with votes, sorted by vote count descending
-            let mut children_by_votes: Vec<(usize, usize)> = vote_counts.iter()
+            let mut children_by_votes: Vec<(usize, usize)> = vote_counts
+                .iter()
                 .enumerate()
                 .filter(|(_, &c)| c > 0)
                 .map(|(j, &c)| (j, c))
@@ -525,15 +606,26 @@ fn classify_one_pass_beam(
                 }
             } else {
                 // No confident winner — terminal (same fallback as greedy)
-                let w50: Vec<usize> = vote_counts.iter().enumerate()
+                let w50: Vec<usize> = vote_counts
+                    .iter()
+                    .enumerate()
                     .filter(|(_, &c)| c >= ((b as f64) * 0.5) as usize)
-                    .map(|(i, _)| i).collect();
+                    .map(|(i, _)| i)
+                    .collect();
                 let w_indices = if w50.is_empty() {
                     (0..vote_counts.len()).collect()
                 } else {
-                    let w_pos: Vec<usize> = vote_counts.iter().enumerate()
-                        .filter(|(_, &c)| c > 0).map(|(i, _)| i).collect();
-                    if w_pos.is_empty() { (0..vote_counts.len()).collect() } else { w_pos }
+                    let w_pos: Vec<usize> = vote_counts
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, &c)| c > 0)
+                        .map(|(i, _)| i)
+                        .collect();
+                    if w_pos.is_empty() {
+                        (0..vote_counts.len()).collect()
+                    } else {
+                        w_pos
+                    }
                 };
                 next.push(BeamCandidate {
                     node: k_node,
@@ -545,19 +637,33 @@ fn classify_one_pass_beam(
         }
 
         // Prune to beam_width
-        next.sort_by(|a, b_| b_.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        next.sort_by(|a, b_| {
+            b_.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         next.truncate(beam_width);
         active = next;
 
-        if !any_expanded { break; }
+        if !any_expanded {
+            break;
+        }
     }
 
     // Score each candidate via leaf phase, pick best
     let mut best: Option<(ClassificationResult, f64)> = None;
     for candidate in &active {
         if let Some((result, sim)) = leaf_phase_score(
-            candidate.node, &candidate.w_indices,
-            my_kmers, s, b, ts, config, full_length, ls, rng,
+            candidate.node,
+            &candidate.w_indices,
+            my_kmers,
+            s,
+            b,
+            ts,
+            config,
+            full_length,
+            ls,
+            rng,
             &candidate.descent_margins,
         ) {
             match &best {
@@ -603,7 +709,9 @@ fn leaf_phase_score(
     let mut keep: Vec<usize> = Vec::new();
     for &wi in w_indices {
         if wi < subtrees.len() {
-            if let Some(ref sq) = sequences[subtrees[wi]] { keep.extend(sq); }
+            if let Some(ref sq) = sequences[subtrees[wi]] {
+                keep.extend(sq);
+            }
         }
     }
     if full_length.0 > 0.0 || full_length.1.is_finite() {
@@ -677,14 +785,37 @@ fn leaf_phase_score(
         (us, pos, rg)
     };
 
-    let u_weights: Vec<f64> = u_sampling.iter()
-        .map(|&uk| if uk > 0 && (uk as usize) <= counts.len() { counts[(uk - 1) as usize] } else { 0.0 })
+    let u_weights: Vec<f64> = u_sampling
+        .iter()
+        .map(|&uk| {
+            if uk > 0 && (uk as usize) <= counts.len() {
+                counts[(uk - 1) as usize]
+            } else {
+                0.0
+            }
+        })
         .collect();
 
     let (mut hits_flat, mut sum_hits) = if let Some(ref inv_idx) = ts.inverted_index {
-        parallel_match_inverted(&u_sampling, inv_idx, &keep, &u_weights, b, &positions, &ranges)
+        parallel_match_inverted(
+            &u_sampling,
+            inv_idx,
+            &keep,
+            &u_weights,
+            b,
+            &positions,
+            &ranges,
+        )
     } else {
-        parallel_match(&u_sampling, train_kmers, &keep, &u_weights, b, &positions, &ranges)
+        parallel_match(
+            &u_sampling,
+            train_kmers,
+            &keep,
+            &u_weights,
+            b,
+            &positions,
+            &ranges,
+        )
     };
     if hits_flat.is_empty() {
         return Some((ClassificationResult::unclassified("no_training_match"), 0.0));
@@ -692,7 +823,8 @@ fn leaf_phase_score(
 
     // Length normalization: scale each training sequence's scores by sqrt(n_unique / avg)
     if config.length_normalize {
-        let avg_unique: f64 = keep.iter().map(|&idx| ls[idx] as f64).sum::<f64>() / keep.len() as f64;
+        let avg_unique: f64 =
+            keep.iter().map(|&idx| ls[idx] as f64).sum::<f64>() / keep.len() as f64;
         for (k_idx, &seq_idx) in keep.iter().enumerate() {
             let n_unique = ls[seq_idx] as f64;
             if n_unique > 0.0 && avg_unique > 0.0 {
@@ -739,7 +871,11 @@ fn leaf_phase_score(
     let davg = {
         let mut row_sums = vec![0.0f64; b];
         for (idx, &sk) in sampling.iter().enumerate() {
-            let w = if sk > 0 && (sk as usize) <= counts.len() { counts[(sk - 1) as usize] } else { 0.0 };
+            let w = if sk > 0 && (sk as usize) <= counts.len() {
+                counts[(sk - 1) as usize]
+            } else {
+                0.0
+            };
             row_sums[idx % b] += w;
         }
         row_sums.iter().sum::<f64>() / b as f64
@@ -751,9 +887,13 @@ fn leaf_phase_score(
         let mut max_val = f64::NEG_INFINITY;
         for &ti in top_hits_idx.iter() {
             let v = hits_flat[ti * b + rep];
-            if v > max_val { max_val = v; }
+            if v > max_val {
+                max_val = v;
+            }
         }
-        if davg == 0.0 { continue; }
+        if davg == 0.0 {
+            continue;
+        }
         // Per-replicate winner-take-all with tie splitting. R's IdTaxa uses
         // `max.col(..., ties.method = "random")` which randomly picks one of the
         // tied columns per replicate; in expectation each tied column receives
@@ -769,7 +909,9 @@ fn leaf_phase_score(
         // matches the legacy accumulator bit-for-bit in that case).
         let mut n_tied: usize = 0;
         for &ti in top_hits_idx.iter() {
-            if hits_flat[ti * b + rep] == max_val { n_tied += 1; }
+            if hits_flat[ti * b + rep] == max_val {
+                n_tied += 1;
+            }
         }
         let share = 1.0 / n_tied as f64;
         for (j, &ti) in top_hits_idx.iter().enumerate() {
@@ -786,11 +928,19 @@ fn leaf_phase_score(
     // Default `tie_margin = 0.0` preserves exact-equality semantics.
     let mut winners: Vec<usize> = if config.tie_margin > 0.0 && max_tot > 0.0 {
         let cutoff = max_tot * (1.0 - config.tie_margin);
-        tot_hits.iter().enumerate()
-            .filter(|(_, &v)| v >= cutoff).map(|(i, _)| i).collect()
+        tot_hits
+            .iter()
+            .enumerate()
+            .filter(|(_, &v)| v >= cutoff)
+            .map(|(i, _)| i)
+            .collect()
     } else {
-        tot_hits.iter().enumerate()
-            .filter(|(_, &v)| v == max_tot).map(|(i, _)| i).collect()
+        tot_hits
+            .iter()
+            .enumerate()
+            .filter(|(_, &v)| v == max_tot)
+            .map(|(i, _)| i)
+            .collect()
     };
 
     // When enabled, drop any winner whose full taxonomic path is a strict
@@ -856,7 +1006,9 @@ fn leaf_phase_score(
     let similarity = if davg != 0.0 {
         let base = top_hits_idx[selected] * b;
         hits_flat[base..base + b].iter().sum::<f64>() / davg
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     // Build prediction
     let predicted_group = unique_groups[selected];
@@ -864,7 +1016,9 @@ fn leaf_phase_score(
     let mut p = predicted_group;
     loop {
         predicteds.push(p);
-        if p == 0 || parents[p] == p { break; }
+        if p == 0 || parents[p] == p {
+            break;
+        }
         p = parents[p];
     }
     predicteds.reverse();
@@ -884,7 +1038,9 @@ fn leaf_phase_score(
                 if let Some(m) = predicteds.iter().position(|&x| x == p) {
                     confidences[m] += th / b as f64 * 100.0;
                 }
-                if p == 0 || parents[p] == p { break; }
+                if p == 0 || parents[p] == p {
+                    break;
+                }
                 p = parents[p];
             }
         }
@@ -929,7 +1085,9 @@ fn leaf_phase_score(
     let (lca_cap, alternatives): (Option<usize>, Vec<String>) = if winners.len() > 1 {
         let mut deepest_allowed = predicteds.len() - 1;
         for &j in &winners {
-            if j == selected { continue; }
+            if j == selected {
+                continue;
+            }
             // Start at the winner's own node so the LCA-cap accepts
             // `unique_groups[j]` itself as the cap when this winner is a
             // strict ancestor of `selected` (i.e., the LCA is the winner's
@@ -938,10 +1096,14 @@ fn leaf_phase_score(
             let mut p = unique_groups[j];
             loop {
                 if let Some(pos) = predicteds.iter().position(|&x| x == p) {
-                    if pos < deepest_allowed { deepest_allowed = pos; }
+                    if pos < deepest_allowed {
+                        deepest_allowed = pos;
+                    }
                     break;
                 }
-                if p == 0 || parents[p] == p { break; }
+                if p == 0 || parents[p] == p {
+                    break;
+                }
                 p = parents[p];
             }
         }
@@ -965,7 +1127,9 @@ fn leaf_phase_score(
     let mut above: Vec<usize> = Vec::with_capacity(confidences.len());
     for (i, &c) in confidences.iter().enumerate() {
         if let Some(cap) = lca_cap {
-            if i > cap { break; }
+            if i > cap {
+                break;
+            }
         }
         let thresh = match &config.rank_thresholds {
             Some(rt) if i < rt.len() => rt[i],
@@ -1017,7 +1181,9 @@ fn classify_sequential(
 
     // Build iteration order: forward then reverse
     let mut iteration: Vec<(usize, Option<usize>)> = Vec::new();
-    for i in 0..n { iteration.push((i, None)); }
+    for i in 0..n {
+        iteration.push((i, None));
+    }
     for (rev_idx, &orig_idx) in pre.boths.iter().enumerate() {
         iteration.push((orig_idx, Some(rev_idx)));
     }
@@ -1030,12 +1196,14 @@ fn classify_sequential(
         let s = pre.s_values[seq_idx];
         let b = pre.b_values[seq_idx];
 
-        if let Some((result, similarity)) = classify_one_pass(
-            my_kmers, s, b, ts, config, pre.full_length, &pre.ls, rng,
-        ) {
+        if let Some((result, similarity)) =
+            classify_one_pass(my_kmers, s, b, ts, config, pre.full_length, &pre.ls, rng)
+        {
             if let Some(_ri) = rev_idx {
                 // Second pass: only replace if better similarity
-                if similarity <= sims[seq_idx] { continue; }
+                if similarity <= sims[seq_idx] {
+                    continue;
+                }
             } else {
                 sims[seq_idx] = similarity;
             }
@@ -1103,17 +1271,35 @@ fn classify_parallel(
 
         // Forward pass
         let fwd = classify_one_pass(
-            &pre.test_kmers[i], s, b, ts, config, pre.full_length, &pre.ls, &mut rng,
+            &pre.test_kmers[i],
+            s,
+            b,
+            ts,
+            config,
+            pre.full_length,
+            &pre.ls,
+            &mut rng,
         );
 
         // Reverse pass (if "both" strand)
         if let Some(&both_pos) = pre.boths_map.get(&i) {
             let rev = classify_one_pass(
-                &pre.rev_kmers[both_pos], s, b, ts, config, pre.full_length, &pre.ls, &mut rng,
+                &pre.rev_kmers[both_pos],
+                s,
+                b,
+                ts,
+                config,
+                pre.full_length,
+                &pre.ls,
+                &mut rng,
             );
             match (fwd, rev) {
                 (Some((fwd_r, fwd_s)), Some((rev_r, rev_s))) => {
-                    if rev_s > fwd_s { rev_r } else { fwd_r }
+                    if rev_s > fwd_s {
+                        rev_r
+                    } else {
+                        fwd_r
+                    }
                 }
                 (Some((r, _)), None) => r,
                 (None, Some((r, _))) => r,
@@ -1126,7 +1312,11 @@ fn classify_parallel(
     };
 
     let results: Vec<ClassificationResult> = if let Some(c) = max_chunk {
-        (0..n).into_par_iter().with_max_len(c).map(map_body).collect()
+        (0..n)
+            .into_par_iter()
+            .with_max_len(c)
+            .map(map_body)
+            .collect()
     } else {
         (0..n).into_par_iter().map(map_body).collect()
     };
@@ -1191,22 +1381,35 @@ fn compute_min_sample_size(ls: &[usize], n_kmers: usize, n_seqs: usize) -> usize
     };
     for min_s in (2..=100).step_by(2) {
         let min_s_f = min_s as f64;
-        let p_single = 1.0 - pbinom((min_s_f * 0.5 - 1.0).floor() as usize, min_s, l_quantile / n_kmers as f64);
+        let p_single = 1.0
+            - pbinom(
+                (min_s_f * 0.5 - 1.0).floor() as usize,
+                min_s,
+                l_quantile / n_kmers as f64,
+            );
         let p_any = 1.0 - pbinom(0, n_seqs, p_single);
-        if p_any < 0.01 { return min_s; }
+        if p_any < 0.01 {
+            return min_s;
+        }
     }
     100
 }
 
 /// Cumulative binomial distribution function P(X <= k).
 fn pbinom(k: usize, n: usize, p: f64) -> f64 {
-    if p <= 0.0 { return 1.0; }
-    if p >= 1.0 { return if k >= n { 1.0 } else { 0.0 }; }
+    if p <= 0.0 {
+        return 1.0;
+    }
+    if p >= 1.0 {
+        return if k >= n { 1.0 } else { 0.0 };
+    }
     let mut sum = 0.0f64;
     let mut binom_coeff = 1.0f64;
     let q = 1.0 - p;
     for i in 0..=k.min(n) {
-        if i > 0 { binom_coeff *= (n - i + 1) as f64 / i as f64; }
+        if i > 0 {
+            binom_coeff *= (n - i + 1) as f64 / i as f64;
+        }
         sum += binom_coeff * p.powi(i as i32) * q.powi((n - i) as i32);
     }
     sum.min(1.0)

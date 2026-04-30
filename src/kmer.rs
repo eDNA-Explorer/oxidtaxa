@@ -25,9 +25,12 @@ pub fn parse_seed_pattern(pattern: &str) -> Result<SpacedSeed, String> {
         match c {
             '1' => match_positions.push(i),
             '0' => {}
-            _ => return Err(format!(
-                "Invalid character '{}' in seed pattern at position {}", c, i
-            )),
+            _ => {
+                return Err(format!(
+                    "Invalid character '{}' in seed pattern at position {}",
+                    c, i
+                ))
+            }
         }
     }
     if match_positions.is_empty() {
@@ -239,7 +242,11 @@ fn mask_simple(x: &mut [i32], word_size: usize, n_bins: usize, window_size: usiz
 fn mask_numerous(x: &mut [i32], max_count: i32, total_possible: usize, word_size: usize) {
     let l = x.len();
     let max_collisions = 100usize;
-    let modulus = if l < total_possible { l } else { total_possible };
+    let modulus = if l < total_possible {
+        l
+    } else {
+        total_possible
+    };
 
     if modulus == 0 {
         return;

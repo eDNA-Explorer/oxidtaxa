@@ -1,27 +1,35 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::path::PathBuf;
 
+use oxidtaxa::classify::id_taxa;
+use oxidtaxa::fasta::read_fasta;
 use oxidtaxa::kmer::enumerate_sequences;
-use oxidtaxa::matching::{int_match, vector_sum, parallel_match};
+use oxidtaxa::matching::{int_match, parallel_match, vector_sum};
 use oxidtaxa::rng::RRng;
 use oxidtaxa::sequence::{remove_gaps, reverse_complement};
-use oxidtaxa::fasta::read_fasta;
 use oxidtaxa::training::learn_taxa;
-use oxidtaxa::classify::id_taxa;
-use oxidtaxa::types::{TrainConfig, ClassifyConfig, StrandMode, OutputType};
+use oxidtaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig};
 
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn bench_data_path(name: &str) -> String {
-    project_root().join("benchmarks").join("data").join(name)
-        .to_string_lossy().to_string()
+    project_root()
+        .join("benchmarks")
+        .join("data")
+        .join(name)
+        .to_string_lossy()
+        .to_string()
 }
 
 fn test_data_path(name: &str) -> String {
-    project_root().join("tests").join("data").join(name)
-        .to_string_lossy().to_string()
+    project_root()
+        .join("tests")
+        .join("data")
+        .join(name)
+        .to_string_lossy()
+        .to_string()
 }
 
 // ── enumerate_sequences ──────────────────────────────────────────────────────
@@ -32,7 +40,15 @@ fn bench_enumerate_sequences(c: &mut Criterion) {
 
     c.bench_function("enumerate_sequences/1K_k8", |b| {
         b.iter(|| {
-            black_box(enumerate_sequences(black_box(&seqs), k, false, false, &[], true, None));
+            black_box(enumerate_sequences(
+                black_box(&seqs),
+                k,
+                false,
+                false,
+                &[],
+                true,
+                None,
+            ));
         });
     });
 }
@@ -45,7 +61,15 @@ fn bench_enumerate_single(c: &mut Criterion) {
 
     c.bench_function("enumerate_single/200bp_k8", |b| {
         b.iter(|| {
-            black_box(enumerate_sequences(black_box(&seq), k, false, false, &[], true, None));
+            black_box(enumerate_sequences(
+                black_box(&seq),
+                k,
+                false,
+                false,
+                &[],
+                true,
+                None,
+            ));
         });
     });
 }
@@ -94,13 +118,19 @@ fn bench_parallel_match(c: &mut Criterion) {
     let (_, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
     let k = 8;
     let raw = enumerate_sequences(&seqs, k, false, false, &[], true, None);
-    let train_kmers: Vec<Vec<i32>> = raw.into_iter().map(|v| {
-        let mut sorted: Vec<i32> = v.into_iter()
-            .filter(|&x| x != i32::MIN).map(|x| x + 1).collect();
-        sorted.sort_unstable();
-        sorted.dedup();
-        sorted
-    }).collect();
+    let train_kmers: Vec<Vec<i32>> = raw
+        .into_iter()
+        .map(|v| {
+            let mut sorted: Vec<i32> = v
+                .into_iter()
+                .filter(|&x| x != i32::MIN)
+                .map(|x| x + 1)
+                .collect();
+            sorted.sort_unstable();
+            sorted.dedup();
+            sorted
+        })
+        .collect();
 
     // Query k-mers (first 5 sequences as queries)
     let query_km = &train_kmers[0];
@@ -174,14 +204,19 @@ fn bench_reverse_complement(c: &mut Criterion) {
 fn bench_remove_gaps(c: &mut Criterion) {
     let (_, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
     // Add some gaps for realism
-    let gapped: Vec<String> = seqs.iter().map(|s| {
-        let mut g = String::with_capacity(s.len() + 20);
-        for (i, c) in s.chars().enumerate() {
-            if i % 10 == 0 { g.push('-'); }
-            g.push(c);
-        }
-        g
-    }).collect();
+    let gapped: Vec<String> = seqs
+        .iter()
+        .map(|s| {
+            let mut g = String::with_capacity(s.len() + 20);
+            for (i, c) in s.chars().enumerate() {
+                if i % 10 == 0 {
+                    g.push('-');
+                }
+                g.push(c);
+            }
+            g
+        })
+        .collect();
 
     c.bench_function("remove_gaps/80seqs", |b| {
         b.iter(|| {
@@ -206,9 +241,8 @@ fn bench_read_fasta(c: &mut Criterion) {
 
 fn bench_learn_taxa(c: &mut Criterion) {
     let (names, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
-    let taxonomy = oxidtaxa::fasta::read_taxonomy(
-        &test_data_path("test_ref_taxonomy.tsv"), &names
-    ).unwrap();
+    let taxonomy =
+        oxidtaxa::fasta::read_taxonomy(&test_data_path("test_ref_taxonomy.tsv"), &names).unwrap();
 
     // Apply same filtering as lib.rs
     let mut filtered_seqs = Vec::new();
@@ -217,10 +251,16 @@ fn bench_learn_taxa(c: &mut Criterion) {
         let tax = &taxonomy[i];
         let full_tax = format!("Root; {}", tax.replace(";", "; "));
         let rank_count = full_tax.split("; ").count();
-        if rank_count < 4 { continue; }
-        if seq.len() < 30 { continue; }
+        if rank_count < 4 {
+            continue;
+        }
+        if seq.len() < 30 {
+            continue;
+        }
         let n_count = seq.bytes().filter(|&b| b == b'N' || b == b'n').count();
-        if (n_count as f64 / seq.len() as f64) > 0.3 { continue; }
+        if (n_count as f64 / seq.len() as f64) > 0.3 {
+            continue;
+        }
         filtered_seqs.push(seq.clone());
         filtered_tax.push(full_tax);
     }
@@ -229,22 +269,24 @@ fn bench_learn_taxa(c: &mut Criterion) {
 
     c.bench_function("learn_taxa/80seqs", |b| {
         b.iter(|| {
-            black_box(learn_taxa(
-                black_box(&filtered_seqs),
-                black_box(&filtered_tax),
-                black_box(&config),
-                42,
-                false,
-            ).unwrap());
+            black_box(
+                learn_taxa(
+                    black_box(&filtered_seqs),
+                    black_box(&filtered_tax),
+                    black_box(&config),
+                    42,
+                    false,
+                )
+                .unwrap(),
+            );
         });
     });
 }
 
 fn bench_learn_taxa_correlation_aware(c: &mut Criterion) {
     let (names, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
-    let taxonomy = oxidtaxa::fasta::read_taxonomy(
-        &test_data_path("test_ref_taxonomy.tsv"), &names
-    ).unwrap();
+    let taxonomy =
+        oxidtaxa::fasta::read_taxonomy(&test_data_path("test_ref_taxonomy.tsv"), &names).unwrap();
 
     let mut filtered_seqs = Vec::new();
     let mut filtered_tax = Vec::new();
@@ -252,10 +294,16 @@ fn bench_learn_taxa_correlation_aware(c: &mut Criterion) {
         let tax = &taxonomy[i];
         let full_tax = format!("Root; {}", tax.replace(";", "; "));
         let rank_count = full_tax.split("; ").count();
-        if rank_count < 4 { continue; }
-        if seq.len() < 30 { continue; }
+        if rank_count < 4 {
+            continue;
+        }
+        if seq.len() < 30 {
+            continue;
+        }
         let n_count = seq.bytes().filter(|&b| b == b'N' || b == b'n').count();
-        if (n_count as f64 / seq.len() as f64) > 0.3 { continue; }
+        if (n_count as f64 / seq.len() as f64) > 0.3 {
+            continue;
+        }
         filtered_seqs.push(seq.clone());
         filtered_tax.push(full_tax);
     }
@@ -268,13 +316,16 @@ fn bench_learn_taxa_correlation_aware(c: &mut Criterion) {
 
     c.bench_function("learn_taxa/80seqs_corr_aware", |b| {
         b.iter(|| {
-            black_box(learn_taxa(
-                black_box(&filtered_seqs),
-                black_box(&filtered_tax),
-                black_box(&config),
-                42,
-                false,
-            ).unwrap());
+            black_box(
+                learn_taxa(
+                    black_box(&filtered_seqs),
+                    black_box(&filtered_tax),
+                    black_box(&config),
+                    42,
+                    false,
+                )
+                .unwrap(),
+            );
         });
     });
 }
@@ -284,9 +335,8 @@ fn bench_learn_taxa_correlation_aware(c: &mut Criterion) {
 fn bench_id_taxa(c: &mut Criterion) {
     // Train a model first
     let (names, seqs) = read_fasta(&test_data_path("test_ref.fasta")).unwrap();
-    let taxonomy = oxidtaxa::fasta::read_taxonomy(
-        &test_data_path("test_ref_taxonomy.tsv"), &names
-    ).unwrap();
+    let taxonomy =
+        oxidtaxa::fasta::read_taxonomy(&test_data_path("test_ref_taxonomy.tsv"), &names).unwrap();
 
     let mut filtered_seqs = Vec::new();
     let mut filtered_tax = Vec::new();
@@ -294,10 +344,16 @@ fn bench_id_taxa(c: &mut Criterion) {
         let tax = &taxonomy[i];
         let full_tax = format!("Root; {}", tax.replace(";", "; "));
         let rank_count = full_tax.split("; ").count();
-        if rank_count < 4 { continue; }
-        if seq.len() < 30 { continue; }
+        if rank_count < 4 {
+            continue;
+        }
+        if seq.len() < 30 {
+            continue;
+        }
         let n_count = seq.bytes().filter(|&b| b == b'N' || b == b'n').count();
-        if (n_count as f64 / seq.len() as f64) > 0.3 { continue; }
+        if (n_count as f64 / seq.len() as f64) > 0.3 {
+            continue;
+        }
         filtered_seqs.push(seq.clone());
         filtered_tax.push(full_tax);
     }
@@ -338,20 +394,28 @@ fn bench_id_taxa(c: &mut Criterion) {
 fn bench_enumerate_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("enumerate_scaling");
 
-    for size in &["bench_1000_ref.fasta", "bench_5000_ref.fasta", "bench_10000_ref.fasta"] {
+    for size in &[
+        "bench_1000_ref.fasta",
+        "bench_5000_ref.fasta",
+        "bench_10000_ref.fasta",
+    ] {
         let path = bench_data_path(size);
         if std::path::Path::new(&path).exists() {
             let (_, seqs) = read_fasta(&path).unwrap();
             let label = size.replace("_ref.fasta", "");
-            group.bench_with_input(
-                BenchmarkId::new("enumerate", &label),
-                &seqs,
-                |b, seqs| {
-                    b.iter(|| {
-                        black_box(enumerate_sequences(black_box(seqs), 8, false, false, &[], true, None));
-                    });
-                },
-            );
+            group.bench_with_input(BenchmarkId::new("enumerate", &label), &seqs, |b, seqs| {
+                b.iter(|| {
+                    black_box(enumerate_sequences(
+                        black_box(seqs),
+                        8,
+                        false,
+                        false,
+                        &[],
+                        true,
+                        None,
+                    ));
+                });
+            });
         }
     }
     group.finish();
@@ -366,9 +430,13 @@ fn filter_for_bench(seqs: &[String], taxonomy: &[String]) -> (Vec<String>, Vec<S
         let tax = &taxonomy[i];
         let full_tax = format!("Root; {}", tax.replace(";", "; "));
         let rank_count = full_tax.split("; ").count();
-        if rank_count < 4 || seq.len() < 30 { continue; }
+        if rank_count < 4 || seq.len() < 30 {
+            continue;
+        }
         let n_count = seq.bytes().filter(|&b| b == b'N' || b == b'n').count();
-        if (n_count as f64 / seq.len() as f64) > 0.3 { continue; }
+        if (n_count as f64 / seq.len() as f64) > 0.3 {
+            continue;
+        }
         out_seqs.push(seq.clone());
         out_tax.push(full_tax);
     }
@@ -382,7 +450,9 @@ fn bench_learn_taxa_scaling(c: &mut Criterion) {
     for n in &[1000, 5000, 10000] {
         let fasta = bench_data_path(&format!("bench_{}_ref.fasta", n));
         let tax_path = bench_data_path(&format!("bench_{}_ref_taxonomy.tsv", n));
-        if !std::path::Path::new(&fasta).exists() { continue; }
+        if !std::path::Path::new(&fasta).exists() {
+            continue;
+        }
 
         let (names, seqs) = read_fasta(&fasta).unwrap();
         let taxonomy = oxidtaxa::fasta::read_taxonomy(&tax_path, &names).unwrap();
@@ -394,7 +464,9 @@ fn bench_learn_taxa_scaling(c: &mut Criterion) {
             &(&fseqs, &ftax),
             |b, (seqs, tax)| {
                 b.iter(|| {
-                    black_box(learn_taxa(black_box(seqs), black_box(tax), &config, 42, false).unwrap());
+                    black_box(
+                        learn_taxa(black_box(seqs), black_box(tax), &config, 42, false).unwrap(),
+                    );
                 });
             },
         );
@@ -410,7 +482,9 @@ fn bench_learn_taxa_scaling_corr_aware(c: &mut Criterion) {
     for n in &[1000, 5000, 10000] {
         let fasta = bench_data_path(&format!("bench_{}_ref.fasta", n));
         let tax_path = bench_data_path(&format!("bench_{}_ref_taxonomy.tsv", n));
-        if !std::path::Path::new(&fasta).exists() { continue; }
+        if !std::path::Path::new(&fasta).exists() {
+            continue;
+        }
 
         let (names, seqs) = read_fasta(&fasta).unwrap();
         let taxonomy = oxidtaxa::fasta::read_taxonomy(&tax_path, &names).unwrap();
@@ -427,7 +501,9 @@ fn bench_learn_taxa_scaling_corr_aware(c: &mut Criterion) {
             &(&fseqs, &ftax),
             |b, (seqs, tax)| {
                 b.iter(|| {
-                    black_box(learn_taxa(black_box(seqs), black_box(tax), &config, 42, false).unwrap());
+                    black_box(
+                        learn_taxa(black_box(seqs), black_box(tax), &config, 42, false).unwrap(),
+                    );
                 });
             },
         );
@@ -443,8 +519,12 @@ fn bench_id_taxa_scaling(c: &mut Criterion) {
         let fasta = bench_data_path(&format!("bench_{}_ref.fasta", n));
         let tax_path = bench_data_path(&format!("bench_{}_ref_taxonomy.tsv", n));
         let query_fasta = bench_data_path(&format!("bench_{}_query.fasta", n));
-        if !std::path::Path::new(&fasta).exists() { continue; }
-        if !std::path::Path::new(&query_fasta).exists() { continue; }
+        if !std::path::Path::new(&fasta).exists() {
+            continue;
+        }
+        if !std::path::Path::new(&query_fasta).exists() {
+            continue;
+        }
 
         let (names, seqs) = read_fasta(&fasta).unwrap();
         let taxonomy = oxidtaxa::fasta::read_taxonomy(&tax_path, &names).unwrap();
@@ -454,7 +534,10 @@ fn bench_id_taxa_scaling(c: &mut Criterion) {
 
         let (qnames, qseqs) = read_fasta(&query_fasta).unwrap();
         let clean = oxidtaxa::sequence::remove_gaps(&qseqs);
-        let cconfig = ClassifyConfig { threshold: 60.0, ..Default::default() };
+        let cconfig = ClassifyConfig {
+            threshold: 60.0,
+            ..Default::default()
+        };
 
         group.bench_with_input(
             BenchmarkId::new("classify", format!("{}refs", n)),
@@ -462,8 +545,14 @@ fn bench_id_taxa_scaling(c: &mut Criterion) {
             |b, (seqs, names, model)| {
                 b.iter(|| {
                     black_box(id_taxa(
-                        black_box(seqs), black_box(names), black_box(model),
-                        &cconfig, StrandMode::Both, OutputType::Extended, 42, true,
+                        black_box(seqs),
+                        black_box(names),
+                        black_box(model),
+                        &cconfig,
+                        StrandMode::Both,
+                        OutputType::Extended,
+                        42,
+                        true,
                     ));
                 });
             },

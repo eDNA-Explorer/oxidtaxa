@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use rayon::prelude::*;
@@ -63,10 +63,7 @@ pub fn prepare_data(
 /// Phase 2: Build decision tree with feature selection at each node.
 ///
 /// This is the most expensive phase when correlation_aware_features=true.
-pub fn build_tree(
-    prepared: &PreparedData,
-    config: &BuildTreeConfig,
-) -> Result<BuiltTree, String> {
+pub fn build_tree(prepared: &PreparedData, config: &BuildTreeConfig) -> Result<BuiltTree, String> {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(config.processors)
         .build()
@@ -141,12 +138,7 @@ fn _prepare_data_inner(
         .iter()
         .map(|t| {
             let t = t.replace(" ; ", ";").replace("; ", ";");
-            let after_root = t
-                .split("Root;")
-                .nth(1)
-                .unwrap_or("")
-                .trim_end()
-                .to_string();
+            let after_root = t.split("Root;").nth(1).unwrap_or("").trim_end().to_string();
             if after_root.ends_with(';') {
                 after_root
             } else {
@@ -156,7 +148,8 @@ fn _prepare_data_inner(
         .collect();
 
     // Enumerate k-mers
-    let raw_kmers = enumerate_sequences(sequences, k, false, false, &[], true, spaced_seed.as_ref());
+    let raw_kmers =
+        enumerate_sequences(sequences, k, false, false, &[], true, spaced_seed.as_ref());
     let kmers: Vec<Vec<i32>> = raw_kmers
         .into_iter()
         .map(|v| {
@@ -417,8 +410,10 @@ fn _learn_fractions_inner(
                     return (i, true, 0, String::new());
                 }
 
-                let mut seq_rng =
-                    RRng::new(mix_seed(seed, (it as u64) * 1_000_000 + prepared.seq_hashes[i]));
+                let mut seq_rng = RRng::new(mix_seed(
+                    seed,
+                    (it as u64) * 1_000_000 + prepared.seq_hashes[i],
+                ));
                 let mut k_node = 0usize;
                 let mut correct = true;
                 let mut pred = String::new();
@@ -445,12 +440,16 @@ fn _learn_fractions_inner(
                         let matches = int_match(&dk.keep, &prepared.kmers[i]);
 
                         let loo_child_idx = if config.leave_one_out {
-                            subtrees.iter().enumerate().find(|(_, &st)| {
-                                prepared.classes[i].starts_with(&prepared.end_taxonomy[st])
-                            }).map(|(j, &st)| {
-                                let group_size = prepared.n_seqs[st];
-                                (j, group_size)
-                            })
+                            subtrees
+                                .iter()
+                                .enumerate()
+                                .find(|(_, &st)| {
+                                    prepared.classes[i].starts_with(&prepared.end_taxonomy[st])
+                                })
+                                .map(|(j, &st)| {
+                                    let group_size = prepared.n_seqs[st];
+                                    (j, group_size)
+                                })
                         } else {
                             None
                         };
@@ -468,11 +467,15 @@ fn _learn_fractions_inner(
                         let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
                         for (j, _subtree) in subtrees.iter().enumerate() {
                             let mut weights_j: Vec<f64> = if config.use_idf_in_descent {
-                                dk.profiles[j].iter().zip(dk.keep.iter())
+                                dk.profiles[j]
+                                    .iter()
+                                    .zip(dk.keep.iter())
                                     .map(|(&prof, &km)| {
                                         let idf = if km > 0 && (km as usize) <= idf_row.len() {
                                             idf_row[(km - 1) as usize]
-                                        } else { 0.0 };
+                                        } else {
+                                            0.0
+                                        };
                                         prof * idf
                                     })
                                     .collect()
@@ -483,18 +486,18 @@ fn _learn_fractions_inner(
                             if let Some((loo_j, group_size)) = loo_child_idx {
                                 if j == loo_j && group_size > 1 && group_size <= 5 {
                                     let scale = (group_size - 1) as f64 / group_size as f64;
-                                    for w in &mut weights_j { *w *= scale; }
+                                    for w in &mut weights_j {
+                                        *w *= scale;
+                                    }
                                 }
                             }
 
-                            hits[j] =
-                                vector_sum(&matches, &weights_j, &sampling, b);
+                            hits[j] = vector_sum(&matches, &weights_j, &sampling, b);
                         }
 
                         let mut vote_counts = vec![0usize; subtrees.len()];
                         for rep in 0..b {
-                            let max_val =
-                                hits.iter().map(|h| h[rep]).fold(0.0f64, f64::max);
+                            let max_val = hits.iter().map(|h| h[rep]).fold(0.0f64, f64::max);
                             if max_val > 0.0 {
                                 for (j, h) in hits.iter().enumerate() {
                                     if h[rep] == max_val {
@@ -633,11 +636,19 @@ fn _learn_taxa_inner(
     seed: u32,
 ) -> Result<TrainingSet, String> {
     let prepared = _prepare_data_inner(
-        sequences, taxonomy_strings,
-        config.k, config.n, config.seed_pattern.clone(),
+        sequences,
+        taxonomy_strings,
+        config.k,
+        config.n,
+        config.seed_pattern.clone(),
     )?;
     let built_tree = _build_tree_inner(&prepared, &BuildTreeConfig::from(config))?;
-    _learn_fractions_inner(&prepared, &built_tree, &LearnFractionsConfig::from(config), seed)
+    _learn_fractions_inner(
+        &prepared,
+        &built_tree,
+        &LearnFractionsConfig::from(config),
+        seed,
+    )
 }
 
 /// Compute per-seq prefix strings at depth `rank` (1 = Kingdom-level group,
@@ -711,11 +722,7 @@ fn compute_idf_at_rank(
 
 /// Compute a per-rank IDF matrix: row `r-1` corresponds to depth `r`
 /// (Kingdom-level = row 0, Phylum-level = row 1, ..., Species-level = last).
-fn compute_idf_by_rank(
-    classes: &[String],
-    kmers: &[Vec<i32>],
-    n_kmers: usize,
-) -> Vec<Vec<f64>> {
+fn compute_idf_by_rank(classes: &[String], kmers: &[Vec<i32>], n_kmers: usize) -> Vec<Vec<f64>> {
     let max_rank = classes
         .iter()
         .map(|c| c.split(';').filter(|s| !s.is_empty()).count())
@@ -742,7 +749,11 @@ fn percentile_nchar(sequences: &[String], p: f64) -> usize {
 type SparseProfile = Vec<(usize, f64)>;
 
 /// Merge multiple weighted sparse profiles into a single sparse profile (weighted average).
-fn merge_sparse_profiles(profiles: &[SparseProfile], weights: &[f64], total_weight: f64) -> SparseProfile {
+fn merge_sparse_profiles(
+    profiles: &[SparseProfile],
+    weights: &[f64],
+    total_weight: f64,
+) -> SparseProfile {
     // k-way merge of sorted sparse profiles
     let mut cursors = vec![0usize; profiles.len()];
     let mut result = Vec::new();
@@ -853,8 +864,9 @@ fn create_tree(
                     );
                     vec![r0, r1]
                 } else {
-                    let mut results: Vec<Option<(SparseProfile, usize, Vec<(usize, DecisionNode)>)>> =
-                        (0..n_children).map(|_| None).collect();
+                    let mut results: Vec<
+                        Option<(SparseProfile, usize, Vec<(usize, DecisionNode)>)>,
+                    > = (0..n_children).map(|_| None).collect();
                     rayon::scope(|s| {
                         for (i, result_slot) in results.iter_mut().enumerate() {
                             let child = child_nodes[i];
@@ -888,7 +900,9 @@ fn create_tree(
         let desc_weights: Vec<f64> = match config.descendant_weighting {
             DescendantWeighting::Count => descendants.iter().map(|&d| d as f64).collect(),
             DescendantWeighting::Equal => vec![1.0; descendants.len()],
-            DescendantWeighting::Log => descendants.iter().map(|&d| (1.0 + d as f64).ln()).collect(),
+            DescendantWeighting::Log => {
+                descendants.iter().map(|&d| (1.0 + d as f64).ln()).collect()
+            }
         };
 
         // Compute weighted average profile q (sparse merge)
@@ -896,8 +910,7 @@ fn create_tree(
         let q = merge_sparse_profiles(&profiles, &desc_weights, total_weight);
 
         // Build a lookup from k-mer index to q value for fast cross-entropy computation
-        let q_map: HashMap<usize, f64> =
-            q.iter().map(|&(k, v)| (k, v)).collect();
+        let q_map: HashMap<usize, f64> = q.iter().map(|&(k, v)| (k, v)).collect();
 
         // Compute cross-entropy H = -p_i * log(q_i) for each child (only non-zero entries)
         // Each H entry is (kmer_index, entropy_value)
@@ -928,11 +941,7 @@ fn create_tree(
 
         // Feature selection: choose top k-mers for this decision node
         let record_kmers = {
-            let max_nonzero = profiles
-                .iter()
-                .map(|p| p.len())
-                .max()
-                .unwrap_or(0);
+            let max_nonzero = profiles.iter().map(|p| p.len()).max().unwrap_or(0);
             ((max_nonzero as f64) * config.record_kmers_fraction).ceil() as usize
         };
 
@@ -977,7 +986,10 @@ fn create_tree(
                 let mut max_h = 0.0f64;
                 for child_h in &sorted_h {
                     for &(ki, h) in child_h.iter() {
-                        if ki == kmer_idx && h > max_h { max_h = h; break; }
+                        if ki == kmer_idx && h > max_h {
+                            max_h = h;
+                            break;
+                        }
                     }
                 }
                 kmer_indices.push(kmer_idx);
@@ -987,8 +999,11 @@ fn create_tree(
 
             // Sort all arrays by entropy descending (permutation sort)
             let mut order: Vec<usize> = (0..kmer_indices.len()).collect();
-            order.sort_by(|&a, &b| entropies[b].partial_cmp(&entropies[a])
-                .unwrap_or(std::cmp::Ordering::Equal));
+            order.sort_by(|&a, &b| {
+                entropies[b]
+                    .partial_cmp(&entropies[a])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             let sorted_kmer_indices: Vec<usize> = order.iter().map(|&i| kmer_indices[i]).collect();
             let sorted_entropies: Vec<f64> = order.iter().map(|&i| entropies[i]).collect();
@@ -1004,11 +1019,13 @@ fn create_tree(
             // only supported redundancy metric: Pearson was removed because
             // it degenerates at n_children = 2 and isn't well-defined on
             // profile-like data.
-            let cand_bc_stats: Vec<BhattacharyyaStats> = (0..order.len()).map(|ci| {
-                BhattacharyyaStats::new(
-                    &sorted_profiles_flat[ci * n_children..(ci + 1) * n_children],
-                )
-            }).collect();
+            let cand_bc_stats: Vec<BhattacharyyaStats> = (0..order.len())
+                .map(|ci| {
+                    BhattacharyyaStats::new(
+                        &sorted_profiles_flat[ci * n_children..(ci + 1) * n_children],
+                    )
+                })
+                .collect();
 
             let n_cand = sorted_kmer_indices.len();
             let mut is_selected = vec![false; n_cand];
@@ -1037,29 +1054,41 @@ fn create_tree(
                         .into_par_iter()
                         .filter(|&ci| !is_selected[ci])
                         .map(|ci| {
-                            let gain =
-                                sorted_entropies[ci] * (1.0 - max_corr[ci]);
+                            let gain = sorted_entropies[ci] * (1.0 - max_corr[ci]);
                             (ci, gain)
                         })
                         .reduce(
                             || (usize::MAX, f64::NEG_INFINITY),
                             |a, b| {
-                                if b.1 > a.1 { b }
-                                else if b.1 < a.1 { a }
-                                else if b.0 < a.0 { b }
-                                else { a }
+                                if b.1 > a.1 {
+                                    b
+                                } else if b.1 < a.1 {
+                                    a
+                                } else if b.0 < a.0 {
+                                    b
+                                } else {
+                                    a
+                                }
                             },
                         );
-                    if bc == usize::MAX { None } else { Some(bc) }
+                    if bc == usize::MAX {
+                        None
+                    } else {
+                        Some(bc)
+                    }
                 } else {
                     // Sequential: retains the entropy-descending early exit,
                     // which cannot be cheaply expressed in a parallel reduction.
                     let mut best_ci = None;
                     let mut best_gain = f64::NEG_INFINITY;
                     for ci in 0..n_cand {
-                        if is_selected[ci] { continue; }
+                        if is_selected[ci] {
+                            continue;
+                        }
                         let base_h = sorted_entropies[ci];
-                        if base_h <= best_gain { break; }
+                        if base_h <= best_gain {
+                            break;
+                        }
                         let gain = base_h * (1.0 - max_corr[ci]);
                         if gain > best_gain {
                             best_gain = gain;
@@ -1069,7 +1098,10 @@ fn create_tree(
                     best_ci
                 };
 
-                let ci = match best_ci { Some(ci) => ci, None => break };
+                let ci = match best_ci {
+                    Some(ci) => ci,
+                    None => break,
+                };
 
                 // 2. Commit selection.
                 is_selected[ci] = true;
@@ -1085,18 +1117,26 @@ fn create_tree(
                         .enumerate()
                         .zip(cand_bc_stats.par_iter())
                         .for_each(|((cj, max_c), cj_st)| {
-                            if is_selected[cj] || *max_c >= 1.0 { return; }
+                            if is_selected[cj] || *max_c >= 1.0 {
+                                return;
+                            }
                             let corr = bhattacharyya_with_stats(cj_st, &new_bc);
-                            if corr > *max_c { *max_c = corr; }
+                            if corr > *max_c {
+                                *max_c = corr;
+                            }
                         });
                 } else {
                     for cj in 0..n_cand {
-                        if is_selected[cj] { continue; }
-                        if max_corr[cj] >= 1.0 { continue; }
-                        let corr = bhattacharyya_with_stats(
-                            &cand_bc_stats[cj], &new_bc,
-                        );
-                        if corr > max_corr[cj] { max_corr[cj] = corr; }
+                        if is_selected[cj] {
+                            continue;
+                        }
+                        if max_corr[cj] >= 1.0 {
+                            continue;
+                        }
+                        let corr = bhattacharyya_with_stats(&cand_bc_stats[cj], &new_bc);
+                        if corr > max_corr[cj] {
+                            max_corr[cj] = corr;
+                        }
                     }
                 }
             }
@@ -1156,10 +1196,13 @@ fn create_tree(
             })
             .collect();
 
-        collected_nodes.push((node, DecisionNode {
-            keep: keep_indices,
-            profiles: selected_profiles,
-        }));
+        collected_nodes.push((
+            node,
+            DecisionNode {
+                keep: keep_indices,
+                profiles: selected_profiles,
+            },
+        ));
 
         (q, total_desc, collected_nodes)
     } else {

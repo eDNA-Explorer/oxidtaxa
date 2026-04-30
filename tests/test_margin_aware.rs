@@ -89,14 +89,12 @@ fn test_tie_margin_zero_preserves_legacy() {
     // With `tie_margin = 0.0`, only exact `tot_hits` equalities produce
     // alternatives. Near-tied Canis_lupus / Canis_latrans → single winner.
     let ts = build_near_tied_training_set();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let config = ClassifyConfig {
@@ -104,7 +102,14 @@ fn test_tie_margin_zero_preserves_legacy() {
         ..Default::default()
     };
     let results = id_taxa(
-        &query, &names, &ts, &config, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     // Whether alternatives is empty or not depends on whether the randomized
@@ -121,14 +126,12 @@ fn test_tie_margin_catches_near_ties() {
     // within 90% of Canis_lupus's max) should be captured in alternatives,
     // and the lineage truncated at Canis.
     let ts = build_near_tied_training_set();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     // Compute baseline alternatives count at tie_margin = 0.0.
@@ -137,7 +140,14 @@ fn test_tie_margin_catches_near_ties() {
         ..Default::default()
     };
     let base = id_taxa(
-        &query, &names, &ts, &cfg_zero, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_zero,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     let base_alts = base[0].alternatives.len();
 
@@ -150,7 +160,14 @@ fn test_tie_margin_catches_near_ties() {
         ..Default::default()
     };
     let wide = id_taxa(
-        &query, &names, &ts, &cfg_wide, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_wide,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     assert!(
         wide[0].alternatives.len() >= base_alts,
@@ -198,19 +215,24 @@ fn test_descent_margin_on_never_raises_confidence() {
     // confidence can only shrink (or stay equal when every descent was
     // unambiguous).
     let ts = build_near_tied_training_set();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let cfg_off = ClassifyConfig::default();
     let off = id_taxa(
-        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_on = ClassifyConfig {
@@ -218,7 +240,14 @@ fn test_descent_margin_on_never_raises_confidence() {
         ..Default::default()
     };
     let on = id_taxa(
-        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     assert_eq!(off.len(), 1);
@@ -266,7 +295,10 @@ fn test_descent_margin_active_with_beam_width_3() {
     let (ref_names, ref_seqs) =
         read_fasta(data_dir.join("bench_1000_ref.fasta").to_str().unwrap()).unwrap();
     let ref_tax = read_taxonomy(
-        data_dir.join("bench_1000_ref_taxonomy.tsv").to_str().unwrap(),
+        data_dir
+            .join("bench_1000_ref_taxonomy.tsv")
+            .to_str()
+            .unwrap(),
         &ref_names,
     )
     .unwrap();
@@ -299,16 +331,30 @@ fn test_descent_margin_active_with_beam_width_3() {
         ..Default::default()
     };
     let greedy_on = id_taxa(
-        &queries, &names, &model, &cfg_greedy_on, StrandMode::Both, OutputType::Extended, 42, true,
+        &queries,
+        &names,
+        &model,
+        &cfg_greedy_on,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_beam_on = ClassifyConfig {
-        beam_width: 1,  // still beam code path, but test with width=1 first
+        beam_width: 1, // still beam code path, but test with width=1 first
         confidence_uses_descent_margin: true,
         ..Default::default()
     };
     let _beam_width1_on = id_taxa(
-        &queries, &names, &model, &cfg_beam_on, StrandMode::Both, OutputType::Extended, 42, true,
+        &queries,
+        &names,
+        &model,
+        &cfg_beam_on,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     // The real plumbing test: beam_width=3 must also apply margins. Compare
@@ -321,7 +367,14 @@ fn test_descent_margin_active_with_beam_width_3() {
         ..Default::default()
     };
     let beam3_off = id_taxa(
-        &queries, &names, &model, &cfg_beam3_off, StrandMode::Both, OutputType::Extended, 42, true,
+        &queries,
+        &names,
+        &model,
+        &cfg_beam3_off,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_beam3_on = ClassifyConfig {
@@ -330,7 +383,14 @@ fn test_descent_margin_active_with_beam_width_3() {
         ..Default::default()
     };
     let beam3_on = id_taxa(
-        &queries, &names, &model, &cfg_beam3_on, StrandMode::Both, OutputType::Extended, 42, true,
+        &queries,
+        &names,
+        &model,
+        &cfg_beam3_on,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     // Also verify greedy+margin-on actually does something on this dataset
@@ -341,7 +401,14 @@ fn test_descent_margin_active_with_beam_width_3() {
         ..Default::default()
     };
     let greedy_off = id_taxa(
-        &queries, &names, &model, &cfg_greedy_off, StrandMode::Both, OutputType::Extended, 42, true,
+        &queries,
+        &names,
+        &model,
+        &cfg_greedy_off,
+        StrandMode::Both,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let any_greedy_changed = greedy_off.iter().zip(greedy_on.iter()).any(|(a, b)| {
@@ -374,19 +441,24 @@ fn test_descent_margin_does_not_collapse_deep_ranks() {
     // semantics, 6-7 compounded margins could easily drop this ratio to
     // 0.1^6 ≈ 1e-6 — a collapse we explicitly guard against.
     let ts = build_near_tied_training_set();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let cfg_off = ClassifyConfig::default();
     let off = id_taxa(
-        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_on = ClassifyConfig {
@@ -394,7 +466,14 @@ fn test_descent_margin_does_not_collapse_deep_ranks() {
         ..Default::default()
     };
     let on = id_taxa(
-        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     assert_eq!(off.len(), 1);
@@ -435,19 +514,24 @@ fn test_sibling_aware_leaf_cannot_shrink_alternatives() {
     // descent sites, which can only add sibling evidence to `tot_hits` — so
     // alternatives count is monotonically non-decreasing from off → on.
     let ts = build_near_tied_training_set();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let cfg_off = ClassifyConfig::default();
     let off = id_taxa(
-        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_on = ClassifyConfig {
@@ -455,7 +539,14 @@ fn test_sibling_aware_leaf_cannot_shrink_alternatives() {
         ..Default::default()
     };
     let on = id_taxa(
-        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     assert_eq!(off.len(), 1);
@@ -596,11 +687,7 @@ fn build_ancestor_only_no_descendant_fixture() -> TrainingSet {
                  GGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAA\
                  CCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTT";
 
-    let sequences = vec![
-        canis_genus_only,
-        vulpes.to_string(),
-        felis.to_string(),
-    ];
+    let sequences = vec![canis_genus_only, vulpes.to_string(), felis.to_string()];
     let taxonomy = vec![
         // Genus-only entry — no species under Canis in this fixture.
         "Root; Mammalia; Carnivora; Canidae; Canis".to_string(),
@@ -633,14 +720,12 @@ fn test_suppress_ancestor_only_groups_drops_ancestor_when_tied() {
     // (which is what the flag is actually doing) independently of the
     // separate threshold-gating axis.
     let ts = build_ancestor_descendant_fixture();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let cfg_off = ClassifyConfig {
@@ -649,7 +734,14 @@ fn test_suppress_ancestor_only_groups_drops_ancestor_when_tied() {
         ..Default::default()
     };
     let off = id_taxa(
-        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_on = ClassifyConfig {
@@ -658,7 +750,14 @@ fn test_suppress_ancestor_only_groups_drops_ancestor_when_tied() {
         ..Default::default()
     };
     let on = id_taxa(
-        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     assert_eq!(off.len(), 1);
@@ -702,14 +801,12 @@ fn test_suppress_no_op_when_no_descendant_in_keep() {
     // the Canis group has no descendants in `keep` to be filtered against,
     // so it competes normally. Genus-level emission must stand.
     let ts = build_ancestor_only_no_descendant_fixture();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let cfg_off = ClassifyConfig {
@@ -717,7 +814,14 @@ fn test_suppress_no_op_when_no_descendant_in_keep() {
         ..Default::default()
     };
     let off = id_taxa(
-        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_on = ClassifyConfig {
@@ -725,7 +829,14 @@ fn test_suppress_no_op_when_no_descendant_in_keep() {
         ..Default::default()
     };
     let on = id_taxa(
-        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     // Flag should be a no-op: identical taxon, identical alternatives,
@@ -758,14 +869,12 @@ fn test_suppress_multi_descendant_still_caps_at_genus() {
     // cap correctly fires at the genus. Validates that we don't over-
     // resolve true inter-species ambiguity.
     let ts = build_ancestor_multi_descendant_fixture();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let cfg_on = ClassifyConfig {
@@ -773,7 +882,14 @@ fn test_suppress_multi_descendant_still_caps_at_genus() {
         ..Default::default()
     };
     let on = id_taxa(
-        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     assert_eq!(on.len(), 1);
@@ -819,14 +935,12 @@ fn test_suppress_preserves_higher_rank_confidence() {
     // `winners` but its `tot_hits` is unchanged, so it still flows up to
     // ancestor confidences via the accumulator.
     let ts = build_ancestor_descendant_fixture();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     let cfg_off = ClassifyConfig {
@@ -834,7 +948,14 @@ fn test_suppress_preserves_higher_rank_confidence() {
         ..Default::default()
     };
     let off = id_taxa(
-        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     let cfg_on = ClassifyConfig {
@@ -842,7 +963,14 @@ fn test_suppress_preserves_higher_rank_confidence() {
         ..Default::default()
     };
     let on = id_taxa(
-        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     assert_eq!(off.len(), 1);
@@ -859,8 +987,12 @@ fn test_suppress_preserves_higher_rank_confidence() {
     // BOTH report. Off's reported ranks are a prefix of the same lineage
     // because both use the same training set.
     let len = off[0].confidence.len().min(on[0].confidence.len());
-    assert!(len >= 4, "expected at least Root..Canidae reported, got off={}, on={}",
-            off[0].confidence.len(), on[0].confidence.len());
+    assert!(
+        len >= 4,
+        "expected at least Root..Canidae reported, got off={}, on={}",
+        off[0].confidence.len(),
+        on[0].confidence.len()
+    );
     for i in 0..len {
         // No skip: the cross-rank accumulator credits each non-selected
         // group's tot_hits at every rank at-or-above the group's own node.
@@ -893,14 +1025,12 @@ fn test_suppress_leaf_only_credited_by_base() {
     // If this invariant fails, the accumulator is double-crediting the
     // leaf or the ancestor's evidence is being misrouted.
     let ts = build_ancestor_descendant_fixture();
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     // threshold=1.0 so all ranks pass the threshold filter and the full
@@ -912,7 +1042,14 @@ fn test_suppress_leaf_only_credited_by_base() {
         ..Default::default()
     };
     let result = id_taxa(
-        &query, &names, &ts, &cfg, StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts,
+        &cfg,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
 
     assert_eq!(result.len(), 1);
@@ -1070,30 +1207,39 @@ fn test_use_idf_in_descent_false_no_regression() {
 
     // Models must agree on every classification-relevant field.
     assert_eq!(
-        ts_explicit_false.use_idf_in_descent,
-        sequences_for_default.use_idf_in_descent,
+        ts_explicit_false.use_idf_in_descent, sequences_for_default.use_idf_in_descent,
         "flag persistence diverged between explicit-false and default"
     );
     assert_eq!(ts_explicit_false.taxonomy, sequences_for_default.taxonomy);
     assert_eq!(ts_explicit_false.fraction, sequences_for_default.fraction);
 
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
     let cfg = ClassifyConfig::default();
     let r_default = id_taxa(
-        &query, &names, &sequences_for_default, &cfg,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &sequences_for_default,
+        &cfg,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     let r_explicit = id_taxa(
-        &query, &names, &ts_explicit_false, &cfg,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts_explicit_false,
+        &cfg,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     assert_eq!(r_default[0].taxon, r_explicit[0].taxon);
     assert_eq!(
@@ -1151,23 +1297,33 @@ fn test_use_idf_in_descent_serialization_roundtrip() {
     let _ = std::fs::remove_file(path_str);
     assert!(ts_loaded.use_idf_in_descent);
 
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
     let cfg = ClassifyConfig::default();
     let r_mem = id_taxa(
-        &query, &names, &ts_on, &cfg,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts_on,
+        &cfg,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     let r_loaded = id_taxa(
-        &query, &names, &ts_loaded, &cfg,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts_loaded,
+        &cfg,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     assert_eq!(r_mem[0].taxon, r_loaded[0].taxon);
     assert_eq!(r_mem[0].confidence.len(), r_loaded[0].confidence.len());
@@ -1202,21 +1358,25 @@ fn test_use_idf_in_descent_classify_smoke_test() {
     assert!(ts_on.use_idf_in_descent);
     assert!(!ts_on.idf_weights_by_rank.is_empty());
 
-    let query = vec![
-        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
-            .to_string(),
-    ];
+        .to_string()];
     let names = vec!["q".to_string()];
 
     // Greedy descent path (beam_width=1).
     let cfg_greedy = ClassifyConfig::default();
     let r_greedy = id_taxa(
-        &query, &names, &ts_on, &cfg_greedy,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts_on,
+        &cfg_greedy,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     assert_eq!(r_greedy.len(), 1);
     assert!(!r_greedy[0].taxon.is_empty());
@@ -1229,8 +1389,14 @@ fn test_use_idf_in_descent_classify_smoke_test() {
         ..Default::default()
     };
     let r_beam = id_taxa(
-        &query, &names, &ts_on, &cfg_beam,
-        StrandMode::Top, OutputType::Extended, 42, true,
+        &query,
+        &names,
+        &ts_on,
+        &cfg_beam,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
     );
     assert_eq!(r_beam.len(), 1);
     assert!(!r_beam[0].taxon.is_empty());

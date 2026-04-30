@@ -31,7 +31,14 @@ pub fn assert_approx_eq(a: f64, b: f64, epsilon: f64, msg: &str) {
 /// Assert two f64 slices are element-wise within epsilon.
 #[allow(dead_code)]
 pub fn assert_vec_approx_eq(a: &[f64], b: &[f64], epsilon: f64, msg: &str) {
-    assert_eq!(a.len(), b.len(), "{}: length mismatch {} vs {}", msg, a.len(), b.len());
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "{}: length mismatch {} vs {}",
+        msg,
+        a.len(),
+        b.len()
+    );
     for (i, (ai, bi)) in a.iter().zip(b.iter()).enumerate() {
         assert!(
             (ai - bi).abs() < epsilon,

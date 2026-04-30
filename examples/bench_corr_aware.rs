@@ -1,7 +1,7 @@
-use std::time::Instant;
 use oxidtaxa::fasta::{read_fasta, read_taxonomy};
 use oxidtaxa::training::learn_taxa;
 use oxidtaxa::types::TrainConfig;
+use std::time::Instant;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -9,7 +9,8 @@ fn main() {
     let processors: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
 
     let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("benchmarks").join("data");
+        .join("benchmarks")
+        .join("data");
     let fasta = base.join(format!("bench_{}_ref.fasta", size));
     let tax_path = base.join(format!("bench_{}_ref_taxonomy.tsv", size));
 
@@ -28,14 +29,22 @@ fn main() {
         let tax = &taxonomy[i];
         let full_tax = format!("Root; {}", tax.replace(";", "; "));
         let rank_count = full_tax.split("; ").count();
-        if rank_count < 4 || seq.len() < 30 { continue; }
+        if rank_count < 4 || seq.len() < 30 {
+            continue;
+        }
         let n_count = seq.bytes().filter(|&b| b == b'N' || b == b'n').count();
-        if (n_count as f64 / seq.len() as f64) > 0.3 { continue; }
+        if (n_count as f64 / seq.len() as f64) > 0.3 {
+            continue;
+        }
         filtered_seqs.push(seq.clone());
         filtered_tax.push(full_tax);
     }
 
-    println!("Dataset: {} sequences (filtered from {})", filtered_seqs.len(), seqs.len());
+    println!(
+        "Dataset: {} sequences (filtered from {})",
+        filtered_seqs.len(),
+        seqs.len()
+    );
     println!("Processors: {}", processors);
 
     let config = TrainConfig {
@@ -53,7 +62,11 @@ fn main() {
     match result {
         Ok(ts) => {
             let n_nodes = ts.decision_kmers.iter().filter(|d| d.is_some()).count();
-            println!("Done in {:.3}s ({} decision nodes)", elapsed.as_secs_f64(), n_nodes);
+            println!(
+                "Done in {:.3}s ({} decision nodes)",
+                elapsed.as_secs_f64(),
+                n_nodes
+            );
         }
         Err(e) => {
             println!("Error after {:.3}s: {}", elapsed.as_secs_f64(), e);

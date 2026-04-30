@@ -28,10 +28,7 @@ pub fn read_fasta(path: &str) -> Result<(Vec<String>, Vec<String>), String> {
 
 /// Read a taxonomy TSV file (accession\ttaxonomy), mapping to sequence names.
 /// Returns taxonomy strings in the same order as the provided names.
-pub fn read_taxonomy(
-    path: &str,
-    names: &[String],
-) -> Result<Vec<String>, String> {
+pub fn read_taxonomy(path: &str, names: &[String]) -> Result<Vec<String>, String> {
     let content =
         std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path, e))?;
 
@@ -75,10 +72,7 @@ pub fn write_classification_tsv(
     );
 
     for (i, result) in results.iter().enumerate() {
-        let read_id = names[i]
-            .split_whitespace()
-            .next()
-            .unwrap_or(&names[i]);
+        let read_id = names[i].split_whitespace().next().unwrap_or(&names[i]);
 
         let alternatives_field = result.alternatives.join("|");
         let reject_reason_field = result.reject_reason.as_deref().unwrap_or("");
@@ -104,11 +98,7 @@ pub fn write_classification_tsv(
             let c0 = result.confidence.first().copied().unwrap_or(0.0);
             output.push_str(&format!(
                 "{}\t\t{}\t{}\t{}\t{}\n",
-                read_id,
-                c0,
-                alternatives_field,
-                reject_reason_field,
-                similarity_field,
+                read_id, c0, alternatives_field, reject_reason_field, similarity_field,
             ));
         }
     }

@@ -22,9 +22,7 @@ use oxidtaxa::classify::id_taxa;
 use oxidtaxa::fasta::{read_fasta, read_taxonomy};
 use oxidtaxa::sequence::remove_gaps;
 use oxidtaxa::training::learn_taxa;
-use oxidtaxa::types::{
-    ClassificationResult, ClassifyConfig, OutputType, StrandMode, TrainConfig,
-};
+use oxidtaxa::types::{ClassificationResult, ClassifyConfig, OutputType, StrandMode, TrainConfig};
 
 // ── Metrics ─────────────────────────────────────────────────────────────────
 
@@ -53,15 +51,14 @@ impl ComparisonMetrics {
                 let min = a.min(b);
                 max == 0.0 || (max - min) / max <= 0.20
             }
-            && (self.problem_group_count_a as i64 - self.problem_group_count_b as i64).unsigned_abs() <= 2
+            && (self.problem_group_count_a as i64 - self.problem_group_count_b as i64)
+                .unsigned_abs()
+                <= 2
     }
 
     fn print(&self) {
         println!("\n{:=<70}", "= Comparison Metrics ");
-        println!(
-            "  {:40} {:>10} {:>10}",
-            "Metric", "Value", "Threshold"
-        );
+        println!("  {:40} {:>10} {:>10}", "Metric", "Value", "Threshold");
         println!("{:-<70}", "");
 
         let pf = |ok: bool| if ok { "PASS" } else { "FAIL" };
@@ -216,9 +213,21 @@ fn compare_results(
 
     ComparisonMetrics {
         n_queries: n,
-        exact_path_agreement: if n > 0 { 100.0 * exact_match as f64 / n as f64 } else { 100.0 },
-        genus_level_agreement: if n > 0 { 100.0 * genus_match as f64 / n as f64 } else { 100.0 },
-        mean_confidence_diff: if n > 0 { total_conf_diff / n as f64 } else { 0.0 },
+        exact_path_agreement: if n > 0 {
+            100.0 * exact_match as f64 / n as f64
+        } else {
+            100.0
+        },
+        genus_level_agreement: if n > 0 {
+            100.0 * genus_match as f64 / n as f64
+        } else {
+            100.0
+        },
+        mean_confidence_diff: if n > 0 {
+            total_conf_diff / n as f64
+        } else {
+            0.0
+        },
         max_confidence_diff: max_conf_diff,
         problem_seq_count_a: problem_seq_a,
         problem_seq_count_b: problem_seq_b,
@@ -228,11 +237,7 @@ fn compare_results(
 }
 
 /// Deterministic shuffle based on hash of accession + seed.
-fn deterministic_shuffle(
-    seqs: &[String],
-    tax: &[String],
-    seed: u64,
-) -> (Vec<String>, Vec<String>) {
+fn deterministic_shuffle(seqs: &[String], tax: &[String], seed: u64) -> (Vec<String>, Vec<String>) {
     let n = seqs.len();
     let mut indices: Vec<usize> = (0..n).collect();
     // Fisher-Yates using deterministic hash
@@ -407,8 +412,15 @@ fn main() {
 
     // Train model A (original order)
     println!("\nTraining model A (original order)...");
-    let (results_a, ps_a, pg_a) =
-        train_and_classify(&train_seqs, &train_tax, &clean_queries, &query_names, seed, "A", max_iterations);
+    let (results_a, ps_a, pg_a) = train_and_classify(
+        &train_seqs,
+        &train_tax,
+        &clean_queries,
+        &query_names,
+        seed,
+        "A",
+        max_iterations,
+    );
 
     // Save baseline if requested
     if let Some(ref path) = save_baseline_path {

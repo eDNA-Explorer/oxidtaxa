@@ -87,11 +87,7 @@ fn test_kmer_repeats() {
         .collect();
     if !poly_a_valid.is_empty() {
         let unique: std::collections::HashSet<i32> = poly_a_valid.iter().copied().collect();
-        assert_eq!(
-            unique.len(),
-            1,
-            "poly-A k-mers should all have same value"
-        );
+        assert_eq!(unique.len(), 1, "poly-A k-mers should all have same value");
     }
 
     for (i, (got, expected)) in result.iter().zip(golden.iter()).enumerate() {
@@ -158,11 +154,7 @@ fn test_kmer_masking_lcr() {
 
     let result = enumerate_sequences(&seqs, 8, false, true, &[], true, None);
     for (i, (got, expected)) in result.iter().zip(golden.iter()).enumerate() {
-        assert_eq!(
-            got, expected,
-            "LCR-mask kmer values mismatch for seq {}",
-            i
-        );
+        assert_eq!(got, expected, "LCR-mask kmer values mismatch for seq {}", i);
     }
 }
 

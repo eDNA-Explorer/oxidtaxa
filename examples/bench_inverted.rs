@@ -88,13 +88,7 @@ fn main() {
         );
 
         // Test at different keep sizes
-        let keep_sizes: Vec<usize> = vec![
-            10,
-            50,
-            500,
-            ts.kmers.len().min(2000),
-            ts.kmers.len(),
-        ];
+        let keep_sizes: Vec<usize> = vec![10, 50, 500, ts.kmers.len().min(2000), ts.kmers.len()];
 
         for &keep_n in &keep_sizes {
             let keep: Vec<usize> = (0..keep_n.min(ts.kmers.len())).collect();
@@ -104,7 +98,13 @@ fn main() {
             let start = Instant::now();
             for _ in 0..n_iters {
                 let _ = parallel_match(
-                    &u_sampling, &ts.kmers, &keep, &u_weights, b, &positions, &ranges,
+                    &u_sampling,
+                    &ts.kmers,
+                    &keep,
+                    &u_weights,
+                    b,
+                    &positions,
+                    &ranges,
                 );
             }
             let merge_time = start.elapsed().as_secs_f64() / n_iters as f64;
@@ -112,13 +112,23 @@ fn main() {
             let start = Instant::now();
             for _ in 0..n_iters {
                 let _ = parallel_match_inverted(
-                    &u_sampling, inv_idx, &keep, &u_weights, b, &positions, &ranges,
+                    &u_sampling,
+                    inv_idx,
+                    &keep,
+                    &u_weights,
+                    b,
+                    &positions,
+                    &ranges,
                 );
             }
             let inv_time = start.elapsed().as_secs_f64() / n_iters as f64;
 
             let speedup = merge_time / inv_time;
-            let winner = if speedup > 1.0 { "inverted wins" } else { "merge-join wins" };
+            let winner = if speedup > 1.0 {
+                "inverted wins"
+            } else {
+                "merge-join wins"
+            };
             println!(
                 "  keep={:>6}: merge={:.3}ms  inverted={:.3}ms  speedup={:.1}x  ({})",
                 actual_keep,

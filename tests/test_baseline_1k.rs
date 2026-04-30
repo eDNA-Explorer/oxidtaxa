@@ -52,9 +52,14 @@ fn test_baseline_1k_matches_r() {
     // Read reference data
     let (ref_names, ref_seqs) =
         read_fasta(data_dir.join("bench_1000_ref.fasta").to_str().unwrap()).unwrap();
-    let ref_tax =
-        read_taxonomy(data_dir.join("bench_1000_ref_taxonomy.tsv").to_str().unwrap(), &ref_names)
-            .unwrap();
+    let ref_tax = read_taxonomy(
+        data_dir
+            .join("bench_1000_ref_taxonomy.tsv")
+            .to_str()
+            .unwrap(),
+        &ref_names,
+    )
+    .unwrap();
 
     // Filter for training (same as eval_training.rs and train_idtaxa.R)
     let mut train_seqs = Vec::new();
@@ -147,11 +152,24 @@ fn test_baseline_1k_matches_r() {
     let mean_conf_diff = total_conf_diff / n;
 
     eprintln!("Baseline 1K results:");
-    eprintln!("  Path agreement:      {:.1}% ({} mismatches out of {})", path_agreement, path_mismatches, results.len());
+    eprintln!(
+        "  Path agreement:      {:.1}% ({} mismatches out of {})",
+        path_agreement,
+        path_mismatches,
+        results.len()
+    );
     eprintln!("  Mean confidence diff: {:.2}", mean_conf_diff);
     eprintln!("  Max confidence diff:  {:.2}", max_conf_diff);
-    eprintln!("  Problem seqs:  rust={}, R={}", model.problem_sequences.len(), baseline.problem_sequences);
-    eprintln!("  Problem groups: rust={}, R={}", model.problem_groups.len(), baseline.problem_groups);
+    eprintln!(
+        "  Problem seqs:  rust={}, R={}",
+        model.problem_sequences.len(),
+        baseline.problem_sequences
+    );
+    eprintln!(
+        "  Problem groups: rust={}, R={}",
+        model.problem_groups.len(),
+        baseline.problem_groups
+    );
 
     // Thresholds account for known batch-training divergence from R's sequential
     // approach (documented 87-93% path agreement). These catch regressions beyond

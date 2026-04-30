@@ -114,7 +114,8 @@ fn test_full_pipeline_e2e() {
             assert!(
                 parts[1].is_empty(),
                 "row {}: expected empty taxonomic_path, got {:?}",
-                i, parts[1]
+                i,
+                parts[1]
             );
         } else {
             assert!(
