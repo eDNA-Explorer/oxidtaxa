@@ -6,7 +6,7 @@ branch: main
 repository: eDNA-Explorer/oxidtaxa
 topic: "Prefix-aware bootstrap share-split: stop ancestor-only training entries from halving descendant tot_hits"
 tags: [plan, classify, share-split, suppress_ancestor_only_groups, bootstrap, tot_hits, leaf_phase_score]
-status: ready
+status: implemented
 last_updated: 2026-04-30
 last_updated_by: Ryan Martin
 ---
@@ -386,17 +386,19 @@ The `drop_mask` allocation in the sketch can be hoisted to a single allocation o
 
 #### Automated Verification
 
-- [ ] `cargo build` succeeds.
-- [ ] `cargo test` passes the entire test suite (no regressions in `test_algorithmic_improvements`, `test_training`, `test_margin_aware`, or any other suite).
-- [ ] `cargo clippy --all-targets -- -D warnings` is clean.
-- [ ] Existing tests `test_suppress_ancestor_only_groups_default_off`, `test_suppress_no_op_when_no_descendant_in_keep`, and `test_suppress_multi_descendant_still_caps_at_genus` continue to pass with no source changes.
-- [ ] `test_suppress_preserves_higher_rank_confidence` continues to pass in its post-prerequisite form (no rank-skip; asserts equality at every rank including the ancestor's own). Do not modify or re-add the skip.
-- [ ] `test_suppress_leaf_only_credited_by_base` (added by the prerequisite plan) continues to pass.
+- [x] `cargo build` succeeds.
+- [x] `cargo test` passes the entire test suite (100/100 tests passing across all suites).
+- [x] `cargo clippy --all-targets -- -D warnings` is clean.
+- [x] Existing tests `test_suppress_ancestor_only_groups_default_off`, `test_suppress_no_op_when_no_descendant_in_keep`, and `test_suppress_multi_descendant_still_caps_at_genus` continue to pass with no source changes.
+- [x] `test_suppress_preserves_higher_rank_confidence` continues to pass in its post-prerequisite form (no rank-skip; asserts equality at every rank including the ancestor's own). Did not modify or re-add the skip.
+- [x] `test_suppress_leaf_only_credited_by_base` continues to pass after a one-line assertion relaxation (see deviation note below).
+
+**Deviation from plan:** `test_suppress_leaf_only_credited_by_base` was specified to pass without source changes, but the strict-greater-than assertion (`c > leaf + 1e-3`) became unsatisfiable on the byte-identical fixture under the share-split-stage filter. The filter zeroes out the ancestor's `tot_hits` (it gets dropped from every tied replicate), so the cross-rank accumulator has no extra credit to add at shallower ranks beyond the descendant's full base-confidence climb. Leaf and ancestor ranks both equal `base_confidence`, so the strict inequality fails by float epsilon. Relaxed to `c + 1e-6 >= leaf` (still catches double-crediting of the leaf — a "shallower < leaf" violation would still trip the assertion). Updated the test's preamble comment to document the expected post-fix arithmetic.
 
 #### Manual Verification
 
-- [ ] When the flag is off, classification of a representative query produces byte-identical output to the previous commit (sanity check via a quick ad-hoc pass on any preset community).
-- [ ] When the flag is on with a byte-identical ancestor+descendant fixture, descendant species-rank confidence rises into the 95–100 range (was ~50 with the old behavior).
+- [x] When the flag is off, classification of a representative query produces byte-identical output to the previous commit (verified via `test_suppress_ancestor_only_groups_default_off` + the no-op test).
+- [x] When the flag is on with a byte-identical ancestor+descendant fixture, descendant species-rank confidence rises to 100 (verified by `test_suppress_share_split_credits_descendant_fully` and the chain-collapse test, both of which observed ~100 species confidence post-fix vs. ~33-50 pre-fix).
 
 ---
 
@@ -476,15 +478,17 @@ The test's assertions about emission depth (alternatives empty, taxon contains `
 
 #### Automated Verification
 
-- [ ] `cargo test test_suppress_share_split_credits_descendant_fully` passes.
-- [ ] `cargo test test_suppress_ancestor_outright_wins_unaffected` passes.
-- [ ] `cargo test test_suppress_share_split_chain_collapses` passes.
-- [ ] `cargo test test_suppress_ancestor_only_groups_drops_ancestor_when_tied` passes (now at threshold = 60).
-- [ ] All other `test_margin_aware` tests still pass unmodified.
+- [x] `cargo test test_suppress_share_split_credits_descendant_fully` passes.
+- [x] `cargo test test_suppress_ancestor_outright_wins_unaffected` passes.
+- [x] `cargo test test_suppress_share_split_chain_collapses` passes.
+- [x] `cargo test test_suppress_ancestor_only_groups_drops_ancestor_when_tied` passes (now at threshold = 60).
+- [x] All other `test_margin_aware` tests still pass (`test_suppress_leaf_only_credited_by_base` updated with relaxed assertion — see Phase 1 deviation note).
+
+**Implementation note on `build_ancestor_chain_fixture`:** The plan's chain fixture spec called for byte-identical Family/Genus/Species entries plus "Vulpes, Felis cross-genus controls". An initial draft included only a Vulpes control (under Canidae) and omitted Felidae. That collapsed the family-level IDF row to all zeros (only one family-level distinct prefix), which silently zeroed `davg` in the leaf phase and made the bootstrap accumulator do nothing. Re-adding a Felis sequence under Felidae fixed it. Documented in the fixture's docstring.
 
 #### Manual Verification
 
-- [ ] On the `vert12s` benchmark community at production-realistic settings, observed species-rank confidence on Canis_lupus-style genus-shared queries rises from the empirically-measured ~50 to ~95+.
+- [ ] On the `vert12s` benchmark community at production-realistic settings, observed species-rank confidence on Canis_lupus-style genus-shared queries rises from the empirically-measured ~50 to ~95+. (Deferred — requires running the full benchmark harness; not blocking for the implementation.)
 
 ---
 
@@ -522,12 +526,12 @@ Update the README parameter table and the in-source doc comment for the flag to 
 
 #### Automated Verification
 
-- [ ] No automated checks at this phase (documentation-only).
+- [x] No automated checks at this phase (documentation-only).
 
 #### Manual Verification
 
-- [ ] README accurately describes the dual-stage behavior.
-- [ ] In-source doc references both read sites.
+- [ ] README accurately describes the dual-stage behavior. (No-op: the README does not document `suppress_ancestor_only_groups`, so no user-facing description exists to update. The flag remains internal-only at the doc-comment level.)
+- [x] In-source doc references both read sites (share-split stage and winner stage; see `src/types.rs` field doc-comment).
 
 ---
 
@@ -581,3 +585,111 @@ Run the existing benchmark harness `classifier_benchmark.py` on `vert12s` and `M
 - Existing test fixtures and assertions: `tests/test_margin_aware.rs:472-880`.
 - Related research: `thoughts/shared/research/2026-04-30-oat-param-bug-investigation.md` (parameter-wiring audit; confirms the existing flag is wired correctly).
 - Related research: `thoughts/shared/research/2026-04-27-oxidtaxa-vs-idtaxa-ablation-surface.md` (parameter neutralizing values; confirms `suppress_ancestor_only_groups` defaults to `false`).
+
+## Implementation Notes (as built)
+
+This section records the actual landed shape of the patch (commit-of-record below). Line numbers are post-implementation — distinct from the pre-implementation references in earlier sections of this plan, which point at the legacy code's positions.
+
+### `src/classify.rs` — `leaf_phase_score` (the only source change)
+
+Insertion point: immediately after `let mut tot_hits = vec![0.0f64; n_top];` (post-implementation line 884).
+
+**Pre-bootstrap setup (post-implementation lines 886–926):**
+
+```
+let descendants_of: Vec<Vec<u32>> = if config.suppress_ancestor_only_groups {
+    let group_paths: Vec<&str> = unique_groups
+        .iter()
+        .map(|&g| ts.taxonomy[g].as_str())
+        .collect();
+    debug_assert!(
+        group_paths.iter().all(|p| p.ends_with(';')),
+        "ts.taxonomy invariant violated: paths must end with ';' for \
+         starts_with prefix-check correctness"
+    );
+    (0..n_top)
+        .map(|j| {
+            let j_path = group_paths[j];
+            (0..n_top)
+                .filter(|&k| k != j && group_paths[k].starts_with(j_path))
+                .map(|k| k as u32)
+                .collect()
+        })
+        .collect()
+} else {
+    Vec::new()
+};
+
+let mut is_tied  = vec![false; n_top];
+let mut drop_mask = vec![false; n_top];
+```
+
+The `descendants_of` table is empty when the flag is off — costs nothing on the legacy path. `is_tied` and `drop_mask` are hoisted scratch buffers reused across replicates (per-replicate they are reset with `iter_mut().for_each(|x| *x = false)`).
+
+**Inside the bootstrap loop (post-implementation lines 963–1008):**
+
+The legacy `n_tied` counting loop became an `is_tied[j] / n_tied` build loop. The filter then runs only when `flag_on AND n_tied > 1`:
+
+```
+is_tied.iter_mut().for_each(|x| *x = false);
+let mut n_tied: usize = 0;
+for (j, &ti) in top_hits_idx.iter().enumerate() {
+    if hits_flat[ti * b + rep] == max_val {
+        is_tied[j] = true;
+        n_tied += 1;
+    }
+}
+if config.suppress_ancestor_only_groups && n_tied > 1 {
+    drop_mask.iter_mut().for_each(|x| *x = false);
+    let mut to_drop_count = 0usize;
+    for j in 0..n_top {
+        if !is_tied[j] { continue; }
+        for &k in &descendants_of[j] {
+            if is_tied[k as usize] {
+                drop_mask[j] = true;
+                to_drop_count += 1;
+                break;
+            }
+        }
+    }
+    if to_drop_count > 0 && to_drop_count < n_tied {
+        for j in 0..n_top {
+            if drop_mask[j] {
+                is_tied[j] = false;
+                n_tied -= 1;
+            }
+        }
+    }
+}
+if n_tied == 0 { continue; }
+let share = 1.0 / n_tied as f64;
+for (j, &ti) in top_hits_idx.iter().enumerate() {
+    if is_tied[j] {
+        tot_hits[j] += hits_flat[ti * b + rep] / davg * share;
+    }
+}
+```
+
+The defensive `to_drop_count < n_tied` guard preserves the structural invariant that the deepest descendant in any prefix chain always survives. The `n_tied == 0` continue is belt-and-suspenders against the same scenario; under correct invariant, neither branch ever fires in practice.
+
+The post-bootstrap winner-stage filter at `src/classify.rs:1050-1084` (post-implementation) is **untouched**. It now serves as a complementary guard for cases where prefix-related groups land at equal `tot_hits` from disjoint-replicate wins (i.e. the share-split filter wasn't applicable in any tied replicate, but the totals still happen to coincide).
+
+### `tests/test_margin_aware.rs` — three new tests + one update + two new fixtures
+
+| Function | Line | Role |
+|----------|------|------|
+| `test_suppress_ancestor_only_groups_drops_ancestor_when_tied` | 709 | Updated: removed `threshold = 40.0` workaround, runs at default 60. |
+| `test_suppress_leaf_only_credited_by_base` | 1012 | Updated: assertion relaxed from `c > leaf + 1e-3` to `c + 1e-6 >= leaf`. See deviation note in Phase 1 success criteria. |
+| `build_ancestor_with_unique_tail_fixture` | 1092 | New fixture: ancestor has shared base + 16 bp unique tail, descendant has only base. |
+| `build_ancestor_chain_fixture` | 1144 | New fixture: 3-level byte-identical chain (Canidae family-only / Canis genus-only / Canis_lupus species) plus Vulpes_vulpes and Felis_catus controls. |
+| `test_suppress_share_split_credits_descendant_fully` | 1186 | Quantitative regression: flag-on species confidence ≥ 60 and ≥ 30 points greater than flag-off. |
+| `test_suppress_ancestor_outright_wins_unaffected` | 1289 | Validates the chosen Mode B (filter the tied set, not the input vector): under flag-on with the unique-tail fixture, the ancestor's outright-win replicates still credit ancestor `tot_hits`. |
+| `test_suppress_share_split_chain_collapses` | 1385 | 3-way chain collapse: under flag-on the chain folds to species (~100 confidence), under flag-off it splits 1/3 across ranks and LCA-caps at Canidae. |
+
+The chain-fixture's Felidae control is load-bearing: without ≥ 2 family-level distinct prefixes the family-row IDF collapses to all-zeros, `davg` evaluates to 0 in the leaf phase, and the bootstrap silently produces zero credit. Documented in the fixture's docstring.
+
+### `src/types.rs` — doc-comment refresh only
+
+`ClassifyConfig.suppress_ancestor_only_groups` field doc-comment (post-implementation lines 359–378) rewritten to describe both the share-split-stage filter and the winner-stage filter as a dual-stage prefix suppression, with explicit conservation note for ancestor-rank confidence.
+
+No struct shape, default, or wire-format change. No public-API surface change.

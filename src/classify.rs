@@ -883,6 +883,48 @@ fn leaf_phase_score(
 
     let n_top = top_hits_idx.len();
     let mut tot_hits = vec![0.0f64; n_top];
+
+    // Pre-compute "j has descendants among top_hits_idx positions" lookup:
+    // for each j, the list of positions k whose taxonomy path strictly starts
+    // with j's path. Used inside the bootstrap loop to drop ancestor-prefix
+    // groups from each replicate's tied set BEFORE `share` is computed, so
+    // descendant tot_hits is not halved by parasitic ancestor-only training
+    // entries (e.g. "Oncorhynchus sp." after canonical NA-trim) that tie with
+    // their species-resolved descendants on byte-identical replicates.
+    //
+    // Empty when the flag is off — skips O(n_top^2) prefix work on the legacy
+    // path. ts.taxonomy[node] always carries a trailing ';' (built in
+    // training.rs:202-213), so `starts_with` is safe against false-prefix
+    // matches like "Salmo;" being treated as a prefix of "Salmoninae;".
+    let descendants_of: Vec<Vec<u32>> = if config.suppress_ancestor_only_groups {
+        let group_paths: Vec<&str> = unique_groups
+            .iter()
+            .map(|&g| ts.taxonomy[g].as_str())
+            .collect();
+        debug_assert!(
+            group_paths.iter().all(|p| p.ends_with(';')),
+            "ts.taxonomy invariant violated: paths must end with ';' for \
+             starts_with prefix-check correctness"
+        );
+        (0..n_top)
+            .map(|j| {
+                let j_path = group_paths[j];
+                (0..n_top)
+                    .filter(|&k| k != j && group_paths[k].starts_with(j_path))
+                    .map(|k| k as u32)
+                    .collect()
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Scratch buffers reused across replicates. `is_tied[j]` flags whether
+    // group j is at the per-replicate max; `drop_mask[j]` flags whether j is
+    // an ancestor-prefix that should be dropped from the tied set.
+    let mut is_tied = vec![false; n_top];
+    let mut drop_mask = vec![false; n_top];
+
     for rep in 0..b {
         let mut max_val = f64::NEG_INFINITY;
         for &ti in top_hits_idx.iter() {
@@ -900,22 +942,67 @@ fn leaf_phase_score(
         // credit proportional to its share of ties. We deterministically split
         // credit equally among tied max columns, which matches that expected
         // value and ensures groups with bit-identical training sequences
-        // surface as ties in the downstream `winners` filter at line 373.
+        // surface as ties in the downstream `winners` filter.
+        //
+        // When `suppress_ancestor_only_groups` is on, we additionally drop
+        // ancestor-prefix groups from the tied set BEFORE computing `share`.
+        // A group whose path is a strict prefix of another tied group's path
+        // is a database-curation artifact (e.g. an unlabeled-species GenBank
+        // entry sitting at genus rank), not competing evidence. Dropping it
+        // here — in addition to the complementary post-bootstrap filter at
+        // the winner stage — ensures the descendant gets full per-replicate
+        // credit instead of being halved by parasitic prefix ties. The
+        // ancestor's outright-win replicates (where it is the sole max) are
+        // unaffected because the filter only fires when n_tied > 1.
         //
         // Note: `hits_flat` values can be negative when the IDF weights
         // (`counts`) contain negative entries, so we do not guard on
         // `max_val > 0` — doing so would drop real per-replicate contributions
         // whenever every group's score is negative (the non-tied branch here
         // matches the legacy accumulator bit-for-bit in that case).
+        is_tied.iter_mut().for_each(|x| *x = false);
         let mut n_tied: usize = 0;
-        for &ti in top_hits_idx.iter() {
+        for (j, &ti) in top_hits_idx.iter().enumerate() {
             if hits_flat[ti * b + rep] == max_val {
+                is_tied[j] = true;
                 n_tied += 1;
             }
         }
+        if config.suppress_ancestor_only_groups && n_tied > 1 {
+            drop_mask.iter_mut().for_each(|x| *x = false);
+            let mut to_drop_count = 0usize;
+            for j in 0..n_top {
+                if !is_tied[j] {
+                    continue;
+                }
+                for &k in &descendants_of[j] {
+                    if is_tied[k as usize] {
+                        drop_mask[j] = true;
+                        to_drop_count += 1;
+                        break;
+                    }
+                }
+            }
+            // Defensive guard. The deepest descendant in any prefix chain in
+            // the tied set is structurally guaranteed to survive (no other
+            // tied group is its descendant), so `to_drop_count < n_tied`
+            // always holds in practice. Skip the suppression rather than
+            // produce share=1/0 if that invariant were ever violated.
+            if to_drop_count > 0 && to_drop_count < n_tied {
+                for j in 0..n_top {
+                    if drop_mask[j] {
+                        is_tied[j] = false;
+                        n_tied -= 1;
+                    }
+                }
+            }
+        }
+        if n_tied == 0 {
+            continue;
+        }
         let share = 1.0 / n_tied as f64;
         for (j, &ti) in top_hits_idx.iter().enumerate() {
-            if hits_flat[ti * b + rep] == max_val {
+            if is_tied[j] {
                 tot_hits[j] += hits_flat[ti * b + rep] / davg * share;
             }
         }

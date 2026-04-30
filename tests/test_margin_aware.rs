@@ -710,15 +710,14 @@ fn test_suppress_ancestor_only_groups_drops_ancestor_when_tied() {
     // Mode B reproduction. With both the genus-only "Canis" and the
     // species "Canis_lupus" tied in the bootstrap, flag=false produces an
     // LCA-cap collapse (alternatives populated, possibly genus-capped
-    // emission); flag=true drops "Canis" from winners → species emission.
+    // emission); flag=true drops "Canis" from the per-replicate tied set
+    // (share-split-stage filter) AND from the post-bootstrap winners
+    // (winner-stage filter) → species emission with full credit.
     //
-    // Per-replicate tied-share splitting at classify.rs:725-734 depresses
-    // each tied group's tot_hits to ~half of the un-tied value (since seqs
-    // are byte-identical, per-replicate ties are constant). The species
-    // confidence ends up around 50%, below the default 60 threshold, so we
-    // explicitly lower threshold here to test the emission-depth question
-    // (which is what the flag is actually doing) independently of the
-    // separate threshold-gating axis.
+    // Runs at the default threshold = 60 because the share-split-stage
+    // filter restores the descendant's per-replicate credit to ~100% (was
+    // ~50% under the legacy half-share semantics, which previously forced
+    // this test to use threshold = 40 just to clear the gate).
     let ts = build_ancestor_descendant_fixture();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -729,7 +728,6 @@ fn test_suppress_ancestor_only_groups_drops_ancestor_when_tied() {
     let names = vec!["q".to_string()];
 
     let cfg_off = ClassifyConfig {
-        threshold: 40.0,
         suppress_ancestor_only_groups: false,
         ..Default::default()
     };
@@ -745,7 +743,6 @@ fn test_suppress_ancestor_only_groups_drops_ancestor_when_tied() {
     );
 
     let cfg_on = ClassifyConfig {
-        threshold: 40.0,
         suppress_ancestor_only_groups: true,
         ..Default::default()
     };
@@ -1019,11 +1016,18 @@ fn test_suppress_leaf_only_credited_by_base() {
     // non-selected group can reach the leaf because walks only climb the
     // tree, and every other group lives at-or-above the selected.
     //
-    // Concretely: every rank shallower than the leaf accumulates the
-    // dropped ancestor's tot_hits via the cross-rank accumulator, so the
-    // shallower ranks have strictly greater confidence than the leaf.
-    // If this invariant fails, the accumulator is double-crediting the
-    // leaf or the ancestor's evidence is being misrouted.
+    // Concretely: every rank shallower than the leaf has confidence
+    // greater-than-or-equal-to the leaf, because the cross-rank accumulator
+    // can only ADD non-negative credit to shallower ranks. If shallower <
+    // leaf, the leaf is being double-credited.
+    //
+    // Equality is reachable on the byte-identical fixture under the
+    // share-split-stage filter (the ancestor's tot_hits is zeroed out, so
+    // there is no extra evidence to climb past base_confidence). Equality
+    // is *not* a violation; it is the expected post-fix arithmetic when the
+    // only non-zero tot_hits is the selected group's own credit. The
+    // dedicated regression for double-crediting is therefore the
+    // shallower >= leaf inequality, not strict greater-than.
     let ts = build_ancestor_descendant_fixture();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -1063,13 +1067,407 @@ fn test_suppress_leaf_only_credited_by_base() {
     let leaf = *conf.last().unwrap();
     for (i, &c) in conf.iter().enumerate().take(conf.len() - 1) {
         assert!(
-            c > leaf + 1e-3,
-            "rank {} confidence ({}) must be strictly greater than leaf ({}); \
-             violation suggests ancestor evidence is misrouted or the leaf \
-             is double-credited",
+            c + 1e-6 >= leaf,
+            "rank {} confidence ({}) must be >= leaf ({}); shallower-below-leaf \
+             would imply the leaf is double-credited by a walk that should \
+             have stopped at an ancestor",
             i,
             c,
             leaf
+        );
+    }
+}
+
+/// Build an ancestor + descendant fixture where the ancestor has a tail of
+/// unique k-mers the descendant does NOT carry. With a query that includes
+/// the unique tail, per-replicate sampling produces a MIX of replicates:
+/// - replicates that draw only from the shared base k-mers → ancestor and
+///   descendant tie (filter fires, ancestor dropped, descendant credited),
+/// - replicates that draw any unique-tail k-mer → ancestor strictly beats
+///   descendant (n_tied = 1, filter does NOT fire, ancestor credited).
+///
+/// Lets us validate that the share-split-stage filter does NOT erase the
+/// ancestor's outright-win credit (i.e. it filters the *tied set* per
+/// replicate, not the input vector).
+fn build_ancestor_with_unique_tail_fixture() -> TrainingSet {
+    let base = "\
+        ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+        GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+        TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+        CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+        AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT";
+    // Unique tail not present anywhere in base — gives the ancestor a set
+    // of 8-mers no other training sequence carries. Short relative to the
+    // base so most per-replicate samples still tie on the shared bulk.
+    let unique_tail = "GAGAGAGAGAGAGAGA";
+    let canis_lupus = base.to_string();
+    let canis_genus_only = format!("{}{}", base, unique_tail);
+
+    // Cross-genus context — same as the byte-identical fixture.
+    let vulpes = "GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT";
+    let felis = "ATATATATATATATATATATATATATATATATATATATAT\
+                 CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG\
+                 AAAATTTTAAAATTTTAAAATTTTAAAATTTTAAAATTTT\
+                 GGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAA\
+                 CCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTT";
+
+    let sequences = vec![
+        canis_lupus,
+        canis_genus_only,
+        vulpes.to_string(),
+        felis.to_string(),
+    ];
+    let taxonomy = vec![
+        "Root; Mammalia; Carnivora; Canidae; Canis; Canis_lupus".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Canis".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Vulpes; Vulpes_vulpes".to_string(),
+        "Root; Mammalia; Carnivora; Felidae; Felis; Felis_catus".to_string(),
+    ];
+
+    let config = TrainConfig::default();
+    learn_taxa(&sequences, &taxonomy, &config, 42, false).unwrap()
+}
+
+/// Build a 3-way ancestor chain where Canidae (family-only), Canis
+/// (genus-only), and Canis_lupus (species) are all byte-identical training
+/// sequences. Used to validate that the share-split-stage filter collapses
+/// the entire chain to the deepest descendant in every tied replicate.
+///
+/// Felidae and a Vulpes species are included so the family-level IDF row
+/// is non-degenerate (≥ 2 family-level distinct prefixes are needed to
+/// avoid `davg == 0` in the leaf phase, which would silently zero out the
+/// bootstrap accumulator).
+fn build_ancestor_chain_fixture() -> TrainingSet {
+    let base = "\
+        ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+        GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+        TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+        CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+        AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT";
+    let canis_lupus = base.to_string();
+    let canis_genus_only = base.to_string();
+    let canidae_family_only = base.to_string();
+
+    let vulpes = "GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT";
+    let felis = "ATATATATATATATATATATATATATATATATATATATAT\
+                 CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG\
+                 AAAATTTTAAAATTTTAAAATTTTAAAATTTTAAAATTTT\
+                 GGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAA\
+                 CCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTT";
+
+    let sequences = vec![
+        canis_lupus,
+        canis_genus_only,
+        canidae_family_only,
+        vulpes.to_string(),
+        felis.to_string(),
+    ];
+    let taxonomy = vec![
+        "Root; Mammalia; Carnivora; Canidae; Canis; Canis_lupus".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Canis".to_string(),
+        "Root; Mammalia; Carnivora; Canidae".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Vulpes; Vulpes_vulpes".to_string(),
+        "Root; Mammalia; Carnivora; Felidae; Felis; Felis_catus".to_string(),
+    ];
+
+    let config = TrainConfig::default();
+    learn_taxa(&sequences, &taxonomy, &config, 42, false).unwrap()
+}
+
+#[test]
+fn test_suppress_share_split_credits_descendant_fully() {
+    // Quantitative regression for the share-split-stage filter. Under
+    // flag=off, the byte-identical Canis genus-only entry ties with
+    // Canis_lupus in every replicate and the legacy half-share semantics
+    // depress species `tot_hits` to ~50% of the un-tied value. Under
+    // flag=on, the share-split-stage filter drops the genus-only group
+    // from each tied set BEFORE share is computed; descendant `tot_hits`
+    // climbs to ~100% and species-rank confidence does the same.
+    //
+    // Run at threshold=1.0 so the full confidence vector is reported (not
+    // truncated at the default 60 gate). This lets us compare species-rank
+    // confidences directly between the two configs.
+    let ts = build_ancestor_descendant_fixture();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+        .to_string()];
+    let names = vec!["q".to_string()];
+
+    let cfg_off = ClassifyConfig {
+        threshold: 1.0,
+        suppress_ancestor_only_groups: false,
+        ..Default::default()
+    };
+    let off = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    let cfg_on = ClassifyConfig {
+        threshold: 1.0,
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    assert_eq!(off.len(), 1);
+    assert_eq!(on.len(), 1);
+
+    // Both configs should report the full Canis_lupus lineage at
+    // threshold=1.0. The species rank is the deepest reported, and only
+    // the *flag=on* path should select Canis_lupus and emit it at the
+    // species position.
+    assert!(
+        on[0].taxon.contains(&"Canis_lupus".to_string()),
+        "flag=on did not emit Canis_lupus at species rank: {:?}",
+        on[0].taxon
+    );
+
+    let on_species = *on[0].confidence.last().unwrap();
+    assert!(
+        on_species >= 60.0,
+        "flag=on species confidence {} did not pass default threshold 60",
+        on_species
+    );
+
+    // Direct quantitative comparison: flag=on must restore ~30+ percentage
+    // points of species-rank confidence relative to flag=off. This is the
+    // share-split fix's defining behavior — the legacy half-share gives
+    // species ~50, the prefix-aware fix gives ~100.
+    if on[0].taxon == off[0].taxon {
+        let off_species = *off[0].confidence.last().unwrap();
+        assert!(
+            on_species - off_species >= 30.0,
+            "flag=on species confidence ({}) was not at least 30 points \
+             greater than flag=off ({}); share-split filter did not restore \
+             the descendant's full credit",
+            on_species,
+            off_species,
+        );
+    } else {
+        // off path collapsed via LCA cap to a different lineage tip — the
+        // expected pre-fix behavior. Confirms the off-path emission lands
+        // shallower than species, which is itself evidence the half-share
+        // semantics depressed species credit.
+        assert!(
+            !off[0].taxon.contains(&"Canis_lupus".to_string()),
+            "flag=off taxon claims species but disagrees with on lineage: \
+             off={:?}, on={:?}",
+            off[0].taxon,
+            on[0].taxon
+        );
+    }
+}
+
+#[test]
+fn test_suppress_ancestor_outright_wins_unaffected() {
+    // The share-split-stage filter must filter the per-replicate *tied
+    // set*, not the input vector. Pre-filtering the input would erase the
+    // ancestor's outright-win replicates (where it strictly beats every
+    // descendant on its own evidence) along with the parasitic ties. We
+    // need to keep those outright wins because they are real, independent
+    // evidence the ancestor contributes from its own training k-mers.
+    //
+    // The unique-tail fixture sets up exactly this scenario: the ancestor
+    // has 8-mers no other training sequence carries, so per-replicate
+    // sampling lands a MIX of (a) tied replicates on shared base k-mers
+    // and (b) ancestor-outright-win replicates whenever a unique-tail
+    // k-mer is sampled. The filter only runs in case (a); case (b) is
+    // untouched and still credits the ancestor.
+    //
+    // Observable signature: under flag=on, the genus rank receives strict
+    // EXTRA credit beyond the descendant's climb (i.e. genus_conf > leaf_conf
+    // by a measurable margin). If the filter were a pre-filter that erased
+    // the ancestor entirely, genus_conf would equal leaf_conf (the only
+    // climb to genus would come from the descendant's lineage and base
+    // would be the same at every rank).
+    let ts = build_ancestor_with_unique_tail_fixture();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT\
+         GAGAGAGAGAGAGAGA"
+        .to_string()];
+    let names = vec!["q".to_string()];
+
+    let cfg_on = ClassifyConfig {
+        threshold: 1.0,
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    assert_eq!(on.len(), 1);
+    let conf = &on[0].confidence;
+    assert!(
+        conf.len() >= 5,
+        "expected at least Root..Canis reported, got {}",
+        conf.len()
+    );
+
+    let leaf_conf = *conf.last().unwrap();
+    // Position of "Canis" in the lineage: it is the rank immediately
+    // before the deepest reported rank, regardless of whether the deepest
+    // reported is Canis itself (selected = ancestor) or Canis_lupus
+    // (selected = descendant). Walk backward to find it.
+    let canis_pos = on[0]
+        .taxon
+        .iter()
+        .position(|t| t == "Canis")
+        .expect("expected 'Canis' to be present in reported lineage");
+    let canis_conf = conf[canis_pos];
+
+    // If selected == descendant (Canis_lupus), genus_conf must be strictly
+    // greater than leaf_conf by the ancestor's climb credit (which can only
+    // be non-zero if the ancestor's outright-win replicates were preserved).
+    // If selected == ancestor (Canis), the leaf rank IS Canis, in which
+    // case the strict inequality reduces to "leaf credit > 0", which is
+    // always true on a successful classification.
+    if canis_pos < conf.len() - 1 {
+        // Descendant is the leaf. Ancestor's evidence climbs to canis.
+        assert!(
+            canis_conf > leaf_conf + 1.0,
+            "Canis-rank confidence ({}) is not measurably greater than \
+             leaf-rank confidence ({}); the share-split filter appears to \
+             have erased the ancestor's outright-win credit",
+            canis_conf,
+            leaf_conf
+        );
+    } else {
+        // Ancestor is the leaf — outright wins drove selection. Leaf must
+        // be non-trivial.
+        assert!(
+            canis_conf > 1.0,
+            "Canis-rank confidence ({}) is too low; ancestor's outright \
+             wins were not credited",
+            canis_conf
+        );
+    }
+}
+
+#[test]
+fn test_suppress_share_split_chain_collapses() {
+    // Three-way ancestor chain: Canidae (family-only), Canis (genus-only),
+    // Canis_lupus (species), all byte-identical. Under flag=off the legacy
+    // semantics share `1/3` per replicate across the chain, depressing
+    // species credit to ~33%. Under flag=on the share-split-stage filter
+    // drops both ancestors (Canidae has Canis as a descendant in the tied
+    // set; Canis has Canis_lupus as a descendant) and the species gets
+    // full credit per replicate.
+    let ts = build_ancestor_chain_fixture();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+        .to_string()];
+    let names = vec!["q".to_string()];
+
+    let cfg_off = ClassifyConfig {
+        threshold: 1.0,
+        suppress_ancestor_only_groups: false,
+        ..Default::default()
+    };
+    let off = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &cfg_off,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    let cfg_on = ClassifyConfig {
+        threshold: 1.0,
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &cfg_on,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    assert_eq!(off.len(), 1);
+    assert_eq!(on.len(), 1);
+
+    // Flag-on path must reach Canis_lupus: with the chain collapsed, the
+    // species is the sole survivor in every tied replicate.
+    assert!(
+        on[0].taxon.contains(&"Canis_lupus".to_string()),
+        "flag=on did not collapse 3-way chain to species: {:?}",
+        on[0].taxon
+    );
+
+    let on_species = *on[0].confidence.last().unwrap();
+    assert!(
+        on_species >= 60.0,
+        "flag=on species confidence ({}) did not pass default threshold 60 \
+         on a 3-way chain — the chain may not be collapsing fully",
+        on_species
+    );
+
+    // Quantitative gap: the doubling/tripling claim. Under flag=off the
+    // legacy 1/3 share gives species ~33; under flag=on the species gets
+    // ~100. Require at least a 50-point separation when both paths report
+    // species at the same depth.
+    if off[0]
+        .taxon
+        .last()
+        .map(|t| t == "Canis_lupus")
+        .unwrap_or(false)
+    {
+        let off_species = *off[0].confidence.last().unwrap();
+        assert!(
+            on_species - off_species >= 50.0,
+            "flag=on species confidence ({}) was not at least 50 points \
+             greater than flag=off ({}); chain collapse did not restore \
+             the full descendant credit",
+            on_species,
+            off_species
         );
     }
 }

@@ -356,15 +356,25 @@ pub struct ClassifyConfig {
     /// near-sibling evidence to surface as `alternatives` / LCA cap. Default
     /// false (legacy: only the single winner contributes to leaf-phase scoring).
     pub sibling_aware_leaf: bool,
-    /// When true, after the leaf-phase bootstrap winners are computed, drop
-    /// any winner whose full taxonomic path is a strict prefix of another
-    /// winner's path. Prevents ancestor-only training entries (e.g.
-    /// "Oncorhynchus sp." after canonical NA-trim) from triggering LCA-cap
-    /// collapse to the ancestor's rank when a species-resolved descendant
-    /// ties with them in the bootstrap. The ancestor's kmer evidence still
-    /// contributes to ancestor-rank confidence via the cross-rank accumulator
-    /// (which iterates `tot_hits`, not `winners`). Default false (legacy
-    /// behavior).
+    /// When true, dual-stage prefix suppression for ancestor-only training
+    /// entries (e.g. "Oncorhynchus sp." after canonical NA-trim):
+    ///
+    /// 1. **Share-split stage** (per replicate, inside the bootstrap loop):
+    ///    drop any group whose taxonomy path is a strict prefix of another
+    ///    tied group's path BEFORE per-replicate `share = 1/n_tied` is
+    ///    computed. Restores the descendant's full per-replicate credit
+    ///    instead of halving it via parasitic prefix ties.
+    /// 2. **Winner stage** (post-bootstrap, on `winners`): drop any winner
+    ///    whose path is a strict prefix of another winner's path. Prevents
+    ///    LCA-cap collapse when prefix-related groups land at equal
+    ///    `tot_hits` from disjoint-replicate wins.
+    ///
+    /// The ancestor's outright-win replicates (where it strictly beats every
+    /// descendant on its own evidence) are unaffected — the share-split-stage
+    /// filter only fires when `n_tied > 1`. Ancestor-rank confidence is
+    /// conserved relative to flag=off because the cross-rank accumulator
+    /// climbs the descendant's full credit through `parents[]`. Default
+    /// false (legacy behavior).
     pub suppress_ancestor_only_groups: bool,
 }
 
