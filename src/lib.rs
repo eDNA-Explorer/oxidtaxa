@@ -143,6 +143,7 @@ mod python_bindings {
         tie_margin = 0.0,
         confidence_uses_descent_margin = false,
         sibling_aware_leaf = false,
+        suppress_ancestor_only_groups = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn classify(
@@ -165,6 +166,7 @@ mod python_bindings {
         tie_margin: f64,
         confidence_uses_descent_margin: bool,
         sibling_aware_leaf: bool,
+        suppress_ancestor_only_groups: bool,
     ) -> PyResult<Vec<crate::types::ClassificationResult>> {
         let model = crate::types::TrainingSet::load(model_path)
             .map_err(|e| PyValueError::new_err(e))?;
@@ -188,6 +190,7 @@ mod python_bindings {
             tie_margin,
             confidence_uses_descent_margin,
             sibling_aware_leaf,
+            suppress_ancestor_only_groups,
         };
 
         // Release the GIL so parallel Python threads can run concurrently

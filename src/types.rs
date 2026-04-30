@@ -331,6 +331,16 @@ pub struct ClassifyConfig {
     /// near-sibling evidence to surface as `alternatives` / LCA cap. Default
     /// false (legacy: only the single winner contributes to leaf-phase scoring).
     pub sibling_aware_leaf: bool,
+    /// When true, after the leaf-phase bootstrap winners are computed, drop
+    /// any winner whose full taxonomic path is a strict prefix of another
+    /// winner's path. Prevents ancestor-only training entries (e.g.
+    /// "Oncorhynchus sp." after canonical NA-trim) from triggering LCA-cap
+    /// collapse to the ancestor's rank when a species-resolved descendant
+    /// ties with them in the bootstrap. The ancestor's kmer evidence still
+    /// contributes to ancestor-rank confidence via the cross-rank accumulator
+    /// (which iterates `tot_hits`, not `winners`). Default false (legacy
+    /// behavior).
+    pub suppress_ancestor_only_groups: bool,
 }
 
 impl Default for ClassifyConfig {
@@ -348,6 +358,7 @@ impl Default for ClassifyConfig {
             tie_margin: 0.0,
             confidence_uses_descent_margin: false,
             sibling_aware_leaf: false,
+            suppress_ancestor_only_groups: false,
         }
     }
 }

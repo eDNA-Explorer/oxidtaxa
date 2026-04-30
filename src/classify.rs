@@ -739,7 +739,7 @@ fn leaf_phase_score(
     // With `tie_margin > 0`, any group scoring within `(1 - tie_margin)` of
     // `max_tot` joins the tied set, feeding LCA-cap and `alternatives`.
     // Default `tie_margin = 0.0` preserves exact-equality semantics.
-    let winners: Vec<usize> = if config.tie_margin > 0.0 && max_tot > 0.0 {
+    let mut winners: Vec<usize> = if config.tie_margin > 0.0 && max_tot > 0.0 {
         let cutoff = max_tot * (1.0 - config.tie_margin);
         tot_hits.iter().enumerate()
             .filter(|(_, &v)| v >= cutoff).map(|(i, _)| i).collect()
@@ -747,6 +747,58 @@ fn leaf_phase_score(
         tot_hits.iter().enumerate()
             .filter(|(_, &v)| v == max_tot).map(|(i, _)| i).collect()
     };
+
+    // When enabled, drop any winner whose full taxonomic path is a strict
+    // prefix of another winner's path. This prevents ancestor-only training
+    // entries (e.g. "Oncorhynchus sp." after canonical NA-trim) from
+    // triggering LCA-cap collapse to the ancestor's rank when a species-
+    // resolved descendant ties with them in the bootstrap. The ancestor's
+    // kmer evidence is unaffected: `tot_hits[ancestor]` is unchanged and
+    // still flows up to ancestor-rank confidences via the cross-rank
+    // accumulator at line 775-786 (which iterates `tot_hits`, not `winners`).
+    //
+    // ts.taxonomy[node] is stored with a trailing ';' (built in
+    // training.rs:202-213 as taxa = format!("Root;{}", t) where t was built
+    // with format!("{};", s).collect()). The trailing ';' makes starts_with
+    // safe against false-prefix matches like "Salmo;" being treated as a
+    // prefix of "Salmoninae;" — without it, "Salmo" would falsely match the
+    // start of "Salmoninae".
+    if config.suppress_ancestor_only_groups && winners.len() > 1 {
+        let winner_paths: Vec<&str> = winners
+            .iter()
+            .map(|&w| ts.taxonomy[unique_groups[w]].as_str())
+            .collect();
+        debug_assert!(
+            winner_paths.iter().all(|p| p.ends_with(';')),
+            "ts.taxonomy invariant violated: paths must end with ';' for \
+             starts_with prefix-check correctness"
+        );
+
+        let mut keep_winner = vec![true; winners.len()];
+        for i in 0..winners.len() {
+            let i_path = winner_paths[i];
+            for j in 0..winners.len() {
+                if i != j && winner_paths[j].starts_with(i_path) {
+                    // i's full path is a strict prefix of j's.
+                    keep_winner[i] = false;
+                    break;
+                }
+            }
+        }
+
+        // Borrow-don't-move so `winners` stays valid if we skip the
+        // reassignment. `filtered` is non-empty in practice because the
+        // deepest descendant in each prefix-chain always survives.
+        let filtered: Vec<usize> = winners
+            .iter()
+            .zip(keep_winner.iter())
+            .filter_map(|(&w, &k)| k.then_some(w))
+            .collect();
+        if !filtered.is_empty() {
+            winners = filtered;
+        }
+    }
+
     let selected = if winners.len() > 1 {
         let idx = rng.sample_int_replace(winners.len(), 1)[0];
         winners[idx]
@@ -944,41 +996,102 @@ fn classify_parallel(
     seed: u32,
 ) -> Vec<ClassificationResult> {
     use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let n = pre.test_kmers.len();
+    // Diagnostic gate: when OXIDTAXA_DIAG is set in the env (any value), emit
+    // thread-saturation telemetry around the outer parallel iter. Used to
+    // disambiguate splitter under-division vs pool/registry confusion vs
+    // per-query work variance.
+    let diag = std::env::var_os("OXIDTAXA_DIAG").is_some();
+    let pool_threads = rayon::current_num_threads();
 
-    (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let mut rng = RRng::new(seed ^ (i as u32));
-            let s = pre.s_values[i];
-            let b = pre.b_values[i];
+    if diag {
+        eprintln!(
+            "[oxidtaxa-diag] classify_parallel n={} current_num_threads={} caller_idx={:?}",
+            n,
+            pool_threads,
+            rayon::current_thread_index()
+        );
+    }
 
-            // Forward pass
-            let fwd = classify_one_pass(
-                &pre.test_kmers[i], s, b, ts, config, pre.full_length, &pre.ls, &mut rng,
-            );
+    let per_thread: Vec<AtomicUsize> = if diag {
+        (0..pool_threads).map(|_| AtomicUsize::new(0)).collect()
+    } else {
+        Vec::new()
+    };
 
-            // Reverse pass (if "both" strand)
-            if let Some(&both_pos) = pre.boths_map.get(&i) {
-                let rev = classify_one_pass(
-                    &pre.rev_kmers[both_pos], s, b, ts, config, pre.full_length, &pre.ls, &mut rng,
-                );
-                // Pick the strand with higher similarity
-                match (fwd, rev) {
-                    (Some((fwd_r, fwd_s)), Some((rev_r, rev_s))) => {
-                        if rev_s > fwd_s { rev_r } else { fwd_r }
-                    }
-                    (Some((r, _)), None) => r,
-                    (None, Some((r, _))) => r,
-                    (None, None) => ClassificationResult::unclassified("no_result"),
+    // Optionally cap chunk size to force rayon's splitter to subdivide more
+    // aggressively. Set OXIDTAXA_MAX_CHUNK=<n> to enable. Useful for diagnosing
+    // whether under-saturation in the outer iter is splitter-related.
+    let max_chunk: Option<usize> = std::env::var("OXIDTAXA_MAX_CHUNK")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok());
+
+    let map_body = |i: usize| -> ClassificationResult {
+        if diag {
+            if let Some(idx) = rayon::current_thread_index() {
+                if idx < per_thread.len() {
+                    per_thread[idx].fetch_add(1, Ordering::Relaxed);
                 }
-            } else {
-                fwd.map(|(r, _)| r)
-                    .unwrap_or_else(|| ClassificationResult::unclassified("no_result"))
             }
-        })
-        .collect()
+        }
+
+        let mut rng = RRng::new(seed ^ (i as u32));
+        let s = pre.s_values[i];
+        let b = pre.b_values[i];
+
+        // Forward pass
+        let fwd = classify_one_pass(
+            &pre.test_kmers[i], s, b, ts, config, pre.full_length, &pre.ls, &mut rng,
+        );
+
+        // Reverse pass (if "both" strand)
+        if let Some(&both_pos) = pre.boths_map.get(&i) {
+            let rev = classify_one_pass(
+                &pre.rev_kmers[both_pos], s, b, ts, config, pre.full_length, &pre.ls, &mut rng,
+            );
+            match (fwd, rev) {
+                (Some((fwd_r, fwd_s)), Some((rev_r, rev_s))) => {
+                    if rev_s > fwd_s { rev_r } else { fwd_r }
+                }
+                (Some((r, _)), None) => r,
+                (None, Some((r, _))) => r,
+                (None, None) => ClassificationResult::unclassified("no_result"),
+            }
+        } else {
+            fwd.map(|(r, _)| r)
+                .unwrap_or_else(|| ClassificationResult::unclassified("no_result"))
+        }
+    };
+
+    let results: Vec<ClassificationResult> = if let Some(c) = max_chunk {
+        (0..n).into_par_iter().with_max_len(c).map(map_body).collect()
+    } else {
+        (0..n).into_par_iter().map(map_body).collect()
+    };
+
+    if diag {
+        let counts: Vec<usize> = per_thread
+            .iter()
+            .map(|c| c.load(Ordering::Relaxed))
+            .collect();
+        let active = counts.iter().filter(|&&c| c > 0).count();
+        let max_count = counts.iter().max().copied().unwrap_or(0);
+        let min_active = counts
+            .iter()
+            .filter(|&&c| c > 0)
+            .min()
+            .copied()
+            .unwrap_or(0);
+        eprintln!(
+            "[oxidtaxa-diag] distinct workers used: {}/{} (active item-count range: {}..={})",
+            active, pool_threads, min_active, max_count
+        );
+        eprintln!("[oxidtaxa-diag] per-thread items: {:?}", counts);
+    }
+
+    results
 }
 
 /// De-replicate sequences, returning (unique_seqs, map, strand_per_unique).

@@ -467,3 +467,414 @@ fn test_sibling_aware_leaf_cannot_shrink_alternatives() {
         off[0].alternatives.len()
     );
 }
+
+// ============================================================================
+// suppress_ancestor_only_groups
+// ============================================================================
+//
+// Tests for the post-tie ancestor filter that prevents ancestor-only training
+// entries (e.g. "Oncorhynchus sp." after canonical NA-trim) from triggering
+// LCA-cap collapse when a species-resolved descendant ties with them in the
+// bootstrap.
+//
+// Fixture: Canis genus is doubly populated:
+//   - "Root;...;Canidae;Canis"             (genus-only entry, no species ID)
+//   - "Root;...;Canidae;Canis;Canis_lupus" (species entry)
+// The genus-only seq is byte-identical to the species seq, mimicking an
+// unlabeled-in-NCBI mykiss-clade entry. The bootstrap then produces an exact
+// tie between the Canis (genus) group and the Canis_lupus (species) group.
+
+/// Build a training set with one genus-only entry (Canis) plus one species
+/// entry (Canis_lupus) sharing the SAME nucleotide sequence. This forces the
+/// classify-time bootstrap to produce an exact tie between the
+/// internal-node-keyed group "Canis" and the leaf-keyed group "Canis_lupus".
+fn build_ancestor_descendant_fixture() -> TrainingSet {
+    let base = "\
+        ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+        GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+        TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+        CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+        AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT";
+
+    // Both Canis_lupus AND the genus-only Canis entry share this sequence,
+    // mimicking an unlabeled-species GenBank record that's actually C. lupus.
+    let canis_lupus = base.to_string();
+    let canis_genus_only = base.to_string();
+
+    // Cross-genus context: Vulpes_vulpes and Felis_catus give the tree
+    // structure to resolve through (so descent has somewhere to land).
+    let vulpes = "GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT";
+    let felis = "ATATATATATATATATATATATATATATATATATATATAT\
+                 CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG\
+                 AAAATTTTAAAATTTTAAAATTTTAAAATTTTAAAATTTT\
+                 GGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAA\
+                 CCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTT";
+
+    let sequences = vec![
+        canis_lupus,
+        canis_genus_only,
+        vulpes.to_string(),
+        felis.to_string(),
+    ];
+    let taxonomy = vec![
+        "Root; Mammalia; Carnivora; Canidae; Canis; Canis_lupus".to_string(),
+        // Genus-only: full class string ends at Canis. After canonical
+        // NA-trim, this is the shape of an "Oncorhynchus sp."-style entry.
+        "Root; Mammalia; Carnivora; Canidae; Canis".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Vulpes; Vulpes_vulpes".to_string(),
+        "Root; Mammalia; Carnivora; Felidae; Felis; Felis_catus".to_string(),
+    ];
+
+    let config = TrainConfig::default();
+    learn_taxa(&sequences, &taxonomy, &config, 42, false).unwrap()
+}
+
+/// Same as `build_ancestor_descendant_fixture` but with TWO species under
+/// the genus, each byte-identical to the genus-only entry. Used to verify
+/// that with the flag on, the ancestor is dropped but the species still tie
+/// with each other → LCA-cap correctly fires at the genus.
+fn build_ancestor_multi_descendant_fixture() -> TrainingSet {
+    let base = "\
+        ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+        GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+        TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+        CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+        AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT";
+    let canis_lupus = base.to_string();
+    let canis_latrans = base.to_string();
+    let canis_genus_only = base.to_string();
+
+    let vulpes = "GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT";
+
+    let sequences = vec![
+        canis_lupus,
+        canis_latrans,
+        canis_genus_only,
+        vulpes.to_string(),
+    ];
+    let taxonomy = vec![
+        "Root; Mammalia; Carnivora; Canidae; Canis; Canis_lupus".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Canis; Canis_latrans".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Canis".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Vulpes; Vulpes_vulpes".to_string(),
+    ];
+
+    let config = TrainConfig::default();
+    learn_taxa(&sequences, &taxonomy, &config, 42, false).unwrap()
+}
+
+/// Build a fixture with a genus-only entry but NO species under that genus.
+/// Used to verify that with the flag on, a query closest to the genus-only
+/// entry still emits at the genus (no descendant exists in keep, so the
+/// filter is a no-op and the ancestor competes normally).
+fn build_ancestor_only_no_descendant_fixture() -> TrainingSet {
+    let base = "\
+        ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+        GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+        TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+        CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+        AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT";
+    let canis_genus_only = base.to_string();
+
+    // Cross-genus species so descent has something to discriminate against.
+    let vulpes = "GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT\
+                  GGGGCCCCAAAATTTTGGGGCCCCAAAATTTT";
+    let felis = "ATATATATATATATATATATATATATATATATATATATAT\
+                 CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG\
+                 AAAATTTTAAAATTTTAAAATTTTAAAATTTTAAAATTTT\
+                 GGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAAGGGGAAAA\
+                 CCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTTCCCCTTTT";
+
+    let sequences = vec![
+        canis_genus_only,
+        vulpes.to_string(),
+        felis.to_string(),
+    ];
+    let taxonomy = vec![
+        // Genus-only entry — no species under Canis in this fixture.
+        "Root; Mammalia; Carnivora; Canidae; Canis".to_string(),
+        "Root; Mammalia; Carnivora; Canidae; Vulpes; Vulpes_vulpes".to_string(),
+        "Root; Mammalia; Carnivora; Felidae; Felis; Felis_catus".to_string(),
+    ];
+
+    let config = TrainConfig::default();
+    learn_taxa(&sequences, &taxonomy, &config, 42, false).unwrap()
+}
+
+#[test]
+fn test_suppress_ancestor_only_groups_default_off() {
+    let cfg = ClassifyConfig::default();
+    assert!(!cfg.suppress_ancestor_only_groups);
+}
+
+#[test]
+fn test_suppress_ancestor_only_groups_drops_ancestor_when_tied() {
+    // Mode B reproduction. With both the genus-only "Canis" and the
+    // species "Canis_lupus" tied in the bootstrap, flag=false produces an
+    // LCA-cap collapse (alternatives populated, possibly genus-capped
+    // emission); flag=true drops "Canis" from winners → species emission.
+    //
+    // Per-replicate tied-share splitting at classify.rs:725-734 depresses
+    // each tied group's tot_hits to ~half of the un-tied value (since seqs
+    // are byte-identical, per-replicate ties are constant). The species
+    // confidence ends up around 50%, below the default 60 threshold, so we
+    // explicitly lower threshold here to test the emission-depth question
+    // (which is what the flag is actually doing) independently of the
+    // separate threshold-gating axis.
+    let ts = build_ancestor_descendant_fixture();
+    let query = vec![
+        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string(),
+    ];
+    let names = vec!["q".to_string()];
+
+    let cfg_off = ClassifyConfig {
+        threshold: 40.0,
+        suppress_ancestor_only_groups: false,
+        ..Default::default()
+    };
+    let off = id_taxa(
+        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    let cfg_on = ClassifyConfig {
+        threshold: 40.0,
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    assert_eq!(off.len(), 1);
+    assert_eq!(on.len(), 1);
+
+    // With flag=true, "Canis" (the genus-only group, internal-node-keyed)
+    // must NEVER appear in alternatives. Flag=on filtered it out before
+    // selected was picked.
+    assert!(
+        !on[0].alternatives.contains(&"Canis".to_string()),
+        "ancestor 'Canis' present in alternatives despite flag=true: {:?}",
+        on[0].alternatives
+    );
+
+    // Stronger: with flag=true and only the species descendant left as the
+    // sole winner (sequences are byte-identical so bootstrap ties exactly),
+    // alternatives should be empty → LCA-cap doesn't fire → emission
+    // reaches species depth.
+    if !off[0].alternatives.is_empty() {
+        // Off triggered the tie (alternatives populated). Then on should
+        // resolve cleanly.
+        assert!(
+            on[0].alternatives.is_empty(),
+            "flag=on did not clear alternatives despite off triggering them: \
+             off.alts={:?}, on.alts={:?}",
+            off[0].alternatives,
+            on[0].alternatives
+        );
+        assert!(
+            on[0].taxon.contains(&"Canis_lupus".to_string()),
+            "flag=on did not emit species after dropping ancestor: {:?}",
+            on[0].taxon
+        );
+    }
+}
+
+#[test]
+fn test_suppress_no_op_when_no_descendant_in_keep() {
+    // Honest abstention preservation. With only the genus-only entry under
+    // Canis (no species under that genus), flag=true should be a no-op:
+    // the Canis group has no descendants in `keep` to be filtered against,
+    // so it competes normally. Genus-level emission must stand.
+    let ts = build_ancestor_only_no_descendant_fixture();
+    let query = vec![
+        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string(),
+    ];
+    let names = vec!["q".to_string()];
+
+    let cfg_off = ClassifyConfig {
+        suppress_ancestor_only_groups: false,
+        ..Default::default()
+    };
+    let off = id_taxa(
+        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    let cfg_on = ClassifyConfig {
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    // Flag should be a no-op: identical taxon, identical alternatives,
+    // identical confidences (within float tolerance).
+    assert_eq!(off[0].taxon, on[0].taxon, "taxon differed for no-op case");
+    assert_eq!(
+        off[0].alternatives, on[0].alternatives,
+        "alternatives differed for no-op case"
+    );
+    assert_eq!(
+        off[0].confidence.len(),
+        on[0].confidence.len(),
+        "confidence vector length differed for no-op case"
+    );
+    for i in 0..off[0].confidence.len() {
+        assert!(
+            (off[0].confidence[i] - on[0].confidence[i]).abs() < 1e-6,
+            "confidence at rank {} differed: off={}, on={}",
+            i,
+            off[0].confidence[i],
+            on[0].confidence[i]
+        );
+    }
+}
+
+#[test]
+fn test_suppress_multi_descendant_still_caps_at_genus() {
+    // When the ancestor ties with multiple descendant species, flag=true
+    // drops the ancestor but the species still tie with each other → LCA-
+    // cap correctly fires at the genus. Validates that we don't over-
+    // resolve true inter-species ambiguity.
+    let ts = build_ancestor_multi_descendant_fixture();
+    let query = vec![
+        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string(),
+    ];
+    let names = vec!["q".to_string()];
+
+    let cfg_on = ClassifyConfig {
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    assert_eq!(on.len(), 1);
+
+    // The ancestor "Canis" must NOT be in alternatives (filter dropped it).
+    assert!(
+        !on[0].alternatives.contains(&"Canis".to_string()),
+        "ancestor 'Canis' present in alternatives despite flag=true: {:?}",
+        on[0].alternatives
+    );
+
+    // If the two species tied (which they do given byte-identical seqs),
+    // alternatives should contain BOTH species and the LCA-cap should hold
+    // emission at or above genus.
+    if on[0].alternatives.len() >= 2 {
+        assert!(
+            on[0].alternatives.contains(&"Canis_lupus".to_string())
+                && on[0].alternatives.contains(&"Canis_latrans".to_string()),
+            "expected both species in alternatives, got {:?}",
+            on[0].alternatives
+        );
+        // Emission should not reach a species-level call.
+        assert!(
+            !on[0].taxon.contains(&"Canis_lupus".to_string())
+                && !on[0].taxon.contains(&"Canis_latrans".to_string()),
+            "species leaked into taxon despite multi-descendant tie: {:?}",
+            on[0].taxon
+        );
+    }
+}
+
+#[test]
+fn test_suppress_preserves_higher_rank_confidence() {
+    // The cross-rank confidence accumulator at classify.rs:775-786 iterates
+    // over `tot_hits`, NOT `winners`. Dropping a winner from `winners`
+    // should NOT change confidences for ranks at-or-above the dropped
+    // node's depth. This is the formal regression test for "the fix is
+    // surgical".
+    //
+    // Setup: byte-identical genus-only Canis and species Canis_lupus
+    // entries → tied bootstrap → both in `winners` → LCA-cap potentially
+    // fires under flag=false. Under flag=true, "Canis" drops out of
+    // `winners` but its `tot_hits` is unchanged, so it still flows up to
+    // ancestor confidences via the accumulator.
+    let ts = build_ancestor_descendant_fixture();
+    let query = vec![
+        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string(),
+    ];
+    let names = vec!["q".to_string()];
+
+    let cfg_off = ClassifyConfig {
+        suppress_ancestor_only_groups: false,
+        ..Default::default()
+    };
+    let off = id_taxa(
+        &query, &names, &ts, &cfg_off, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    let cfg_on = ClassifyConfig {
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let on = id_taxa(
+        &query, &names, &ts, &cfg_on, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    assert_eq!(off.len(), 1);
+    assert_eq!(on.len(), 1);
+
+    // For ranks at-or-above the depth where the off path's emission ended,
+    // confidences should be near-identical between off and on. This is
+    // because the cross-rank accumulator credits each non-selected group's
+    // tot_hits to ancestor confidences, and the dropped ancestor's
+    // tot_hits is unchanged.
+    //
+    // Note: the off path may emit at a shallower depth than on (because
+    // LCA-cap may truncate off but not on). We compare only ranks that
+    // BOTH report. Off's reported ranks are a prefix of the same lineage
+    // because both use the same training set.
+    let len = off[0].confidence.len().min(on[0].confidence.len());
+    assert!(len >= 4, "expected at least Root..Canidae reported, got off={}, on={}",
+            off[0].confidence.len(), on[0].confidence.len());
+    for i in 0..len {
+        // Skip the rank at which the LCA-cap or threshold may have
+        // affected emission identity (the deepest shared rank). Compare
+        // the ranks strictly above that.
+        if i == len - 1 {
+            continue;
+        }
+        assert!(
+            (off[0].confidence[i] - on[0].confidence[i]).abs() < 1e-3,
+            "rank {} confidence differs: off={}, on={} \
+             (cross-rank accumulator should be unaffected)",
+            i,
+            off[0].confidence[i],
+            on[0].confidence[i]
+        );
+    }
+}
