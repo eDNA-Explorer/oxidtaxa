@@ -368,7 +368,6 @@ fn bench_id_taxa(c: &mut Criterion) {
     let classify_config = ClassifyConfig {
         threshold: 40.0,
         min_descend: 0.98,
-        full_length: 0.0,
         processors: 1,
         ..Default::default()
     };

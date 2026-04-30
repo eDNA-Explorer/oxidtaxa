@@ -183,7 +183,6 @@ fn test_classify_9b_perfect() {
     let config = ClassifyConfig {
         threshold: 60.0,
         min_descend: 0.98,
-        full_length: 0.0,
         processors: 1,
         ..Default::default()
     };
@@ -247,7 +246,6 @@ fn test_classify_9d_threshold_sweep() {
         let config = ClassifyConfig {
             threshold: thresh,
             min_descend: 0.98,
-            full_length: 0.0,
             processors: 1,
             ..Default::default()
         };
@@ -400,7 +398,6 @@ fn test_classify_9g_short() {
     let config = ClassifyConfig {
         threshold: 60.0,
         min_descend: 0.98,
-        full_length: 0.0,
         processors: 1,
         ..Default::default()
     };
@@ -498,7 +495,6 @@ fn test_classify_9i_mindescend_sweep() {
         let config = ClassifyConfig {
             threshold: 60.0,
             min_descend: md,
-            full_length: 0.0,
             processors: 1,
             ..Default::default()
         };
@@ -530,7 +526,6 @@ fn test_classify_9k_problem() {
     let config = ClassifyConfig {
         threshold: 60.0,
         min_descend: 0.98,
-        full_length: 0.0,
         processors: 1,
         ..Default::default()
     };
@@ -561,7 +556,6 @@ fn test_classify_9l_singleton() {
     let config = ClassifyConfig {
         threshold: 60.0,
         min_descend: 0.98,
-        full_length: 0.0,
         processors: 1,
         ..Default::default()
     };

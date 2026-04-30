@@ -16,7 +16,6 @@ struct PrecomputedData {
     /// Maps original sequence index → index in rev_kmers for O(1) lookup.
     boths_map: HashMap<usize, usize>,
     ls: Vec<usize>,
-    full_length: (f64, f64),
 }
 
 /// Classify sequences using a trained IDTAXA model.
@@ -177,12 +176,6 @@ fn precompute(
         Vec::new()
     };
 
-    let full_length = if config.full_length == 0.0 {
-        (0.0, f64::INFINITY)
-    } else {
-        (1.0 / config.full_length, config.full_length)
-    };
-
     PrecomputedData {
         test_kmers,
         rev_kmers,
@@ -191,7 +184,6 @@ fn precompute(
         boths,
         boths_map,
         ls,
-        full_length,
     }
 }
 
@@ -204,12 +196,11 @@ fn classify_one_pass(
     b: usize,
     ts: &TrainingSet,
     config: &ClassifyConfig,
-    full_length: (f64, f64),
     ls: &[usize],
     rng: &mut RRng,
 ) -> Option<(ClassificationResult, f64)> {
     if config.beam_width > 1 {
-        return classify_one_pass_beam(my_kmers, s, b, ts, config, full_length, ls, rng);
+        return classify_one_pass_beam(my_kmers, s, b, ts, config, ls, rng);
     }
 
     let children = &ts.children;
@@ -369,7 +360,6 @@ fn classify_one_pass(
         b,
         ts,
         config,
-        full_length,
         ls,
         rng,
         &descent_margins,
@@ -384,7 +374,6 @@ fn classify_one_pass_beam(
     b: usize,
     ts: &TrainingSet,
     config: &ClassifyConfig,
-    full_length: (f64, f64),
     ls: &[usize],
     rng: &mut RRng,
 ) -> Option<(ClassificationResult, f64)> {
@@ -661,7 +650,6 @@ fn classify_one_pass_beam(
             b,
             ts,
             config,
-            full_length,
             ls,
             rng,
             &candidate.descent_margins,
@@ -687,7 +675,6 @@ fn leaf_phase_score(
     b: usize,
     ts: &TrainingSet,
     config: &ClassifyConfig,
-    full_length: (f64, f64),
     ls: &[usize],
     rng: &mut RRng,
     descent_margins: &[f64],
@@ -712,16 +699,6 @@ fn leaf_phase_score(
             if let Some(ref sq) = sequences[subtrees[wi]] {
                 keep.extend(sq);
             }
-        }
-    }
-    if full_length.0 > 0.0 || full_length.1.is_finite() {
-        let my_len = my_kmers.len() as f64;
-        keep.retain(|&idx| {
-            let tl = ls[idx] as f64;
-            tl >= full_length.0 * my_len && tl <= full_length.1 * my_len
-        });
-        if keep.is_empty() {
-            return Some((ClassificationResult::unclassified("no_training_match"), 0.0));
         }
     }
 
@@ -1284,7 +1261,7 @@ fn classify_sequential(
         let b = pre.b_values[seq_idx];
 
         if let Some((result, similarity)) =
-            classify_one_pass(my_kmers, s, b, ts, config, pre.full_length, &pre.ls, rng)
+            classify_one_pass(my_kmers, s, b, ts, config, &pre.ls, rng)
         {
             if let Some(_ri) = rev_idx {
                 // Second pass: only replace if better similarity
@@ -1363,7 +1340,6 @@ fn classify_parallel(
             b,
             ts,
             config,
-            pre.full_length,
             &pre.ls,
             &mut rng,
         );
@@ -1376,7 +1352,6 @@ fn classify_parallel(
                 b,
                 ts,
                 config,
-                pre.full_length,
                 &pre.ls,
                 &mut rng,
             );

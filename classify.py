@@ -2,7 +2,7 @@
 """Classify sequences using a trained Oxidtaxa model.
 
 Usage:
-    python classify.py query.fasta model.bin results.tsv 40 both 0.98 0.0 8
+    python classify.py query.fasta model.bin results.tsv 40 both 0.98 8
 """
 import argparse
 
@@ -17,7 +17,6 @@ def main() -> None:
     parser.add_argument("threshold", type=float)
     parser.add_argument("strand", choices=["top", "bottom", "both"])
     parser.add_argument("min_descend", type=float)
-    parser.add_argument("full_length", type=float)
     parser.add_argument("processors", type=int)
     parser.add_argument("--bootstraps", type=int, default=100)
     parser.add_argument("--sample-exponent", type=float, default=0.47)
@@ -41,7 +40,6 @@ def main() -> None:
         bootstraps=args.bootstraps,
         strand=args.strand,
         min_descend=args.min_descend,
-        full_length=args.full_length,
         processors=args.processors,
         sample_exponent=args.sample_exponent,
         seed=args.seed,

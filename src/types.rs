@@ -326,7 +326,6 @@ pub struct ClassifyConfig {
     /// Higher = more precise confidence, slower. Default 100.
     pub bootstraps: usize,
     pub min_descend: f64,
-    pub full_length: f64,
     pub processors: usize,
     /// Exponent for computing k-mers sampled per bootstrap: S = L^sample_exponent.
     /// Lower = fewer k-mers per replicate (faster, noisier). Default 0.47.
@@ -384,7 +383,6 @@ impl Default for ClassifyConfig {
             threshold: 60.0,
             bootstraps: 100,
             min_descend: 0.98,
-            full_length: 0.0,
             processors: 1,
             sample_exponent: 0.47,
             length_normalize: false,
