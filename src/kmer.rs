@@ -16,6 +16,13 @@ pub struct SpacedSeed {
 }
 
 /// Parse and validate a spaced seed pattern string.
+///
+/// Rejects: empty pattern, all-zero pattern, non-binary characters, and
+/// `weight > 15`. The weight cap mirrors the contiguous path's `max_k = 13`
+/// guard at training.rs — at weight > 15 the k-mer index space (4^weight)
+/// overflows the per-window powers-of-4 table used by the spaced-seed
+/// enumerator (`pwv[w-1] * 4` overflows i32 at w=16), producing corrupt
+/// k-mer IDs.
 pub fn parse_seed_pattern(pattern: &str) -> Result<SpacedSeed, String> {
     if pattern.is_empty() {
         return Err("Seed pattern must not be empty".to_string());
@@ -36,8 +43,16 @@ pub fn parse_seed_pattern(pattern: &str) -> Result<SpacedSeed, String> {
     if match_positions.is_empty() {
         return Err("Seed pattern must contain at least one '1'".to_string());
     }
+    let weight = match_positions.len();
+    if weight > 15 {
+        return Err(format!(
+            "Seed pattern weight {} exceeds maximum 15 \
+             (4^weight would overflow i32 in the enumerator's powers-of-4 table)",
+            weight
+        ));
+    }
     Ok(SpacedSeed {
-        weight: match_positions.len(),
+        weight,
         span: pattern.len(),
         match_positions,
         pattern: pattern.to_string(),

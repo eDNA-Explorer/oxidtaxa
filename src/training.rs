@@ -112,9 +112,23 @@ fn _prepare_data_inner(
         None => None,
     };
 
-    // Compute K if not specified
+    // Compute K if not specified. When both `seed_pattern` and `k` are
+    // supplied, require consistency: `k == pattern.weight` is the only
+    // sensible pairing (oxidtaxa uses pattern.weight as the effective k).
+    // A mismatch was previously silently accepted (k was dropped) — surface
+    // it loudly so harness/Optuna mistakes don't waste training cycles.
     let k = match (&spaced_seed, k_param) {
-        (Some(seed), _) => seed.weight,
+        (Some(seed), Some(kp)) => {
+            if kp != seed.weight {
+                return Err(format!(
+                    "k and seed_pattern.weight disagree: k = {}, pattern '{}' has weight {}. \
+                     Either omit k (it will be derived from the pattern) or pass k = {}.",
+                    kp, seed.pattern, seed.weight, seed.weight
+                ));
+            }
+            seed.weight
+        }
+        (Some(seed), None) => seed.weight,
         (None, Some(k)) => k,
         (None, None) => {
             let quant = percentile_nchar(sequences, 0.99);
@@ -342,15 +356,6 @@ fn _build_tree_inner(
     prepared: &PreparedData,
     config: &BuildTreeConfig,
 ) -> Result<BuiltTree, String> {
-    let train_config = TrainConfig {
-        record_kmers_fraction: config.record_kmers_fraction,
-        descendant_weighting: config.descendant_weighting,
-        correlation_aware_features: config.correlation_aware_features,
-        max_children: config.max_children,
-        processors: config.processors,
-        ..Default::default()
-    };
-
     let mut decision_kmers: Vec<Option<DecisionNode>> = vec![None; prepared.taxonomy.len()];
     let (_root_profile, _root_raw_counts, _root_raw_total, _root_desc, nodes) = create_tree(
         0,
@@ -358,13 +363,16 @@ fn _build_tree_inner(
         &prepared.sequences_per_node,
         &prepared.kmers,
         prepared.n_kmers,
-        &train_config,
+        config,
     );
     for (idx, dk) in nodes {
         decision_kmers[idx] = Some(dk);
     }
 
-    Ok(BuiltTree { decision_kmers })
+    Ok(BuiltTree {
+        decision_kmers,
+        descendant_weighting: config.descendant_weighting,
+    })
 }
 
 fn _learn_fractions_inner(
@@ -458,11 +466,8 @@ fn _learn_fractions_inner(
                         // node's depth. Matches classify-time semantics so
                         // `use_idf_in_descent = true` scores training and
                         // classification descent against the same IDF.
-                        let idf_row: &[f64] = {
-                            let depth = (prepared.levels[k_node] - 1).max(0) as usize;
-                            let row_idx = depth.min(idf_by_rank.len().saturating_sub(1));
-                            &idf_by_rank[row_idx]
-                        };
+                        let idf_row: &[f64] =
+                            idf_row_for_depth(idf_by_rank, prepared.levels[k_node]);
 
                         let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
                         for (j, _subtree) in subtrees.iter().enumerate() {
@@ -629,6 +634,8 @@ fn _learn_fractions_inner(
         .map(|(i, _)| prepared.taxonomy[i].clone())
         .collect();
 
+    let (avg_n_unique_per_node, avg_n_unique_global) = compute_avg_unique_per_node(prepared);
+
     Ok(TrainingSet {
         taxonomy: prepared.taxonomy.clone(),
         taxa: prepared.taxa.clone(),
@@ -648,7 +655,41 @@ fn _learn_fractions_inner(
         inverted_index: Some(prepared.inverted_index.clone()),
         idf_weights_by_rank: prepared.idf_weights_by_rank.clone(),
         use_idf_in_descent: config.use_idf_in_descent,
+        descendant_weighting: built_tree.descendant_weighting,
+        avg_n_unique_per_node,
+        avg_n_unique_global,
     })
+}
+
+/// Compute the mean unique-k-mer count of training sequences in each node's
+/// subtree. Returns one entry per node in `prepared.taxonomy`, plus a global
+/// mean (root-level) used as a backstop for nodes without sequences.
+///
+/// `prepared.sequences_per_node[node]` already holds the *recursive* set of
+/// sequences rooted at `node` (built in `_prepare_data_inner`), so this is
+/// a simple per-node mean — no tree traversal needed.
+///
+/// Used by classify-time `length_normalize` as a stable train-time average
+/// instead of the per-query keep-local averaging that becomes structurally
+/// inert at single-keep stop nodes (singleton-leaf gotcha).
+fn compute_avg_unique_per_node(prepared: &PreparedData) -> (Vec<f64>, f64) {
+    let mut avg = vec![0.0f64; prepared.taxonomy.len()];
+
+    for (slot, seqs_for_node) in avg.iter_mut().zip(prepared.sequences_per_node.iter()) {
+        if let Some(seq_indices) = seqs_for_node {
+            if !seq_indices.is_empty() {
+                let sum: f64 = seq_indices
+                    .iter()
+                    .map(|&si| prepared.kmers[si].len() as f64)
+                    .sum();
+                *slot = sum / seq_indices.len() as f64;
+            }
+        }
+    }
+
+    // Root carries every training sequence, so its avg is the global mean.
+    let global = avg.first().copied().unwrap_or(0.0);
+    (avg, global)
 }
 
 fn _learn_taxa_inner(
@@ -671,6 +712,23 @@ fn _learn_taxa_inner(
         &LearnFractionsConfig::from(config),
         seed,
     )
+}
+
+/// Pick the IDF row from a per-rank matrix matching a node's depth.
+///
+/// `idf_by_rank[r]` is the row computed at depth `r + 1` (0=Kingdom-level,
+/// last row = species-level). For a node at `level` (1-indexed, where
+/// Root=1, Kingdom=2, ..., species=last), depth = `(level - 1).max(0)`.
+/// Clamped to the deepest row when the node is below the matrix's depth
+/// (e.g., very deep lineages or `level <= 0`).
+///
+/// Used by both training-time descent (`_learn_fractions_inner`) and
+/// classify-time descent (greedy + beam) — extracted as a helper to keep
+/// rank-encoding convention in one place.
+pub(crate) fn idf_row_for_depth(idf_by_rank: &[Vec<f64>], level: i32) -> &[f64] {
+    let depth = (level - 1).max(0) as usize;
+    let row_idx = depth.min(idf_by_rank.len().saturating_sub(1));
+    &idf_by_rank[row_idx]
 }
 
 /// Compute per-seq prefix strings at depth `rank` (1 = Kingdom-level group,
@@ -799,11 +857,21 @@ fn sum_sparse_profiles(profiles: &[SparseProfile]) -> SparseProfile {
 }
 
 /// Merge multiple weighted sparse profiles into a single sparse profile (weighted average).
+///
+/// Invariant: `total_weight > 0`. Currently unreachable on valid inputs since
+/// every leaf has `descendant_count = 1` and any descendant-weighting mode
+/// (Count / Equal / Log) maps that to a strictly positive weight. The divide
+/// at the result-push site has no guard — guard added here as the contract.
 fn merge_sparse_profiles(
     profiles: &[SparseProfile],
     weights: &[f64],
     total_weight: f64,
 ) -> SparseProfile {
+    debug_assert!(
+        total_weight > 0.0,
+        "merge_sparse_profiles: total_weight must be > 0; got {}",
+        total_weight
+    );
     // k-way merge of sorted sparse profiles
     let mut cursors = vec![0usize; profiles.len()];
     let mut result = Vec::new();
@@ -901,7 +969,7 @@ fn create_tree(
     sequences: &[Option<Vec<usize>>],
     kmers: &[Vec<i32>],
     n_kmers: usize,
-    config: &TrainConfig,
+    config: &BuildTreeConfig,
 ) -> (
     SparseProfile,
     SparseProfile,
@@ -1116,6 +1184,11 @@ fn create_tree(
             // Updated incrementally: each outer iteration adds exactly one correlation
             // computation per not-selected candidate (against the newly-selected one),
             // reducing total correlation work from O(R^2 * C) to O(R * C).
+            //
+            // Initial value of 0.0 means the very first selection is purely
+            // entropy-driven (no redundancy penalty applies on the first pick).
+            // Tie-breaks among entropy-equal candidates fall through to the
+            // permutation-sort-stable order of `sorted_kmer_indices`.
             let mut max_corr: Vec<f64> = vec![0.0; n_cand];
 
             // Phase 3: parallelize argmax + update when candidate pool is large

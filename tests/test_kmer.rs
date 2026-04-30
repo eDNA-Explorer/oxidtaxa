@@ -172,3 +172,88 @@ fn test_kmer_masking_both() {
         );
     }
 }
+
+// ============================================================================
+// parse_seed_pattern unit tests
+// ============================================================================
+
+#[test]
+fn test_parse_seed_pattern_contiguous() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    let p = parse_seed_pattern("11111").unwrap();
+    assert_eq!(p.weight, 5);
+    assert_eq!(p.span, 5);
+    assert_eq!(p.match_positions, vec![0, 1, 2, 3, 4]);
+    assert_eq!(p.pattern, "11111");
+}
+
+#[test]
+fn test_parse_seed_pattern_spaced() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    let p = parse_seed_pattern("11011011011").unwrap();
+    assert_eq!(p.weight, 8);
+    assert_eq!(p.span, 11);
+    assert_eq!(p.match_positions, vec![0, 1, 3, 4, 6, 7, 9, 10]);
+}
+
+#[test]
+fn test_parse_seed_pattern_minimal_spaced() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    let p = parse_seed_pattern("11011").unwrap();
+    assert_eq!(p.weight, 4);
+    assert_eq!(p.span, 5);
+    assert_eq!(p.match_positions, vec![0, 1, 3, 4]);
+}
+
+#[test]
+fn test_parse_seed_pattern_rejects_empty() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    let r = parse_seed_pattern("");
+    assert!(r.is_err());
+    let err = r.err().unwrap();
+    assert!(err.to_lowercase().contains("empty"), "got: {}", err);
+}
+
+#[test]
+fn test_parse_seed_pattern_rejects_all_zeros() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    let r = parse_seed_pattern("00000");
+    assert!(r.is_err());
+    let err = r.err().unwrap();
+    assert!(err.contains("at least one"), "got: {}", err);
+}
+
+#[test]
+fn test_parse_seed_pattern_rejects_invalid_char() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    let r = parse_seed_pattern("11x11");
+    assert!(r.is_err());
+    let err = r.err().unwrap();
+    assert!(err.to_lowercase().contains("invalid"), "got: {}", err);
+}
+
+#[test]
+fn test_parse_seed_pattern_rejects_whitespace() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    let r = parse_seed_pattern("11 011");
+    assert!(r.is_err());
+}
+
+#[test]
+fn test_parse_seed_pattern_rejects_weight_over_15() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    // 16 ones: weight = 16, exceeds the i32 powers-of-4 ceiling.
+    let r = parse_seed_pattern("1111111111111111");
+    assert!(r.is_err());
+    let err = r.err().unwrap();
+    assert!(err.contains("weight 16"), "got: {}", err);
+    assert!(err.contains("maximum 15"), "got: {}", err);
+}
+
+#[test]
+fn test_parse_seed_pattern_accepts_weight_15() {
+    use oxidtaxa::kmer::parse_seed_pattern;
+    // weight = 15 should be accepted (boundary case).
+    let p = parse_seed_pattern("111111111111111").unwrap();
+    assert_eq!(p.weight, 15);
+}

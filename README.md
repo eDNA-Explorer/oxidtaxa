@@ -57,7 +57,7 @@ results = classify(
     seed=42,
     deterministic=False,               # True = R-compatible sequential PRNG
     length_normalize=False,            # normalize scores by training sequence length
-    rank_thresholds=None,              # per-rank thresholds (e.g., [90, 80, 70, 60, 50, 40])
+    rank_thresholds=None,              # per-rank thresholds, e.g. [90, 80, 70, 60, 50, 40, 40] for Domain→Species
     beam_width=1,                      # candidate paths during tree descent (1 = greedy)
     tie_margin=0.0,                    # near-tied groups within (1 - margin) of winner join alternatives
     confidence_uses_descent_margin=False, # discount per-rank confidence by descent decisiveness
@@ -127,9 +127,9 @@ Ranges below are intended operating ranges. The Python binding currently validat
 | **bootstraps** | 100 | 1-1000 | Bootstrap replicates. Higher = more precise confidence, slower. Use 50 for parameter sweeps, 100 for production. |
 | **strand** | "both" | top/bottom/both | Which strand(s) to classify. "both" classifies forward and reverse complement, keeps the better hit. |
 | **min_descend** | 0.98 | 0.5-1.0 | Fraction of bootstrap votes required to descend into a child node. Lower = more aggressive descent into uncertain branches. |
-| **sample_exponent** | 0.47 | 0.2-0.8 | Controls k-mers sampled per bootstrap: S = L^exponent where L = unique k-mers in query. Lower = fewer samples (faster, noisier). Higher = more samples (slower, more stable). |
-| **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). Corrects bias from longer references accumulating more k-mer hits. Most useful for variable-length markers. |
-| **rank_thresholds** | None | list of floats | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set, overrides the single `threshold` parameter. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). If shorter than the predicted path, the last value is reused. |
+| **sample_exponent** | 0.47 | (0, 1] | Controls k-mers sampled per bootstrap: S = L^exponent. Default 0.47 is canonical IDTAXA (DECIPHER's `samples=L^0.47`); the `[0.35, 0.40, 0.47, 0.55, 0.65]` spread is the recommended Tier 1 sweep range. Lower = fewer samples per replicate. Note: bootstraps are also implicitly capped at `b = min(5L/S, bootstraps)`, so lowering `sample_exponent` lets `b` rise toward the configured `bootstraps`. |
+| **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). **Symmetric**: long references are demoted (divisor > 1), short references are promoted (divisor < 1). Most useful for variable-length markers. Inert at single-keep (e.g. singleton-leaf — divisor is 1.0 by construction). |
+| **rank_thresholds** | None | list of floats in [0, 100] | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set to `Some(non-empty)`, **fully overrides** the global `threshold` for every rank — there is no per-element fallback. If shorter than the predicted path, the last value is reused for every rank past its end; if longer, extras are ignored. Empty list (`Some([])`) is rejected. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). |
 | **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent (original IDTAXA). At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
 | **tie_margin** | 0.0 | 0.0-1.0 | Relative margin for near-tie reporting. At 0.0, only exact equal `tot_hits` winners tie. At 0.05, groups scoring at least 95% of the winner join the tied set, cap the reported lineage at their LCA, and appear in `alternatives`. |
 | **confidence_uses_descent_margin** | false | true/false | When true, each non-root rank's confidence is multiplied by an affine-scaled descent margin from the split that selected it. This down-weights ranks reached through near-tied descent votes. |
@@ -151,8 +151,8 @@ Ranges below are intended operating ranges. The Python binding currently validat
 | **training_threshold** | 0.8 | 0.0-1.0 | Bootstrap vote fraction required to descend during fraction learning. R's IDTAXA hardcodes 0.8. Set closer to `min_descend` (e.g., 0.98) for consistent training/classification thresholds — sequences that wouldn't pass classification descent won't pass training descent either. |
 | **descendant_weighting** | "count" | count/equal/log | How to weight child profiles when computing the merged profile for cross-entropy feature selection. "count" = weight by raw descendant count (original IDTAXA). "equal" = 1/n_children each, preventing large clades from dominating feature selection. "log" = log(1+descendants), a middle ground. |
 | **use_idf_in_descent** | false | true/false | Multiply profile weights by rank-appropriate IDF weights during fraction-learning descent, and persist that setting on the model so classify-time descent uses the same scoring regime. Leaf-phase classification always uses IDF weights. |
-| **leave_one_out** | false | true/false | Per-kmer leave-one-out during fraction learning. Subtracts the held-out sequence's contribution from the matching sibling's raw k-mer counts and renormalizes by the reduced total. This correction is applied only when the matching child group has more than one sequence and a positive reduced total; classify-time scoring is unaffected. |
-| **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. At each step, selects the k-mer maximizing `entropy * (1 - max_correlation_with_selected)`. Produces a more diverse, efficient feature set. Slower training but no impact on classification speed. |
+| **leave_one_out** | false | true/false | Per-kmer leave-one-out during fraction learning (one sequence held out at a time per descent iteration, matching the IDTAXA paper — no batched/multi-holdout variant). Subtracts the held-out sequence's contribution from the matching sibling's raw k-mer counts and renormalizes by the reduced total. Applied only when the matching child group has more than one sequence and a positive reduced total; classify-time scoring is unaffected. **Approximation note:** exact at leaf siblings and at internal siblings under `descendant_weighting=Count`; approximate at internal siblings under `Equal` or `Log` (treats the subtree as a flat collection of leaf-sequences, ignoring the weighting). |
+| **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. At each step, selects the k-mer maximizing `entropy * (1 - max_correlation_with_selected)` using **Bhattacharyya coefficient on L1-normalized sqrt profiles** as the redundancy metric (well-defined for any split size, including `n_children = 2` where Pearson degenerates). Slower training (O(R · C) per node, parallelized when n_cand >= 2048); no impact on classification speed. |
 | **processors** | 1 | 1+ | Number of threads. Parallelizes tree construction (sibling subtrees) and fraction learning (sequences within each iteration). |
 | **seed** | 42 | any u32 | PRNG seed for the training bootstrap loop. |
 | **verbose** | true | true/false | Accepted by the Python API for compatibility, but currently ignored by the Rust training core. Fraction-learning progress is emitted to stderr regardless of this setting. |
@@ -207,9 +207,9 @@ min_descend_values = [0.90, 0.95, 0.98, 0.99]
 length_normalize = [True, False]
 beam_width_values = [1, 2, 3]         # 1 = greedy (original), >1 = beam search
 rank_thresholds_options = [
-    None,                              # single threshold (from Tier 1)
-    [90, 80, 70, 60, 50, 40, 40],     # strict top, lenient bottom
-    [80, 70, 60, 50, 40, 30, 30],     # moderate gradient
+    None,                                  # single threshold (from Tier 1)
+    [90, 80, 70, 60, 50, 40, 40],          # strict top, lenient bottom (vert-12S Domain→Species)
+    [80, 70, 60, 50, 40, 30, 30],          # moderate gradient (vert-12S Domain→Species)
 ]
 ```
 

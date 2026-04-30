@@ -56,6 +56,13 @@ pub struct TrainingSet {
     /// k-mer `k` computed across distinct taxonomic prefixes at depth `r + 1`
     /// (so row 0 is Kingdom-level grouping, the deepest row is species-level).
     /// Classification picks the row matching the descent node's depth.
+    ///
+    /// Negative IDF values (`ln(N_r/(1+c)) < 0`) are intentional: when `c ≈
+    /// N_r` a k-mer is universal at this rank, carries no discriminative
+    /// signal, and SHOULD actively downweight the score. Variable-depth
+    /// lineages contribute via `prefixes_at_rank` capping `r` at `parts.len()`
+    /// — shallow lineages contribute to deep IDF rows as if they were
+    /// species-resolved.
     pub idf_weights_by_rank: Vec<Vec<f64>>,
     /// Whether descent scoring (at both training and classify time) was
     /// configured to multiply per-child profile values by the rank-appropriate
@@ -63,6 +70,20 @@ pub struct TrainingSet {
     /// fraction learning. Read by `classify_one_pass` and
     /// `classify_one_pass_beam` to match the train-time descent algorithm.
     pub use_idf_in_descent: bool,
+    /// The `descendant_weighting` mode used at tree-building time. Carried
+    /// through from the originating `BuiltTree`. Metadata only — not used
+    /// in any classify-time decision; surfaces so downstream tooling can
+    /// label models.
+    pub descendant_weighting: DescendantWeighting,
+    /// Mean unique-k-mer count of training sequences in each node's subtree.
+    /// `avg_n_unique_per_node[node]` is the average across all training
+    /// sequences rooted at `node`. Used by classify-time `length_normalize`
+    /// as a stable train-time average (replaces the per-query keep-local
+    /// averaging that becomes a no-op at single-keep stop nodes).
+    pub avg_n_unique_per_node: Vec<f64>,
+    /// Mean unique-k-mer count across all training sequences (root-level
+    /// average). Backstop for opaque nodes (those exceeding `max_children`).
+    pub avg_n_unique_global: f64,
 }
 
 /// Intermediate training data: k-mer enumeration, taxonomy tree, and IDF weights.
@@ -102,6 +123,11 @@ pub struct PreparedData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuiltTree {
     pub decision_kmers: Vec<Option<DecisionNode>>,
+    /// The `descendant_weighting` mode used at feature-selection time.
+    /// Persisted so downstream tooling (and `learn_fractions`) can label or
+    /// branch on the weighting that produced this tree without re-deriving
+    /// it from elsewhere.
+    pub descendant_weighting: DescendantWeighting,
 }
 
 impl PreparedData {
@@ -239,7 +265,7 @@ pub struct TsvRow {
 }
 
 /// Strategy for weighting child profiles during feature selection.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum DescendantWeighting {
     /// Weight by raw descendant count (original IDTAXA behavior).
     Count,
@@ -262,13 +288,30 @@ pub struct TrainConfig {
     /// Higher = more discriminating features but larger model. Default 0.10 (10%).
     pub record_kmers_fraction: f64,
     /// Spaced seed pattern (e.g., "11011011011"). None = contiguous k-mers.
+    ///
+    /// `weight = #1s` (number of bases sampled per window) and
+    /// `span = pattern length` (number of bases the seed slides over). Validation
+    /// rules — empty pattern, all-zeros pattern, non-binary characters, or
+    /// `weight > 15` — are checked at the first call to `train()` /
+    /// `prepare_data()`. Classify-time always reads the pattern from the saved
+    /// model (no override knob), so train↔classify mismatch is impossible at
+    /// the API level. Passing both `seed_pattern = Some(...)` and `k =
+    /// Some(...)` is consistent only when `k == pattern.weight`; a mismatch
+    /// is rejected at train time.
     pub seed_pattern: Option<String>,
     /// Bootstrap vote fraction required to descend during fraction learning.
     /// Default 0.8 matches R's hardcoded behavior. Set to match min_descend
     /// (e.g., 0.98) for consistent training/classification thresholds.
     pub training_threshold: f64,
     /// Strategy for weighting child profiles during feature selection.
-    /// Default: Count (original behavior).
+    /// Modes (see `DescendantWeighting`):
+    /// - `Count`: weight by raw descendant count (canonical IDTAXA, the default).
+    /// - `Equal`: each immediate child gets weight `1/n_children`.
+    /// - `Log`: weight by `ln(1 + descendants)` — compresses dominant subtrees
+    ///   without erasing them.
+    ///
+    /// Affects training only — the chosen mode is baked into `decision_kmers`
+    /// at tree-build time. Classify-time descent reads the resulting profiles.
     pub descendant_weighting: DescendantWeighting,
     /// Apply rank-appropriate IDF weights to per-child profile values during
     /// tree descent — at both training (fraction-learning) and classification.
@@ -290,8 +333,10 @@ pub struct TrainConfig {
     /// Use correlation-aware greedy feature selection instead of independent
     /// round-robin. Uses Bhattacharyya coefficient on L1-normalized sqrt
     /// profiles as the redundancy metric (mathematically justified for any
-    /// split size). Produces a more efficient feature set but slower to
-    /// train. Default false.
+    /// split size, including `n_children = 2` where Pearson degenerates).
+    /// Produces a more efficient feature set but slower to train: O(R · C)
+    /// per node (R = `record_kmers`, C = candidate pool size), parallelized
+    /// when `n_cand >= 2048`. No impact on classify speed. Default false.
     pub correlation_aware_features: bool,
     /// Number of threads for the rayon thread pool. Default 1.
     pub processors: usize,
@@ -327,34 +372,90 @@ pub struct ClassifyConfig {
     pub bootstraps: usize,
     pub min_descend: f64,
     pub processors: usize,
-    /// Exponent for computing k-mers sampled per bootstrap: S = L^sample_exponent.
-    /// Lower = fewer k-mers per replicate (faster, noisier). Default 0.47.
+    /// Exponent for computing k-mers sampled per bootstrap: `S = L^sample_exponent`.
+    /// Lower = fewer k-mers per replicate (faster, noisier). Default 0.47
+    /// (canonical IDTAXA).
+    ///
+    /// Note: `S` is sized against `not_nas` (raw stream count after NA filter,
+    /// before dedup), while the `too_few_kmers` abstention guard checks
+    /// `my_kmers.len()` (post-dedup unique k-mer count). The asymmetry is
+    /// intentional — `S` reflects apparent query complexity, the abstention
+    /// guard reflects the unique-signal floor, so a low-complexity query (many
+    /// repeated k-mers) is correctly caught.
+    ///
+    /// Implicit Pareto knob: classify-time bootstraps are capped at
+    /// `b = min(5L/S, bootstraps)`, so lowering `sample_exponent` lets `b`
+    /// climb toward the configured cap.
     pub sample_exponent: f64,
-    /// Normalize scores by training sequence length. Corrects inflation from
-    /// longer references having more k-mers. Default false.
+    /// Normalize per-reference leaf-phase scores by `sqrt(n_unique / avg)`,
+    /// where `n_unique` is the unique-k-mer count of the training sequence
+    /// (after seed/dedup) and `avg` is the keep-local mean unique-k-mer count
+    /// of the candidate pool at the leaf-phase stop node. Symmetric: long
+    /// references are demoted, short references are promoted. Default false.
     pub length_normalize: bool,
-    /// Per-rank confidence thresholds. When Some, `rank_thresholds[i]` is used for
-    /// depth `i` (0=Root). When None, uses single `threshold` for all ranks.
+    /// Per-rank confidence thresholds applied during the Stage-3 threshold
+    /// walk. When `Some(non-empty)`, `rank_thresholds[i]` is used for depth
+    /// `i` (0=Root) and the global `threshold` is fully ignored — there is no
+    /// per-element fallback. When `None`, the single `threshold` applies to
+    /// every rank.
+    ///
+    /// Edge cases:
+    /// - **Empty list** (`Some(vec![])`) is rejected at the Python binding;
+    ///   in pure-Rust callers it would silently behave like `None`.
+    /// - **Longer than path**: extra trailing entries are ignored.
+    /// - **Shorter than path**: the last value is reused for every rank past
+    ///   its end (matches the README "shorter list reuse last" contract).
+    /// - **Element scale**: each element is on the same `[0, 100]` scale as
+    ///   `threshold`. Out-of-range values are rejected at the Python binding.
     pub rank_thresholds: Option<Vec<f64>>,
     /// Number of candidate paths to maintain during tree descent.
     /// 1 = greedy descent (original behavior). Higher values explore
     /// alternative paths at ambiguous nodes. Default 1.
+    ///
+    /// **When to flip.** Beam diverges from greedy *only* when ≥2 children
+    /// clear `min_descend` at the same split — typically requires either
+    /// tied bootstraps (deterministic, common with byte-identical training
+    /// references) or a relaxed `min_descend`. Under the default `min_descend
+    /// = 0.98`, the divergence is rare. Sub-threshold runner-ups are not
+    /// rescued by beam — see the explicit drop at `classify::classify_one_pass_beam`
+    /// (gated runner-up retention).
     pub beam_width: usize,
     /// Relative margin below the max `tot_hits` within which sibling leaves are
     /// treated as tied winners for LCA-cap and `alternatives` reporting. At 0.0
     /// (default) only exact equalities fire, matching legacy behavior. At e.g.
     /// 0.05, any group scoring within 95% of the winner joins the tied set.
     pub tie_margin: f64,
-    /// When true, each rank's confidence is multiplied by the running product
-    /// of per-node descent margins `(top - runner_up) / b` observed during
-    /// greedy descent (floored at 0.1 to avoid zeroing). Down-weights lineages
-    /// that descended through near-ties. Default false (legacy behavior).
+    /// When true, each rank's confidence is discounted by the *per-rank*
+    /// margin of the single descent step that selected it — non-cumulative.
+    /// At each descent split, the raw margin `m = (top - runner_up) / b` is
+    /// recorded (floored at 0.1 so a zero-runner-up doesn't zero out a rank).
+    /// At leaf-phase, each rank's confidence is multiplied by the affine
+    /// remap `MARGIN_FLOOR + (1 - MARGIN_FLOOR) * m` with `MARGIN_FLOOR = 0.8`,
+    /// giving an effective per-rank multiplier in `[0.82, 1.0]`. Root is
+    /// never discounted. Default false (legacy behavior).
     pub confidence_uses_descent_margin: bool,
-    /// When true, on single-winner descent at a leaf parent, widen `w_indices`
-    /// to include any sibling with `vote_counts[j] >= 0.5 * b`. Allows
-    /// near-sibling evidence to surface as `alternatives` / LCA cap. Default
-    /// false (legacy: only the single winner contributes to leaf-phase scoring).
+    /// When true, widen `w_indices` to include siblings with
+    /// `vote_counts[j] >= sibling_aware_min_vote_frac * b` at descent
+    /// stopping points. Two sites apply this:
+    ///
+    /// 1. **Mech 2 — terminal sibling widening:** when greedy descent
+    ///    succeeds at a leaf-parent (single child cleared `min_descend`),
+    ///    keep that winner plus any sibling clearing the strict frac threshold.
+    /// 2. **Mech 1 — halt-in-the-middle fallback:** when descent halts
+    ///    because `|w| ≠ 1`, replace the loose `> 0 votes` filter with the
+    ///    same strict frac threshold, preserving the empty-`w50` fallback to
+    ///    ALL children for scattered cases.
+    ///
+    /// Both sites use the same `sibling_aware_min_vote_frac` knob. Default
+    /// false (legacy: only the single winner contributes at Mech 2; Mech 1
+    /// uses the loose `> 0` filter when `w50` non-empty).
     pub sibling_aware_leaf: bool,
+    /// Strict vote-fraction threshold used by `sibling_aware_leaf` at both
+    /// mid-tree halt (Mech 1) and terminal-sibling-widening (Mech 2) sites.
+    /// A sibling whose `vote_counts[j] >= sibling_aware_min_vote_frac * b`
+    /// joins the candidate set. Default 0.5 (matches the previously
+    /// hardcoded constant).
+    pub sibling_aware_min_vote_frac: f64,
     /// When true, dual-stage prefix suppression for ancestor-only training
     /// entries (e.g. "Oncorhynchus sp." after canonical NA-trim):
     ///
@@ -374,6 +475,11 @@ pub struct ClassifyConfig {
     /// conserved relative to flag=off because the cross-rank accumulator
     /// climbs the descendant's full credit through `parents[]`. Default
     /// false (legacy behavior).
+    ///
+    /// Stage 1's tie definition tracks `tie_margin`: with `tie_margin = 0.0`
+    /// (default), ties must be byte-exact equalities (`==`). With
+    /// `tie_margin > 0`, the share-split stage fires on near-ties using the
+    /// same relaxed cutoff as the post-bootstrap winner stage.
     pub suppress_ancestor_only_groups: bool,
 }
 
@@ -391,6 +497,7 @@ impl Default for ClassifyConfig {
             tie_margin: 0.0,
             confidence_uses_descent_margin: false,
             sibling_aware_leaf: false,
+            sibling_aware_min_vote_frac: 0.5,
             suppress_ancestor_only_groups: false,
         }
     }

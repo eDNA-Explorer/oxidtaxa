@@ -159,6 +159,7 @@ mod python_bindings {
         tie_margin = 0.0,
         confidence_uses_descent_margin = false,
         sibling_aware_leaf = false,
+        sibling_aware_min_vote_frac = 0.5,
         suppress_ancestor_only_groups = false,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -181,6 +182,7 @@ mod python_bindings {
         tie_margin: f64,
         confidence_uses_descent_margin: bool,
         sibling_aware_leaf: bool,
+        sibling_aware_min_vote_frac: f64,
         suppress_ancestor_only_groups: bool,
     ) -> PyResult<Vec<crate::types::ClassificationResult>> {
         let model =
@@ -192,6 +194,50 @@ mod python_bindings {
         let clean_seqs = crate::sequence::remove_gaps(&seqs);
 
         let strand_mode = parse_strand(strand)?;
+
+        // Range-validate numeric knobs at the API boundary. The Rust core is
+        // permissive (no internal asserts on these), so the Python binding is
+        // the one place we surface user typos as clear errors instead of
+        // silent misbehavior.
+        if !(0.0..=1.0).contains(&tie_margin) {
+            return Err(PyValueError::new_err(format!(
+                "tie_margin must be in [0.0, 1.0], got {}",
+                tie_margin
+            )));
+        }
+        if sibling_aware_leaf && tie_margin == 0.0 {
+            return Err(PyValueError::new_err(
+                "sibling_aware_leaf=True requires tie_margin > 0 — without a \
+                 relaxed margin, the widened sibling set has no path to \
+                 surface as alternatives. Set tie_margin to a small positive \
+                 value (e.g. 0.05) when enabling sibling_aware_leaf."
+                    .to_string(),
+            ));
+        }
+        if let Some(rt) = &rank_thresholds {
+            if rt.is_empty() {
+                return Err(PyValueError::new_err(
+                    "rank_thresholds = Some([]) is ambiguous; pass None to \
+                     disable per-rank thresholds, or supply at least one value."
+                        .to_string(),
+                ));
+            }
+            for (i, &v) in rt.iter().enumerate() {
+                if !(0.0..=100.0).contains(&v) {
+                    return Err(PyValueError::new_err(format!(
+                        "rank_thresholds[{}] = {} is out of range [0, 100]",
+                        i, v
+                    )));
+                }
+            }
+        }
+        if !(0.0..=1.0).contains(&sibling_aware_min_vote_frac) {
+            return Err(PyValueError::new_err(format!(
+                "sibling_aware_min_vote_frac must be in [0.0, 1.0], got {}",
+                sibling_aware_min_vote_frac
+            )));
+        }
+
         let config = crate::types::ClassifyConfig {
             threshold,
             bootstraps,
@@ -204,6 +250,7 @@ mod python_bindings {
             tie_margin,
             confidence_uses_descent_margin,
             sibling_aware_leaf,
+            sibling_aware_min_vote_frac,
             suppress_ancestor_only_groups,
         };
 
@@ -335,6 +382,18 @@ mod python_bindings {
         Ok(())
     }
 
+    /// Return the number of ranks (taxonomic depth) in a saved model.
+    ///
+    /// Ranks are derived from the model's `levels` vector — the deepest
+    /// `levels[i]` value is the rank count. Useful for sizing
+    /// `rank_thresholds` correctly without classifying first.
+    #[pyfunction]
+    fn model_n_ranks(model_path: &str) -> PyResult<i32> {
+        let model =
+            crate::types::TrainingSet::load(model_path).map_err(|e| PyValueError::new_err(e))?;
+        Ok(model.levels.iter().copied().max().unwrap_or(0))
+    }
+
     fn parse_descendant_weighting(s: &str) -> PyResult<crate::types::DescendantWeighting> {
         match s {
             "count" => Ok(crate::types::DescendantWeighting::Count),
@@ -393,6 +452,7 @@ mod python_bindings {
         m.add_function(pyo3::wrap_pyfunction!(prepare_data_py, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(build_tree_py, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(learn_fractions_py, m)?)?;
+        m.add_function(pyo3::wrap_pyfunction!(model_n_ranks, m)?)?;
         m.add_class::<crate::types::ClassificationResult>()?;
         m.add_class::<PyPreparedData>()?;
         m.add_class::<PyBuiltTree>()?;

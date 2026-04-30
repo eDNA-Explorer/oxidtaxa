@@ -242,9 +242,10 @@ fn classify_one_pass(
             // `idf_row` selection runs once per descent step; per-child
             // weights are built only when the flag is set.
             let idf_row: Option<&[f64]> = if ts.use_idf_in_descent {
-                let depth = (ts.levels[k_node] - 1).max(0) as usize;
-                let row_idx = depth.min(ts.idf_weights_by_rank.len().saturating_sub(1));
-                Some(&ts.idf_weights_by_rank[row_idx])
+                Some(crate::training::idf_row_for_depth(
+                    &ts.idf_weights_by_rank,
+                    ts.levels[k_node],
+                ))
             } else {
                 None
             };
@@ -303,14 +304,29 @@ fn classify_one_pass(
                 .map(|(i, _)| i)
                 .collect();
             if w.len() != 1 {
+                // Mech 1 — halt-in-the-middle fallback. Two filters:
+                //  - `w50`: did at least one child come close to winning?
+                //    Threshold is `sibling_aware_min_vote_frac * b` (default
+                //    0.5 = the previously hardcoded constant).
+                //  - inner filter: which children to hand to leaf-phase.
+                //    When `sibling_aware_leaf=false` (default), use the loose
+                //    `> 0 votes` filter — every candidate that was still in
+                //    the running survives. When `sibling_aware_leaf=true`,
+                //    tighten to the same strict frac threshold so Mech 1 and
+                //    Mech 2 use one knob to govern "what counts as a sibling
+                //    contender."
+                let min_votes = ((b as f64) * config.sibling_aware_min_vote_frac) as usize;
                 let w50: Vec<usize> = vote_counts
                     .iter()
                     .enumerate()
-                    .filter(|(_, &c)| c >= ((b as f64) * 0.5) as usize)
+                    .filter(|(_, &c)| c >= min_votes)
                     .map(|(i, _)| i)
                     .collect();
                 if w50.is_empty() {
                     w_indices = (0..vote_counts.len()).collect();
+                } else if config.sibling_aware_leaf {
+                    // Strict filter — only siblings clearing the frac threshold.
+                    w_indices = w50;
                 } else {
                     w_indices = vote_counts
                         .iter()
@@ -326,11 +342,12 @@ fn classify_one_pass(
             }
             let winner = w[0];
             if children[subtrees[winner]].is_empty() {
-                // Optionally widen to include any sibling with
-                // vote_counts[j] >= 0.5 * b (winner always retained). Gated
-                // on `config.sibling_aware_leaf`.
+                // Mech 2 — terminal sibling widening. Optionally widen to
+                // include any sibling with `vote_counts[j] >=
+                // sibling_aware_min_vote_frac * b` (winner always retained).
+                // Gated on `config.sibling_aware_leaf`.
                 w_indices = if config.sibling_aware_leaf {
-                    let min_votes = ((b as f64) * 0.5) as usize;
+                    let min_votes = ((b as f64) * config.sibling_aware_min_vote_frac) as usize;
                     vote_counts
                         .iter()
                         .enumerate()
@@ -352,6 +369,12 @@ fn classify_one_pass(
         }
     }
 
+    // `descent_margins` is shorter than `confidences` by exactly one entry
+    // per recorded margin: each split records one margin, picking one rank
+    // (rank `i+1` from the split at descent step `i`). At unary intermediate
+    // nodes (e.g. monotypic family with only one child), no vote happens and
+    // no margin is recorded — `descent_margins.get(i-1)` returns None at the
+    // discount site, and that rank stays undiscounted. Correct by design.
     leaf_phase_score(
         k_node,
         &w_indices,
@@ -459,9 +482,10 @@ fn classify_one_pass_beam(
             // Mirror greedy: apply rank-appropriate IDF to per-child profile
             // values when the trained model recorded `use_idf_in_descent = true`.
             let idf_row: Option<&[f64]> = if ts.use_idf_in_descent {
-                let depth = (ts.levels[k_node] - 1).max(0) as usize;
-                let row_idx = depth.min(ts.idf_weights_by_rank.len().saturating_sub(1));
-                Some(&ts.idf_weights_by_rank[row_idx])
+                Some(crate::training::idf_row_for_depth(
+                    &ts.idf_weights_by_rank,
+                    ts.levels[k_node],
+                ))
             } else {
                 None
             };
@@ -594,15 +618,22 @@ fn classify_one_pass_beam(
                     }
                 }
             } else {
-                // No confident winner — terminal (same fallback as greedy)
+                // No confident winner — terminal (same fallback as greedy
+                // Mech 1). Mirrors the greedy path: under
+                // `sibling_aware_leaf=true`, the inner filter tightens to
+                // the strict frac threshold; otherwise uses the loose
+                // `> 0 votes` filter.
+                let min_votes = ((b as f64) * config.sibling_aware_min_vote_frac) as usize;
                 let w50: Vec<usize> = vote_counts
                     .iter()
                     .enumerate()
-                    .filter(|(_, &c)| c >= ((b as f64) * 0.5) as usize)
+                    .filter(|(_, &c)| c >= min_votes)
                     .map(|(i, _)| i)
                     .collect();
                 let w_indices = if w50.is_empty() {
                     (0..vote_counts.len()).collect()
+                } else if config.sibling_aware_leaf {
+                    w50
                 } else {
                     let w_pos: Vec<usize> = vote_counts
                         .iter()
@@ -687,9 +718,10 @@ fn leaf_phase_score(
     let taxa = &ts.taxa;
 
     // Per-rank IDF: pick the row at the descent node's depth.
-    let descent_depth = (ts.levels.get(k_node).copied().unwrap_or(1) - 1).max(0) as usize;
-    let rank_idx = descent_depth.min(ts.idf_weights_by_rank.len().saturating_sub(1));
-    let counts: &[f64] = &ts.idf_weights_by_rank[rank_idx];
+    let counts: &[f64] = crate::training::idf_row_for_depth(
+        &ts.idf_weights_by_rank,
+        ts.levels.get(k_node).copied().unwrap_or(1),
+    );
 
     // Gather training sequences
     let subtrees = &children[k_node];
@@ -798,10 +830,30 @@ fn leaf_phase_score(
         return Some((ClassificationResult::unclassified("no_training_match"), 0.0));
     }
 
-    // Length normalization: scale each training sequence's scores by sqrt(n_unique / avg)
+    // Length normalization: scale each training sequence's scores by
+    // sqrt(n_unique / avg). The sqrt exponent is heuristic — a compromise
+    // between no correction (long refs accumulate too many incidental hits
+    // and dominate match scoring on raw count alone) and linear scaling
+    // (over-corrects, since the expected-hit count under random sampling
+    // grows sub-linearly in unique-k-mer count). Not derivable from a
+    // standard sampling model; pinned here as a known design choice rather
+    // than a derived constant.
+    //
+    // `avg` is the train-time fixed mean unique-k-mer count of all training
+    // sequences in the stop-node's subtree, cached on the model at training
+    // time. Cross-query stable: the same training sequence sees the same
+    // divisor regardless of which other refs landed in `keep` at this
+    // query. Closes the single-keep no-op (the previous keep-local mean had
+    // `avg == n_unique` at single-keep so `norm_factor = 1.0` always). The
+    // global root-level average serves as a backstop for opaque nodes
+    // (those exceeding `max_children`) and legacy models without the cache.
     if config.length_normalize {
-        let avg_unique: f64 =
-            keep.iter().map(|&idx| ls[idx] as f64).sum::<f64>() / keep.len() as f64;
+        let cached = ts.avg_n_unique_per_node[k_node];
+        let avg_unique = if cached > 0.0 {
+            cached
+        } else {
+            ts.avg_n_unique_global
+        };
         for (k_idx, &seq_idx) in keep.iter().enumerate() {
             let n_unique = ls[seq_idx] as f64;
             if n_unique > 0.0 && avg_unique > 0.0 {
@@ -937,10 +989,26 @@ fn leaf_phase_score(
         // `max_val > 0` — doing so would drop real per-replicate contributions
         // whenever every group's score is negative (the non-tied branch here
         // matches the legacy accumulator bit-for-bit in that case).
+        //
+        // Tie definition: with `tie_margin = 0.0` (default), only byte-exact
+        // ties count (`hit == max_val`). With `tie_margin > 0`, near-ties
+        // join — same negative-safe formula as the post-bootstrap winner
+        // stage (`cutoff = max_val - |max_val| * tie_margin`). Extending
+        // tie_margin to the per-replicate test is the design intent: relax
+        // exact equality everywhere ties are tested, not just at the winner
+        // stage. Canonical IDTAXA's `ties.method = "random"` already gives
+        // each exact-tied column expected credit `share`; deterministic
+        // share-split is mathematically equivalent. Relaxing to near-ties
+        // is the same logic with a relaxed test, not a new semantic.
+        let tie_cutoff = if config.tie_margin > 0.0 {
+            max_val - max_val.abs() * config.tie_margin
+        } else {
+            max_val
+        };
         is_tied.iter_mut().for_each(|x| *x = false);
         let mut n_tied: usize = 0;
         for (j, &ti) in top_hits_idx.iter().enumerate() {
-            if hits_flat[ti * b + rep] == max_val {
+            if hits_flat[ti * b + rep] >= tie_cutoff {
                 is_tied[j] = true;
                 n_tied += 1;
             }
@@ -987,11 +1055,21 @@ fn leaf_phase_score(
 
     // Choose best group
     let max_tot = tot_hits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    // With `tie_margin > 0`, any group scoring within `(1 - tie_margin)` of
-    // `max_tot` joins the tied set, feeding LCA-cap and `alternatives`.
-    // Default `tie_margin = 0.0` preserves exact-equality semantics.
-    let mut winners: Vec<usize> = if config.tie_margin > 0.0 && max_tot > 0.0 {
-        let cutoff = max_tot * (1.0 - config.tie_margin);
+    // With `tie_margin > 0`, any group scoring within `tie_margin` of
+    // `max_tot` (additive in `|max_tot|` units) joins the tied set, feeding
+    // LCA-cap and `alternatives`. Default `tie_margin = 0.0` preserves
+    // exact-equality semantics.
+    //
+    // Formula: `cutoff = max_tot - |max_tot| * tie_margin`. This is
+    // equivalent to `max_tot * (1 - tie_margin)` for `max_tot > 0`, but
+    // remains correct for negative `max_tot` (which can arise when IDF
+    // weights produce negative `hits_flat` values, e.g. universal-at-rank
+    // k-mers with `c ≈ N_r`). The plain multiplicative form would compute
+    // a *higher* cutoff than `max_tot` in that case (`-10 * 0.95 = -9.5`,
+    // but `-10 < -9.5`), leaving the tied set empty and panicking at
+    // `winners[0]` below.
+    let mut winners: Vec<usize> = if config.tie_margin > 0.0 {
+        let cutoff = max_tot - max_tot.abs() * config.tie_margin;
         tot_hits
             .iter()
             .enumerate()

@@ -211,7 +211,10 @@ fn test_descent_margin_default_off() {
 #[test]
 fn test_descent_margin_on_never_raises_confidence() {
     // Flipping `confidence_uses_descent_margin` ON multiplies each rank's
-    // confidence by a running product of margins ≤ 1.0, so each per-rank
+    // confidence by a per-rank affine-remapped margin in `[0.82, 1.0]`
+    // (current semantic; pre-e287eb7 was a cumulative product floored at
+    // 0.1, see test_descent_margin_does_not_collapse_deep_ranks for the
+    // non-collapse contract). Per-rank multiplier ≤ 1.0, so each per-rank
     // confidence can only shrink (or stay equal when every descent was
     // unambiguous).
     let ts = build_near_tied_training_set();
@@ -435,11 +438,16 @@ fn test_descent_margin_active_with_beam_width_3() {
 
 #[test]
 fn test_descent_margin_does_not_collapse_deep_ranks() {
-    // With per-rank (non-cumulative) application, the deepest rank's
-    // confidence is discounted by at most one margin (≥ 0.1 floor), so it
-    // must be ≥ 10% of its unflagged value. Under the old cumulative-product
-    // semantics, 6-7 compounded margins could easily drop this ratio to
-    // 0.1^6 ≈ 1e-6 — a collapse we explicitly guard against.
+    // With per-rank (non-cumulative) application + affine remap to
+    // `[MARGIN_FLOOR=0.8, 1.0]`, the deepest rank's confidence is discounted
+    // by at most one multiplier ≥ 0.82 (`MARGIN_FLOOR + (1-MARGIN_FLOOR)·0.1
+    // = 0.82` at the lowest m=0.1). At typical tree depth L=4-6, this gives
+    // `0.82^L ∈ [0.45, 0.55]` worst-case — comfortably above 0.5. Under
+    // pre-e287eb7 cumulative-product semantics, 6-7 compounded margins could
+    // collapse to `0.1^6 ≈ 1e-6` — a collapse we explicitly guard against.
+    // Tighten the assertion to 0.5 so a regression to cumulative-product
+    // would actually fail the test (the prior 0.1 threshold passed under
+    // either semantic and couldn't distinguish them).
     let ts = build_near_tied_training_set();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -489,8 +497,9 @@ fn test_descent_margin_does_not_collapse_deep_ranks() {
     if deepest_off > 1.0 {
         let ratio = deepest_on / deepest_off;
         assert!(
-            ratio >= 0.1 - 1e-6,
-            "deepest-rank confidence collapsed: off={}, on={}, ratio={} (< 0.1 floor)",
+            ratio >= 0.5 - 1e-6,
+            "deepest-rank confidence collapsed: off={}, on={}, ratio={} (< 0.5 — \
+             would only happen under pre-e287eb7 cumulative-product semantics)",
             deepest_off,
             deepest_on,
             ratio

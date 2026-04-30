@@ -463,7 +463,7 @@
   <h3 id="s16">Scenario S16 — spaced seed collapses a SNP</h3>
   <div class="scenario">
     <h4><span class="tag">S16</span> Spaced-seed k-mer collision</h4>
-    <div class="knob-strip">knobs: <code class="inline">k=5, seed_pattern=11011</code> (weight 4) &nbsp;vs&nbsp; <code class="inline">seed_pattern=None</code> (contiguous <code class="inline">k=4</code>)</div>
+    <div class="knob-strip">knobs: <code class="inline">seed_pattern=11011</code> (weight=4, span=5) &nbsp;vs&nbsp; <code class="inline">seed_pattern=None</code> (contiguous <code class="inline">k=4</code>). The pattern's <code class="inline">weight</code> (number of <code class="inline">1</code>s) is what oxidtaxa uses as <code class="inline">k</code> internally; <code class="inline">span</code> (pattern length) is the window size on the input.</div>
     <p>Consider two near-identical sequences that differ only at position 3:</p>
     <table>
       <thead>
@@ -485,7 +485,7 @@
 
   <div class="param-box">
     <h4><span class="tag">train</span> <code class="inline">per_rank_idf</code> (always on)</h4>
-    <div>Source: <code class="inline">src/training.rs:707</code> (formula), <code class="inline">src/classify.rs:552</code> (per-rank row lookup at descent depth).</div>
+    <div>Source: <code class="inline">src/training.rs:741</code> (formula), <code class="inline">src/classify.rs:689–693</code> (per-rank row lookup at descent depth).</div>
   </div>
 
   <h3>Worked IDF matrix for the extended dataset</h3>
@@ -510,7 +510,7 @@
       <tr><td>Species (r=4)</td><td>10</td><td>2.30 → 1.61</td><td>2.30 → 1.95</td><td>2.30 → 2.30</td><td>2.30 → 2.30</td><td>at species level almost everything is informative</td></tr>
     </tbody>
   </table>
-  <p class="hist-caption">Shown as <code class="inline">ln(N_r)</code> → actual <code class="inline">ln(N_r/(1+c_r))</code>. The rightmost column is what <em>classify.rs:552</em> picks at each descent step.</p>
+  <p class="hist-caption">Shown as <code class="inline">ln(N_r)</code> → actual <code class="inline">ln(N_r/(1+c_r))</code>. The rightmost column is what <em>classify.rs:689–693</em> picks at each descent step.</p>
 
   <div class="note"><strong>Why a matrix, not a vector.</strong> A k-mer like <code class="inline">ACG</code> is noisy at kingdom (present everywhere) but discriminative at genus (only Canis has it on seq1/seq2/seq7/seq11). A single global vector would either over-weight it at kingdom or under-weight it at genus. The matrix lets the classifier pick the right row for the depth it's currently deciding.</p></div>
 </div>
@@ -577,6 +577,7 @@
         <p class="hist-caption"><code class="inline">CGT</code>'s Bhattacharyya similarity to <code class="inline">ACG</code> is near 1.0 → penalty shrinks its effective gain to zero. Budget freed, <code class="inline">TTA</code> (Plantae-only) enters the kept list. The classifier now uses five independent signals instead of four-plus-a-duplicate.</p>
       </div>
     </div>
+    <p class="hist-caption" style="margin-top:8px"><strong>How the metric works.</strong> Each candidate's per-child profile is L1-normalized (<code class="inline">p̃ = p / Σp</code>) and the sqrt is precomputed. Pairwise similarity is then <code class="inline">BC(a, b) = Σ_j √(p̃_a(j) · p̃_b(j))</code> — a simple dot product. <code class="inline">BC ∈ [0, 1]</code>, equals 1 for identical distributions, equals 0 for disjoint support. Bhattacharyya is well-defined for any split size, including <code class="inline">n_children = 2</code> where Pearson correlation degenerates (any two 2D points have |r| = 1 by construction). The selection loop is entropy-descending with a per-candidate cached <code class="inline">max_corr</code>, allowing an early-exit optimization: once the entropy budget is exhausted, no remaining candidate can improve the gain. Total work O(R · C) where R = <code class="inline">record_kmers</code> and C = candidate pool size; parallelized when <code class="inline">n_cand &gt;= 2048</code>. Source: <code class="inline">src/training.rs:836–844</code> (Bhattacharyya rationale), <code class="inline">src/training.rs:1119</code> (max_corr cache).</p>
   </div>
 
   <h3 id="s19">Scenario S19 — <code class="inline">max_children</code> makes a node opaque</h3>
@@ -617,7 +618,7 @@
       </div>
       <div>
         <h5>Classify-time effect (correct)</h5>
-        <p style="font-size:0.85em;margin:0"><code class="inline">dk.is_none()</code> at <em>classify.rs:200</em> → <code class="inline">w_indices = (0..n_children)</code> and <code class="inline">break</code> out of descent. <strong>Leaf phase still runs</strong> over <em>every</em> child subtree — species-level calls are still produced, just without Stage 1 bootstrap voting at this node. The degradation is in <em>confidence quality</em> (one giant 1-of-18K leaf-phase pick, not a chain of per-rank bootstraps) and in <em>classify-time cost</em>, not in path depth.</p>
+        <p style="font-size:0.85em;margin:0"><code class="inline">dk.is_none()</code> at <em>classify.rs:222–227</em> → <code class="inline">w_indices = (0..n_children)</code> and <code class="inline">break</code> out of descent. <strong>Leaf phase still runs</strong> over <em>every</em> child subtree — species-level calls are still produced, just without Stage 1 bootstrap voting at this node. The degradation is in <em>confidence quality</em> (one giant 1-of-18K leaf-phase pick, not a chain of per-rank bootstraps) and in <em>classify-time cost</em>, not in path depth.</p>
       </div>
     </div>
     <div class="note"><strong>Practical consequence.</strong> On 16S/ITS/CO1 queries that route to Bacillus, Russula, or any other hyper-branching genus, the per-rank confidence curve flattens across the opaque node's rank and the species confidence reflects leaf-phase <code class="inline">tot_hits/B</code> over a huge candidate pool rather than a bootstrap vote share. Raising <code class="inline">max_children</code> above 200 recovers bootstrap voting at these nodes but blows up training cost (quadratic in correlation-aware mode). Lowering it makes more nodes opaque. 200 is IDTAXA's empirical sweet spot; oxidtaxa inherits the default.</div>
@@ -631,7 +632,7 @@
 
   <div class="param-box">
     <h4><span class="tag">train</span> <code class="inline">training_threshold</code>, <code class="inline">max_fraction</code>, <code class="inline">min_fraction</code>, <code class="inline">multiplier</code>, <code class="inline">max_iterations</code>, <code class="inline">use_idf_in_descent</code>, <code class="inline">leave_one_out</code></h4>
-    <div>Defaults: 0.80 / 0.06 / 0.01 / 100.0 / 10 / false / false. The nudge-down block lives at <code class="inline">src/training.rs:550–570</code>.</div>
+    <div>Defaults: 0.80 / 0.06 / 0.01 / 100.0 / 10 / false / false. The nudge-down block lives at <code class="inline">src/training.rs:575–595</code>.</div>
   </div>
 
   <h3 id="s20">Scenario S20 — fraction-learning convergence</h3>
@@ -828,8 +829,8 @@ reject_reason = "below_threshold"</div>
 <div class="scenario" id="s7">
   <h4><span class="tag" style="background:var(--accent-2)">S7</span> Beam separates two children that <em>both</em> pass <code class="inline">min_descend</code></h4>
   <div class="knob-strip">knob: <code class="inline">beam_width = 2</code> (defaults: <code class="inline">min_descend=0.98</code>, <code class="inline">B=100</code>)</div>
-  <p><strong>When does beam diverge from greedy?</strong> Only when ≥ 2 children clear <code class="inline">min_descend</code> at the same split. The beam code at <code class="inline">src/classify.rs:430</code> requires the top to pass; <code class="inline">src/classify.rs:458–462</code> drops any runner-up that <em>doesn't</em> also pass — by design (in-source comment: "sub-threshold runner-ups are dropped … without algorithmic justification"). So 58/40 under default gate would halt for <em>both</em> beam and greedy.</p>
-  <p><strong>The realistic case under defaults: tied bootstraps.</strong> The vote-counting loop at <code class="inline">src/classify.rs:380–387</code> awards a vote to <em>every</em> child whose hits equal the rep's max, so ties inflate per-child counts beyond <em>B</em>. At Felidae → Genus, suppose <em>q_beam_rescue</em>'s k-mers are nearly equally represented in the Felis and Lynx profiles. Most reps tie; final tally <strong>Felis 100, Lynx 98, miss 2</strong> (totals exceed B because of ties).</p>
+  <p><strong>When does beam diverge from greedy?</strong> Only when ≥ 2 children clear <code class="inline">min_descend</code> at the same split. The beam code at <code class="inline">src/classify.rs:545</code> requires the top to pass; <code class="inline">src/classify.rs:573–577</code> drops any runner-up that <em>doesn't</em> also pass — by design (in-source comment: "sub-threshold runner-ups are dropped … without algorithmic justification"). So 58/40 under default gate would halt for <em>both</em> beam and greedy.</p>
+  <p><strong>The realistic case under defaults: tied bootstraps.</strong> The vote-counting loop at <code class="inline">src/classify.rs:489–501</code> awards a vote to <em>every</em> child whose hits equal the rep's max, so ties inflate per-child counts beyond <em>B</em>. At Felidae → Genus, suppose <em>q_beam_rescue</em>'s k-mers are nearly equally represented in the Felis and Lynx profiles. Most reps tie; final tally <strong>Felis 100, Lynx 98, miss 2</strong> (totals exceed B because of ties).</p>
   <div class="twocol">
     <div>
       <h5>Greedy (<code class="inline">beam_width=1</code>)</h5>
@@ -870,7 +871,7 @@ reject_reason = "below_threshold"</div>
       </svg>
     </div>
   </div>
-  <p class="hist-caption">The real difference: greedy runs <em>one</em> leaf phase over the lumped {Felis ∪ Lynx} candidate pool at Felidae; beam runs <em>two</em> separately-contextualized leaf phases (each rooted at its own genus, with its own <code class="inline">w_indices</code> and descent margins). When the right genus is the runner-up, beam's per-genus context produces cleaner similarity scores. Source: <code class="inline">src/classify.rs:430</code> (top-must-clear), <code class="inline">src/classify.rs:458–462</code> (runner-up-must-also-clear), <code class="inline">src/classify.rs:380–387</code> (tied-rep voting).</p>
+  <p class="hist-caption">The real difference: greedy runs <em>one</em> leaf phase over the lumped {Felis ∪ Lynx} candidate pool at Felidae; beam runs <em>two</em> separately-contextualized leaf phases (each rooted at its own genus, with its own <code class="inline">w_indices</code> and descent margins). When the right genus is the runner-up, beam's per-genus context produces cleaner similarity scores. Source: <code class="inline">src/classify.rs:545</code> (top-must-clear), <code class="inline">src/classify.rs:573–577</code> (runner-up-must-also-clear), <code class="inline">src/classify.rs:489–501</code> (tied-rep voting).</p>
   <p class="hist-caption" style="margin-top:6px"><em>Footnote:</em> the same divergence can occur without ties if the user lowers <code class="inline">min_descend</code> (e.g., to 0.40) — then a clean 55/45 split puts both children over the gate. Either way, beam's distinguishing trait is "≥ 2 children pass," not "rescue the runner-up."</p>
 </div>
 
@@ -888,7 +889,7 @@ reject_reason = "below_threshold"</div>
       <tr><td>lupus</td><td>55/45</td><td>0.10</td><td>0.820</td><td>85</td><td>69.7</td></tr>
     </tbody>
   </table>
-  <p class="hist-caption">Two near-tied splits at Canis and at the species rank surface as confidence drops of 14.4 and 15.3 points respectively. The 0.8 floor prevents a close split from zeroing a rank entirely — the classifier is still allowed to say "I got here but I wasn't decisive about it". Source: <code class="inline">src/classify.rs:230–241, 788–812</code>.</p>
+  <p class="hist-caption">Two near-tied splits at Canis and at the species rank surface as confidence drops of 14.4 and 15.3 points respectively. The 0.8 floor prevents a close split from zeroing a rank entirely — the classifier is still allowed to say "I got here but I wasn't decisive about it". Source: <code class="inline">src/classify.rs:286–297</code> (greedy margin recording), <code class="inline">src/classify.rs:1129–1137</code> (affine remap discount).</p>
   <div class="outbox ties">taxon         = ["Root", "Animalia", "Canidae", "Canis", "Canis_lupus"]
 confidence    = [100, 97, 100, 76, 70]   # discounted per-rank
 alternatives  = []
@@ -974,7 +975,7 @@ reject_reason = None    # tied-species is signaled via `alternatives`</div>
       <tr><td>seq10 (Vulpes_vulpes, long)</td><td>10</td><td>28</td><td>√(10/5.5) = 1.35</td><td>28/1.35 = <strong>20.8</strong></td></tr>
     </tbody>
   </table>
-  <p class="hist-caption">Without normalization, seq10 (28) is close enough to seq1 (30) to tie. With normalization, seq1 reaches 35 vs seq10's 21 — the long reference is demoted out of the false tie, and Canis wins decisively. Source: <code class="inline">src/classify.rs</code> (leaf-phase normalize block).</p>
+  <p class="hist-caption">Without normalization, seq10 (28) is close enough to seq1 (30) to tie. With normalization, seq1 reaches 35 vs seq10's 21 — the long reference is demoted out of the false tie, and Canis wins decisively. <strong>Note on <code class="inline">avg</code>:</strong> the divisor is computed against the keep-local mean of the candidate pool at the leaf-phase stop node — not a global per-database constant. Two queries that route to different leaf-parent nodes will see different averages, even on the same reference. At single-keep (one ref in the candidate pool) <code class="inline">avg = n_unique</code> and the divisor is 1.0 → the flag is structurally inert (the singleton-leaf gotcha case). Source: <code class="inline">src/classify.rs:801–816</code>.</p>
 </div>
 
 <div class="scenario stage2" id="s22">
@@ -1009,7 +1010,7 @@ reject_reason = None</div>
 <div class="scenario stage3" id="s12">
   <h4><span class="tag">S12</span> <code class="inline">too_few_kmers</code> abstention (<em>q_tiny</em>)</h4>
   <div class="knob-strip">knobs: defaults; <code class="inline">S = ⌈L<sup>0.47</sup>⌉</code></div>
-  <p>Query <code class="inline">q_tiny = "ACGT"</code>, L=4. Unique 3-mers: <code class="inline">{ACG, CGT}</code>, size 2. <code class="inline">S = ⌈4<sup>0.47</sup>⌉ = ⌈1.90⌉ = 2</code>. Guard at <code class="inline">src/classify.rs:303</code>: <code class="inline">my_kmers.len() &lt;= s</code> → 2 ≤ 2 → abstain.</p>
+  <p>Query <code class="inline">q_tiny = "ACGT"</code>, L=4. Unique 3-mers: <code class="inline">{ACG, CGT}</code>, size 2. <code class="inline">S = ⌈4<sup>0.47</sup>⌉ = ⌈1.90⌉ = 2</code>. Guard at <code class="inline">src/classify.rs:210</code> (greedy) / <code class="inline">:384</code> (beam): <code class="inline">my_kmers.len() &lt;= s</code> → 2 ≤ 2 → abstain.</p>
   <div class="outbox reject">taxon         = []
 confidence    = []
 alternatives  = []
@@ -1051,7 +1052,7 @@ reject_reason = "too_few_kmers"</div>
 confidence    = [100, 94]
 alternatives  = []
 reject_reason = "below_threshold"</div>
-  <p class="hist-caption">Canidae is the first rank below threshold → the loop breaks; everything below (Canis, lupus) is dropped. Source: <code class="inline">src/classify.rs:853–867</code>.</p>
+  <p class="hist-caption">Canidae is the first rank below threshold → the loop breaks; everything below (Canis, lupus) is dropped. Source: <code class="inline">src/classify.rs:1191–1208</code>.</p>
 </div>
 
 <div class="scenario stage3">
