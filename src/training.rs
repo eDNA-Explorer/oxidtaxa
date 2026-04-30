@@ -77,7 +77,7 @@ pub fn build_tree(
 /// Phase 3: Iterative fraction-learning loop + model assembly.
 ///
 /// The cheapest phase — re-run this when only training_threshold,
-/// use_idf_in_training, or leave_one_out changes.
+/// use_idf_in_descent, or leave_one_out changes.
 pub fn learn_fractions(
     prepared: &PreparedData,
     built_tree: &BuiltTree,
@@ -307,7 +307,7 @@ fn _prepare_data_inner(
         .collect();
 
     // Per-rank IDF: one row per taxonomic depth. Used by fraction-learning
-    // descent (when `use_idf_in_training = true`) AND at classify-time leaf
+    // descent (when `use_idf_in_descent = true`) AND at classify-time leaf
     // phase so the two score against the same IDF. The deepest row is the
     // species-level equivalent of the single IDF vector R IDTAXA produced.
     let idf_weights_by_rank = compute_idf_by_rank(&classes, &kmers, n_kmers);
@@ -390,7 +390,9 @@ fn _learn_fractions_inner(
 
     let idf_by_rank: &[Vec<f64>] = &prepared.idf_weights_by_rank;
 
-    for _it in 0..config.max_iterations {
+    let total_nodes = prepared.taxonomy.len();
+    for it in 0..config.max_iterations {
+        let iter_start = std::time::Instant::now();
         let remaining: Vec<usize> = incorrect
             .iter()
             .enumerate()
@@ -399,6 +401,10 @@ fn _learn_fractions_inner(
             .collect();
 
         if remaining.is_empty() {
+            eprintln!(
+                "[learn_fractions] iter={} early-exit: no remaining incorrect sequences",
+                it
+            );
             break;
         }
 
@@ -412,7 +418,7 @@ fn _learn_fractions_inner(
                 }
 
                 let mut seq_rng =
-                    RRng::new(mix_seed(seed, (_it as u64) * 1_000_000 + prepared.seq_hashes[i]));
+                    RRng::new(mix_seed(seed, (it as u64) * 1_000_000 + prepared.seq_hashes[i]));
                 let mut k_node = 0usize;
                 let mut correct = true;
                 let mut pred = String::new();
@@ -451,8 +457,8 @@ fn _learn_fractions_inner(
 
                         // Pick the per-rank IDF row matching the descent
                         // node's depth. Matches classify-time semantics so
-                        // `use_idf_in_training = true` scores training and
-                        // classification against the same IDF.
+                        // `use_idf_in_descent = true` scores training and
+                        // classification descent against the same IDF.
                         let idf_row: &[f64] = {
                             let depth = (prepared.levels[k_node] - 1).max(0) as usize;
                             let row_idx = depth.min(idf_by_rank.len().saturating_sub(1));
@@ -461,7 +467,7 @@ fn _learn_fractions_inner(
 
                         let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
                         for (j, _subtree) in subtrees.iter().enumerate() {
-                            let mut weights_j: Vec<f64> = if config.use_idf_in_training {
+                            let mut weights_j: Vec<f64> = if config.use_idf_in_descent {
                                 dk.profiles[j].iter().zip(dk.keep.iter())
                                     .map(|(&prof, &km)| {
                                         let idf = if km > 0 && (km as usize) <= idf_row.len() {
@@ -562,6 +568,22 @@ fn _learn_fractions_inner(
                 }
             }
         }
+
+        let still_incorrect = incorrect.iter().filter(|v| **v == Some(true)).count();
+        let correct_count = incorrect.iter().filter(|v| **v == Some(false)).count();
+        let masked_seqs = incorrect.iter().filter(|v| v.is_none()).count();
+        let masked_nodes = fraction.iter().filter(|f| f.is_none()).count();
+        eprintln!(
+            "[learn_fractions] iter={} processed={} still_incorrect={} correct={} masked_seqs={} masked_nodes={}/{} elapsed={:.1}s",
+            it,
+            remaining.len(),
+            still_incorrect,
+            correct_count,
+            masked_seqs,
+            masked_nodes,
+            total_nodes,
+            iter_start.elapsed().as_secs_f64()
+        );
     }
 
     let mut problem_sequences: Vec<ProblemSequence> = Vec::new();
@@ -600,6 +622,7 @@ fn _learn_fractions_inner(
         seed_pattern: prepared.seed_pattern.clone(),
         inverted_index: Some(prepared.inverted_index.clone()),
         idf_weights_by_rank: prepared.idf_weights_by_rank.clone(),
+        use_idf_in_descent: config.use_idf_in_descent,
     })
 }
 

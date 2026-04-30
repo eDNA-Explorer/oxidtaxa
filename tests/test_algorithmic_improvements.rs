@@ -136,7 +136,7 @@ fn test_idf_training_produces_valid_model() {
     // IDF-weighted training should produce a valid model
     let idf_model = learn_taxa(
         &seqs, &tax,
-        &TrainConfig { use_idf_in_training: true, ..Default::default() },
+        &TrainConfig { use_idf_in_descent: true, ..Default::default() },
         42, false,
     ).unwrap();
 
@@ -183,7 +183,7 @@ fn test_idf_training_combined_with_permissive_threshold() {
     let idf_model = learn_taxa(
         &seqs, &tax,
         &TrainConfig {
-            use_idf_in_training: true,
+            use_idf_in_descent: true,
             training_threshold: 0.3,
             ..Default::default()
         },
@@ -512,7 +512,7 @@ fn test_all_improvements_combined() {
     let train_config = TrainConfig {
         training_threshold: 0.98,
         descendant_weighting: DescendantWeighting::Equal,
-        use_idf_in_training: true,
+        use_idf_in_descent: true,
         leave_one_out: true,
         correlation_aware_features: true,
         ..Default::default()

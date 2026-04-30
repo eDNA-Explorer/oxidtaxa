@@ -47,6 +47,12 @@ pub struct TrainingSet {
     /// (so row 0 is Kingdom-level grouping, the deepest row is species-level).
     /// Classification picks the row matching the descent node's depth.
     pub idf_weights_by_rank: Vec<Vec<f64>>,
+    /// Whether descent scoring (at both training and classify time) was
+    /// configured to multiply per-child profile values by the rank-appropriate
+    /// IDF row. Set from `TrainConfig.use_idf_in_descent` at the end of
+    /// fraction learning. Read by `classify_one_pass` and
+    /// `classify_one_pass_beam` to match the train-time descent algorithm.
+    pub use_idf_in_descent: bool,
 }
 
 /// Intermediate training data: k-mer enumeration, taxonomy tree, and IDF weights.
@@ -70,9 +76,9 @@ pub struct PreparedData {
     pub n_seqs: Vec<usize>,
     pub cross_index: Vec<usize>,
     /// Per-rank IDF matrix: row `r` is the IDF computed across distinct
-    /// taxonomic prefixes at depth `r + 1`. Used by fraction-learning descent
-    /// (when `use_idf_in_training = true`) AND at classify time, so training
-    /// and classification score with the same rank-appropriate IDF.
+    /// taxonomic prefixes at depth `r + 1`. Always used at classify time in
+    /// the leaf phase. Also used by descent (training and classification)
+    /// when `use_idf_in_descent = true` on the trained model.
     pub idf_weights_by_rank: Vec<Vec<f64>>,
     pub seq_hashes: Vec<u64>,
     pub seed_pattern: Option<String>,
@@ -122,7 +128,7 @@ pub struct BuildTreeConfig {
 /// Config for the fraction-learning phase.
 pub struct LearnFractionsConfig {
     pub training_threshold: f64,
-    pub use_idf_in_training: bool,
+    pub use_idf_in_descent: bool,
     pub leave_one_out: bool,
     pub min_fraction: f64,
     pub max_fraction: f64,
@@ -147,7 +153,7 @@ impl From<&TrainConfig> for LearnFractionsConfig {
     fn from(c: &TrainConfig) -> Self {
         Self {
             training_threshold: c.training_threshold,
-            use_idf_in_training: c.use_idf_in_training,
+            use_idf_in_descent: c.use_idf_in_descent,
             leave_one_out: c.leave_one_out,
             min_fraction: c.min_fraction,
             max_fraction: c.max_fraction,
@@ -254,10 +260,13 @@ pub struct TrainConfig {
     /// Strategy for weighting child profiles during feature selection.
     /// Default: Count (original behavior).
     pub descendant_weighting: DescendantWeighting,
-    /// Use IDF weights (instead of profile weights) during the fraction-learning
-    /// tree descent. Makes training scoring match classification scoring.
-    /// Default false (original behavior uses profile weights).
-    pub use_idf_in_training: bool,
+    /// Apply rank-appropriate IDF weights to per-child profile values during
+    /// tree descent — at both training (fraction-learning) and classification.
+    /// When true, descent scoring uses `profiles[j] * idf_row[depth]`. When
+    /// false, descent scoring uses raw `profiles[j]`. Persisted on the trained
+    /// model so classify-time descent matches the algorithm used at train
+    /// time. Default false.
+    pub use_idf_in_descent: bool,
     /// Exclude each sequence from its own node's profile during fraction
     /// learning (leave-one-out). Reduces self-classification bias for small
     /// groups. Default false (original behavior).
@@ -286,7 +295,7 @@ impl Default for TrainConfig {
             seed_pattern: None,
             training_threshold: 0.8,
             descendant_weighting: DescendantWeighting::Count,
-            use_idf_in_training: false,
+            use_idf_in_descent: false,
             leave_one_out: false,
             correlation_aware_features: false,
             processors: 1,

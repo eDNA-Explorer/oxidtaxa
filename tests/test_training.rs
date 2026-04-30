@@ -217,7 +217,7 @@ fn test_staged_training_equivalence() {
     let built = build_tree(&prepared, &build_config).unwrap();
     let frac_config = LearnFractionsConfig {
         training_threshold: 0.8,
-        use_idf_in_training: false,
+        use_idf_in_descent: false,
         leave_one_out: false,
         min_fraction: 0.01,
         max_fraction: 0.06,

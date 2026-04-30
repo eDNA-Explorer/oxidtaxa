@@ -64,7 +64,7 @@ mod python_bindings {
         fasta_path, taxonomy_path, output_path,
         seed = 42, k = None, record_kmers_fraction = 0.10, verbose = true,
         seed_pattern = None, training_threshold = 0.8,
-        descendant_weighting = "count", use_idf_in_training = false,
+        descendant_weighting = "count", use_idf_in_descent = false,
         leave_one_out = false, correlation_aware_features = false,
         processors = 1
     ))]
@@ -81,7 +81,7 @@ mod python_bindings {
         seed_pattern: Option<String>,
         training_threshold: f64,
         descendant_weighting: &str,
-        use_idf_in_training: bool,
+        use_idf_in_descent: bool,
         leave_one_out: bool,
         correlation_aware_features: bool,
         processors: usize,
@@ -102,7 +102,7 @@ mod python_bindings {
             seed_pattern,
             training_threshold,
             descendant_weighting: dw,
-            use_idf_in_training,
+            use_idf_in_descent,
             leave_one_out,
             correlation_aware_features,
             processors,
@@ -275,7 +275,7 @@ mod python_bindings {
     #[pyfunction]
     #[pyo3(signature = (
         prepared, built_tree, output_path, seed = 42, training_threshold = 0.8,
-        use_idf_in_training = false, leave_one_out = false, processors = 1
+        use_idf_in_descent = false, leave_one_out = false, processors = 1
     ))]
     #[allow(clippy::too_many_arguments)]
     fn learn_fractions_py(
@@ -285,13 +285,13 @@ mod python_bindings {
         output_path: &str,
         seed: u32,
         training_threshold: f64,
-        use_idf_in_training: bool,
+        use_idf_in_descent: bool,
         leave_one_out: bool,
         processors: usize,
     ) -> PyResult<()> {
         let config = crate::types::LearnFractionsConfig {
             training_threshold,
-            use_idf_in_training,
+            use_idf_in_descent,
             leave_one_out,
             min_fraction: 0.01,
             max_fraction: 0.06,
