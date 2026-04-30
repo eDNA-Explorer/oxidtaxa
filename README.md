@@ -37,7 +37,7 @@ train(
     training_threshold=0.8,            # vote fraction to descend during fraction learning
     descendant_weighting="count",      # "count", "equal", or "log"
     use_idf_in_training=False,         # IDF-weighted scoring during training descent
-    leave_one_out=False,               # reduce self-classification bias for small groups
+    leave_one_out=False,               # per-kmer LOO during fraction learning (subtract held-out's contribution, renormalize)
     correlation_aware_features=False,  # greedy feature selection with redundancy penalty
     processors=1,                      # threads for tree construction + fraction learning
 )
@@ -52,7 +52,6 @@ results = classify(
     bootstraps=100,                    # bootstrap replicates (50 for sweeps, 100 production)
     strand="both",                     # "top", "bottom", or "both"
     min_descend=0.98,                  # fraction of votes to descend tree
-    full_length=0.0,                   # length filter (0 = disabled)
     processors=8,                      # threads
     sample_exponent=0.47,              # k-mers per bootstrap: S = L^exponent
     seed=42,
@@ -60,6 +59,7 @@ results = classify(
     length_normalize=False,            # normalize scores by training sequence length
     rank_thresholds=None,              # per-rank thresholds (e.g., [90, 80, 70, 60, 50, 40])
     beam_width=1,                      # candidate paths during tree descent (1 = greedy)
+    suppress_ancestor_only_groups=False, # drop ancestor-only training entries that parasitically tie with descendants
 )
 
 for r in results:
@@ -120,11 +120,11 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **bootstraps** | 100 | 1-1000 | Bootstrap replicates. Higher = more precise confidence, slower. Use 50 for parameter sweeps, 100 for production. |
 | **strand** | "both" | top/bottom/both | Which strand(s) to classify. "both" classifies forward and reverse complement, keeps the better hit. |
 | **min_descend** | 0.98 | 0.5-1.0 | Fraction of bootstrap votes required to descend into a child node. Lower = more aggressive descent into uncertain branches. |
-| **full_length** | 0.0 | 0.0+ | Length ratio filter for training sequences. 0 disables. When set (e.g. 2.0), excludes training sequences whose k-mer count differs by more than this fold from the query. |
 | **sample_exponent** | 0.47 | 0.2-0.8 | Controls k-mers sampled per bootstrap: S = L^exponent where L = unique k-mers in query. Lower = fewer samples (faster, noisier). Higher = more samples (slower, more stable). |
 | **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). Corrects bias from longer references accumulating more k-mer hits. Most useful for variable-length markers. |
 | **rank_thresholds** | None | list of floats | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set, overrides the single `threshold` parameter. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). If shorter than the predicted path, the last value is reused. |
 | **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent (original IDTAXA). At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
+| **suppress_ancestor_only_groups** | false | true/false | When true, drops ancestor-only training entries (e.g. `"Oncorhynchus sp."` after canonical NA-trim) that parasitically tie with a species-resolved descendant. Dual-stage: (1) per-replicate, drop ancestor-prefix groups from the tied set before share-split so the descendant gets full credit; (2) post-bootstrap, drop ancestor-prefix winners so the LCA-cap doesn't collapse to the ancestor's rank. The ancestor's outright-win evidence is preserved. Use when your reference database mixes ancestor-only and descendant-resolved entries. |
 | **deterministic** | false | true/false | When true, uses a single shared PRNG for R-compatible sequential output. When false (default), each query gets an independent PRNG for parallel execution. |
 | **processors** | 1 | 1+ | Number of threads for parallel classification. |
 | **seed** | 42 | any u32 | PRNG seed. In non-deterministic mode, each query gets seed XOR query_index. |
@@ -139,7 +139,7 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **training_threshold** | 0.8 | 0.0-1.0 | Bootstrap vote fraction required to descend during fraction learning. R's IDTAXA hardcodes 0.8. Set closer to `min_descend` (e.g., 0.98) for consistent training/classification thresholds — sequences that wouldn't pass classification descent won't pass training descent either. |
 | **descendant_weighting** | "count" | count/equal/log | How to weight child profiles when computing the merged profile for cross-entropy feature selection. "count" = weight by raw descendant count (original IDTAXA). "equal" = 1/n_children each, preventing large clades from dominating feature selection. "log" = log(1+descendants), a middle ground. |
 | **use_idf_in_training** | false | true/false | Multiply profile weights by IDF weights during the fraction-learning tree descent. Without this, training uses raw profile frequencies while classification uses IDF-weighted scores — a train/test mismatch. Enabling this calibrates fractions under the same scoring regime used at classification time. |
-| **leave_one_out** | false | true/false | Reduce self-classification bias for small taxonomy groups during fraction learning. For groups with 2-5 sequences, scales profile weights by (n-1)/n to approximate excluding the test sequence from its own group's profile. Singletons are skipped (no meaningful LOO signal with one member). Most impactful for databases with many low-count species. |
+| **leave_one_out** | false | true/false | Per-kmer leave-one-out during fraction learning. Subtracts the held-out sequence's contribution from the matching sibling's raw k-mer counts and renormalizes by the reduced total — singleton k-mers (held-out is the only contributor) go to zero, conserved k-mers stay unchanged. Reduces self-classification bias by removing circular evidence at fraction calibration; classify-time scoring is unaffected. Most impactful for databases with many low-count species. |
 | **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. At each step, selects the k-mer maximizing `entropy * (1 - max_correlation_with_selected)`. Produces a more diverse, efficient feature set. Slower training but no impact on classification speed. |
 | **processors** | 1 | 1+ | Number of threads. Parallelizes tree construction (sibling subtrees) and fraction learning (sequences within each iteration). |
 | **seed** | 42 | any u32 | PRNG seed for the training bootstrap loop. |
@@ -216,6 +216,9 @@ use_idf_in_training = [False, True]
 
 # Bias correction (most useful for sparse databases)
 leave_one_out = [False, True]
+
+# Database-curation correction (most useful when refs mix ancestor-only and species-resolved entries)
+suppress_ancestor_only_groups = [False, True]
 ```
 
 **Tier 5 — Spaced seeds (require retraining per pattern):**
