@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Oxidtaxa — Full Visual Walkthrough</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #555;
+    --accent: #d35400;
+    --accent-2: #2980b9;
+    --accent-3: #27ae60;
+    --accent-4: #8e44ad;
+    --border: #e0e0e0;
+    --code-bg: #1e1e2e;
+    --code-fg: #cdd6f4;
+    --highlight: #fff3cd;
+    --param-bg: #f3e9ff;
+    --param-border: #b58ee0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+    line-height: 1.55;
+  }
+  header {
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 16px;
+    margin-bottom: 32px;
+  }
+  h1 { margin: 0 0 6px; font-size: 2.2em; color: var(--accent); }
+  h2 {
+    color: var(--accent-2);
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 6px;
+    margin-top: 48px;
+  }
+  h3 { color: var(--accent-4); margin-top: 28px; }
+  h4 { color: var(--accent-4); margin: 16px 0 8px; }
+  p.sub { color: var(--muted); margin: 0; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 16px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .scenario {
+    background: #fafbff;
+    border: 1px solid #d8dff0;
+    border-left: 4px solid var(--accent-2);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 18px 0;
+  }
+  .scenario.stage2 { border-left-color: var(--accent); background: #fff9f3; border-color: #eed4bd; }
+  .scenario.stage3 { border-left-color: var(--accent-4); background: #faf6fd; border-color: #ddc9ee; }
+  .scenario h4 {
+    margin: 0 0 8px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .scenario .tag {
+    display: inline-block;
+    background: var(--accent-4);
+    color: #fff;
+    font-size: 0.7em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+  }
+  .scenario.stage2 .tag { background: var(--accent); }
+  .scenario.stage3 .tag { background: var(--accent-4); }
+  .scenario .knob-strip {
+    font-size: 0.82em;
+    color: var(--accent-4);
+    font-family: "SF Mono", Menlo, monospace;
+    margin: 4px 0 10px;
+  }
+  .param-box {
+    background: var(--param-bg);
+    border-left: 4px solid var(--param-border);
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 0.92em;
+  }
+  .param-box h4 { margin: 0 0 6px; color: var(--accent-4); font-size: 1em; font-weight: 700; }
+  pre.ascii {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.82em;
+    line-height: 1.35;
+    padding: 16px 18px;
+    border-radius: 8px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  code.inline {
+    background: #f0f0f0;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.9em;
+    color: #c0392b;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 10px 0;
+    font-size: 0.9em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #f5f5f5; font-weight: 600; }
+  td.dot { text-align: center; font-family: monospace; }
+  .dot-on { color: var(--accent-3); font-weight: bold; }
+  .dot-off { color: #ccc; }
+  .note {
+    background: var(--highlight);
+    border-left: 4px solid #f0ad4e;
+    padding: 10px 16px;
+    border-radius: 4px;
+    margin: 12px 0;
+    font-size: 0.93em;
+  }
+  svg { display: block; margin: 12px auto; max-width: 100%; }
+  .kmer-chip {
+    display: inline-block;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.78em;
+    padding: 2px 7px;
+    margin: 2px 3px;
+    border-radius: 10px;
+    background: #eef7ff;
+    border: 1px solid #b8d6ef;
+    color: #1a3952;
+    font-weight: 600;
+  }
+  .kmer-chip.picked { background: #fff0e6; border-color: #f5b480; color: #7a3600; }
+  .kmer-chip.dropped { background: #f3f3f3; border-color: #ddd; color: #888; text-decoration: line-through; }
+  .hist {
+    margin: 10px 0;
+    padding: 10px 12px;
+    background: #fafbff;
+    border: 1px solid #e4e8f3;
+    border-radius: 6px;
+  }
+  .hist h5 { margin: 0 0 8px; font-size: 0.9em; color: var(--accent-2); }
+  .hist-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 60px;
+    align-items: center;
+    gap: 10px;
+    margin: 3px 0;
+    font-size: 0.86em;
+  }
+  .hist-row .name { font-family: monospace; color: var(--ink); }
+  .hist-row .track {
+    position: relative;
+    height: 16px;
+    background: #ecedf5;
+    border-radius: 3px;
+    overflow: visible;
+  }
+  .hist-row .track .fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-3), #82c99a);
+    border-radius: 3px;
+  }
+  .hist-row .track .fill.loser { background: linear-gradient(90deg, #adb5bd, #ced4da); }
+  .hist-row .track .fill.winner-halt { background: linear-gradient(90deg, #e67061, #f1a79c); }
+  .hist-row .track .fill.tied { background: linear-gradient(90deg, #f0ad4e, #f5c97e); }
+  .hist-row .track .gate {
+    position: absolute;
+    top: -4px; bottom: -4px;
+    width: 2px;
+    background: #c0392b;
+  }
+  .hist-row .track .gate::after {
+    content: attr(data-label);
+    position: absolute;
+    top: -14px;
+    left: 4px;
+    font-size: 0.7em;
+    color: #c0392b;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .hist-row .val { font-family: monospace; text-align: right; font-size: 0.82em; }
+  .hist-caption { font-size: 0.8em; color: var(--muted); margin-top: 6px; }
+  .twocol {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .twocol > div {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .twocol h5 { margin: 0 0 6px; color: var(--accent-2); font-size: 0.92em; }
+  .threecol {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+  .threecol > div {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .threecol h5 { margin: 0 0 6px; color: var(--accent-2); font-size: 0.92em; }
+  .flow-arrow {
+    text-align: center;
+    color: var(--accent);
+    font-size: 1.3em;
+    font-weight: 700;
+    margin: 4px 0;
+  }
+  .knob-arrow-label {
+    font-family: monospace;
+    font-size: 0.78em;
+    color: var(--accent-4);
+    text-align: center;
+    padding: 4px 0;
+    border-top: 1px dashed var(--accent-4);
+    border-bottom: 1px dashed var(--accent-4);
+    margin: 6px 0;
+    background: #fbf6ff;
+  }
+  .converge-grid {
+    display: grid;
+    grid-template-columns: 80px repeat(10, 1fr);
+    gap: 3px 5px;
+    font-size: 0.78em;
+    font-family: monospace;
+    align-items: center;
+    margin: 10px 0;
+  }
+  .converge-grid .head { font-weight: 600; text-align: center; color: var(--muted); font-size: 0.75em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .converge-grid .rank-label { color: var(--ink); padding-right: 6px; }
+  .converge-cell {
+    position: relative;
+    height: 14px;
+    background: #ecedf5;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .converge-cell .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, var(--accent-3), #82c99a);
+  }
+  .converge-cell.masked .fill { background: #bbb; }
+  .converge-cell .v {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.7em;
+    color: #1a3952;
+    font-weight: 600;
+    text-shadow: 0 0 2px #fafbff;
+  }
+  .stage-band {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.72em;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .band-train { background: #eef7ff; color: var(--accent-2); border: 1px solid #b8d6ef; }
+  .band-s1 { background: #eef7ff; color: var(--accent-2); border: 1px solid #b8d6ef; }
+  .band-s2 { background: #fff0e6; color: var(--accent); border: 1px solid #f5caa8; }
+  .band-s3 { background: #f3e9ff; color: var(--accent-4); border: 1px solid #ddc9ee; }
+  .outbox {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.82em;
+    white-space: pre;
+    margin: 8px 0;
+  }
+  .outbox.reject { border-left: 4px solid #e67061; }
+  .outbox.ok { border-left: 4px solid var(--accent-3); }
+  .outbox.ties { border-left: 4px solid #f0ad4e; }
+  .legend-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin: 8px 0;
+  }
+  .legend-inline .sw {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.88em;
+    text-align: center;
+  }
+  .trace-wrap { overflow-x: auto; margin: 16px 0; padding: 10px 0; }
+  .trace-text { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; fill: var(--ink); }
+  .trace-text-small { font-size: 10px; fill: var(--muted); }
+  .trace-text-mono { font-family: monospace; font-size: 11px; fill: var(--ink); }
+  .trace-knob { font-size: 11px; font-family: monospace; fill: var(--accent-4); font-weight: 600; }
+  .trace-stage-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }
+  .trace-arrow { stroke: var(--accent); stroke-width: 2; fill: none; marker-end: url(#trace-arrow); }
+  .trace-arrow-soft { stroke: #999; stroke-width: 1.5; fill: none; marker-end: url(#trace-arrow-soft); }
+  .trace-fraction-line { stroke: var(--accent-3); stroke-width: 1.8; fill: none; stroke-dasharray: 4 2; marker-end: url(#trace-arrow-green); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Oxidtaxa — Full Visual Walkthrough</h1>
+  <p class="sub">Companion to <code class="inline">oxidtaxa_method.html</code>. Where §10 of the method doc depicts a single query running through classification, this document expands that idea to the entire pipeline — training + classification — and depicts every qualitatively-distinct scenario on its own panel, all running against a single extended toy dataset. Every knob from <code class="inline">TrainConfig</code> and <code class="inline">ClassifyConfig</code> (except <code class="inline">processors</code>, which has no algorithmic effect) appears at its point of influence.</p>
+</header>
+
+<!-- =========== LEGEND =========== -->
+<div class="panel">
+  <h3 style="margin-top:0">Reading this document</h3>
+  <p>Each scenario is a single panel that answers three questions: <em>what changes</em> (the knob strip), <em>what the model sees</em> (intermediate numbers), and <em>what comes out</em> (the <code class="inline">ClassificationResult</code>). Scenarios are grouped by stage so the reader can skim by concern.</p>
+  <div class="legend-inline">
+    <span><span class="sw" style="background:#eef7ff;border:1px solid #b8d6ef"></span>Training / Stage 1 (descent)</span>
+    <span><span class="sw" style="background:#fff0e6;border:1px solid #f5caa8"></span>Stage 2 (leaf + LCA)</span>
+    <span><span class="sw" style="background:#f3e9ff;border:1px solid #ddc9ee"></span>Stage 3 (threshold)</span>
+    <span><span class="sw" style="background:linear-gradient(90deg,var(--accent-3),#82c99a)"></span>winner</span>
+    <span><span class="sw" style="background:linear-gradient(90deg,#f0ad4e,#f5c97e)"></span>tied / co-winner</span>
+    <span><span class="sw" style="background:linear-gradient(90deg,#e67061,#f1a79c)"></span>halting / failed</span>
+  </div>
+  <p style="font-size:0.9em;color:var(--muted);margin-top:8px">For the abstract three-filter framing, see method doc §4. For the terminal-scenario catalog (clean / halt / scattered / tied), see method doc §10.</p>
+</div>
+
+<!-- =========== §T0 — EXTENDED TOY DATASET =========== -->
+<h2>T0. Extended toy dataset</h2>
+<div class="panel">
+  <p>The §5 toy dataset (six sequences, <code class="inline">k=3</code>) is extended by six more sequences to expose every scenario the method doc can't demonstrate: a third Canis species, a Felis near-sibling, a second Rosa, a long Vulpes reference, a singleton Canis species, and a Felidae sister genus.</p>
+
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Sequence</th><th>Taxonomy (K;F;G;S)</th><th>Exists for</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>seq1</td><td><code class="inline">ACGTACGTAC</code></td><td>Animalia;Canidae;Canis;Canis_lupus</td><td>baseline</td></tr>
+      <tr><td>seq2</td><td><code class="inline">ACGTACGTAA</code></td><td>Animalia;Canidae;Canis;Canis_latrans</td><td>baseline</td></tr>
+      <tr><td>seq3</td><td><code class="inline">ACGAACGTAC</code></td><td>Animalia;Canidae;Vulpes;Vulpes_lagopus</td><td>baseline</td></tr>
+      <tr><td>seq4</td><td><code class="inline">GGCCGGCCGG</code></td><td>Animalia;Felidae;Felis;Felis_catus</td><td>baseline</td></tr>
+      <tr><td>seq5</td><td><code class="inline">TTAATTAATT</code></td><td>Plantae;Rosaceae;Rosa;Rosa_canina</td><td>baseline</td></tr>
+      <tr><td>seq6</td><td><code class="inline">CCGGAATTCC</code></td><td>Animalia;Canidae;Canis;Canis_lupus</td><td>2nd <em>lupus</em> sequence</td></tr>
+      <tr style="background:#fafbff"><td>seq7</td><td><code class="inline">ACGTACGATT</code></td><td>Animalia;Canidae;Canis;Canis_familiaris</td><td>3rd Canis species → three-way terminal, <code class="inline">sibling_aware_leaf</code></td></tr>
+      <tr style="background:#fafbff"><td>seq8</td><td><code class="inline">GGCCGGCCGT</code></td><td>Animalia;Felidae;Felis;Felis_silvestris</td><td>near-tied Felis sibling for <code class="inline">tie_margin</code></td></tr>
+      <tr style="background:#fafbff"><td>seq9</td><td><code class="inline">TTAATTAACC</code></td><td>Plantae;Rosaceae;Rosa;Rosa_gallica</td><td>2nd Rosa so genus isn't a singleton</td></tr>
+      <tr style="background:#fafbff"><td>seq10</td><td><code class="inline">CGATCGATCG ATCGATCGAT CGATCGATCG</code> (30 bp)</td><td>Animalia;Canidae;Vulpes;Vulpes_vulpes</td><td>long reference → <code class="inline">length_normalize</code></td></tr>
+      <tr style="background:#fafbff"><td>seq11</td><td><code class="inline">ACGTACGTAG</code></td><td>Animalia;Canidae;Canis;Canis_aureus</td><td>singleton-leaf gotcha (one seq under species)</td></tr>
+      <tr style="background:#fafbff"><td>seq12</td><td><code class="inline">GGCCTTAACG</code></td><td>Animalia;Felidae;Lynx;Lynx_rufus</td><td>Felidae sister genus → beam rescue</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Taxonomy tree (sketch)</h3>
+  <svg viewBox="0 0 1000 300" width="100%" height="300">
+    <defs>
+      <marker id="tree-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker>
+    </defs>
+    <!-- Root -->
+    <rect x="450" y="10" width="100" height="28" rx="4" fill="#eef7ff" stroke="#2980b9" stroke-width="1.5"/>
+    <text class="trace-text" x="500" y="29" text-anchor="middle" font-weight="600">Root</text>
+
+    <!-- Kingdoms -->
+    <rect x="230" y="70" width="120" height="28" rx="4" fill="#eef7ff" stroke="#2980b9" stroke-width="1.5"/>
+    <text class="trace-text" x="290" y="89" text-anchor="middle" font-weight="600">Animalia (9)</text>
+    <rect x="650" y="70" width="120" height="28" rx="4" fill="#eef7ff" stroke="#2980b9" stroke-width="1.5"/>
+    <text class="trace-text" x="710" y="89" text-anchor="middle" font-weight="600">Plantae (2)</text>
+
+    <line x1="500" y1="38" x2="290" y2="70" stroke="#888" stroke-width="1.5"/>
+    <line x1="500" y1="38" x2="710" y2="70" stroke="#888" stroke-width="1.5"/>
+
+    <!-- Families -->
+    <rect x="80" y="130" width="120" height="28" rx="4" fill="#eef7ff" stroke="#2980b9" stroke-width="1.5"/>
+    <text class="trace-text" x="140" y="149" text-anchor="middle">Canidae (6)</text>
+    <rect x="240" y="130" width="120" height="28" rx="4" fill="#eef7ff" stroke="#2980b9" stroke-width="1.5"/>
+    <text class="trace-text" x="300" y="149" text-anchor="middle">Felidae (3)</text>
+    <rect x="640" y="130" width="140" height="28" rx="4" fill="#eef7ff" stroke="#2980b9" stroke-width="1.5"/>
+    <text class="trace-text" x="710" y="149" text-anchor="middle">Rosaceae (2)</text>
+    <line x1="290" y1="98" x2="140" y2="130" stroke="#888" stroke-width="1.5"/>
+    <line x1="290" y1="98" x2="300" y2="130" stroke="#888" stroke-width="1.5"/>
+    <line x1="710" y1="98" x2="710" y2="130" stroke="#888" stroke-width="1.5"/>
+
+    <!-- Genera -->
+    <rect x="20" y="190" width="100" height="28" rx="4" fill="#fff" stroke="#888"/>
+    <text class="trace-text" x="70" y="209" text-anchor="middle">Canis (5)</text>
+    <rect x="140" y="190" width="100" height="28" rx="4" fill="#fff" stroke="#888"/>
+    <text class="trace-text" x="190" y="209" text-anchor="middle">Vulpes (2)</text>
+    <rect x="260" y="190" width="80" height="28" rx="4" fill="#fff" stroke="#888"/>
+    <text class="trace-text" x="300" y="209" text-anchor="middle">Felis (2)</text>
+    <rect x="350" y="190" width="70" height="28" rx="4" fill="#fff" stroke="#888"/>
+    <text class="trace-text" x="385" y="209" text-anchor="middle">Lynx (1)</text>
+    <rect x="660" y="190" width="100" height="28" rx="4" fill="#fff" stroke="#888"/>
+    <text class="trace-text" x="710" y="209" text-anchor="middle">Rosa (2)</text>
+    <line x1="140" y1="158" x2="70" y2="190" stroke="#888" stroke-width="1.5"/>
+    <line x1="140" y1="158" x2="190" y2="190" stroke="#888" stroke-width="1.5"/>
+    <line x1="300" y1="158" x2="300" y2="190" stroke="#888" stroke-width="1.5"/>
+    <line x1="300" y1="158" x2="385" y2="190" stroke="#888" stroke-width="1.5"/>
+    <line x1="710" y1="158" x2="710" y2="190" stroke="#888" stroke-width="1.5"/>
+
+    <!-- Species list -->
+    <text class="trace-text-small" x="70"  y="245" text-anchor="middle">lupus×2, latrans,</text>
+    <text class="trace-text-small" x="70"  y="258" text-anchor="middle">familiaris, aureus*</text>
+    <text class="trace-text-small" x="190" y="245" text-anchor="middle">lagopus,</text>
+    <text class="trace-text-small" x="190" y="258" text-anchor="middle">vulpes (long)</text>
+    <text class="trace-text-small" x="300" y="245" text-anchor="middle">catus,</text>
+    <text class="trace-text-small" x="300" y="258" text-anchor="middle">silvestris</text>
+    <text class="trace-text-small" x="385" y="245" text-anchor="middle">rufus</text>
+    <text class="trace-text-small" x="710" y="245" text-anchor="middle">canina, gallica</text>
+
+    <text class="trace-text-small" x="70" y="285" text-anchor="middle" fill="#c0392b">*aureus = singleton</text>
+  </svg>
+  <p class="hist-caption">The parenthesized count is sequence count per node. Canis has 5 sequences across 4 species. Vulpes has one short and one long reference. Canis_aureus is the designed singleton-leaf case.</p>
+</div>
+
+<!-- =========== §T1 — K-MER ENUMERATION + SPACED SEED (S16) =========== -->
+<h2>T1. K-mer enumeration &amp; spaced seeds</h2>
+<div class="panel">
+  <p>Before anything else, each training sequence is reduced to its sorted set of unique k-mer IDs. At <code class="inline">k=3</code> the universe is 4³ = 64 k-mers indexed <code class="inline">AAA=1…TTT=64</code>. Sliding a contiguous 3-window over <code class="inline">seq1 = ACGTACGTAC</code> gives <code class="inline">{ACG, CGT, GTA, TAC}</code>.</p>
+
+  <div class="param-box">
+    <h4><span class="tag">train</span> <code class="inline">k</code>, <code class="inline">seed_pattern</code>, <code class="inline">n</code></h4>
+    <div><code class="inline">k</code> (default <em>auto</em>): k-mer size. If <code class="inline">k=None</code>, oxidtaxa picks <code class="inline">k = max(3, ceil(log4(n · L_avg / N_ref)))</code> using the target <code class="inline">n</code> (default 500). <code class="inline">seed_pattern</code> (default <code class="inline">None</code>): binary mask selecting which positions within the window are read.</div>
+  </div>
+
+  <h3 id="s16">Scenario S16 — spaced seed collapses a SNP</h3>
+  <div class="scenario">
+    <h4><span class="tag">S16</span> Spaced-seed k-mer collision</h4>
+    <div class="knob-strip">knobs: <code class="inline">k=5, seed_pattern=11011</code> (weight 4) &nbsp;vs&nbsp; <code class="inline">seed_pattern=None</code> (contiguous <code class="inline">k=4</code>)</div>
+    <p>Consider two near-identical sequences that differ only at position 3:</p>
+    <table>
+      <thead>
+        <tr><th>Variant</th><th>Sequence</th><th>Contiguous 4-mers</th><th>Spaced 4-mers under <code class="inline">11011</code></th></tr>
+      </thead>
+      <tbody>
+        <tr><td>A</td><td><code class="inline">ACGTA</code></td><td><code class="inline">ACGT, CGTA</code></td><td><code class="inline">AC_TA</code> → read as <code class="inline">ACTA</code></td></tr>
+        <tr><td>B</td><td><code class="inline">AC<em>A</em>TA</code></td><td><code class="inline">ACAT, CATA</code></td><td><code class="inline">AC_TA</code> → read as <code class="inline">ACTA</code></td></tr>
+      </tbody>
+    </table>
+    <p class="hist-caption"><strong>Effect.</strong> Contiguous k-mers give A and B <em>disjoint</em> k-mer sets → they look like different species to the classifier. The spaced seed masks position 3 (the SNP), collapsing both variants onto the same k-mer ID <code class="inline">ACTA</code> → they share the feature, and the classifier correctly lumps them into one genus. This is how spaced seeds buy robustness to point mutations without widening <code class="inline">k</code>.</p>
+  </div>
+</div>
+
+<!-- =========== §T2 — PER-RANK IDF MATRIX =========== -->
+<h2>T2. Per-rank IDF matrix</h2>
+<div class="panel">
+  <p>IDF is not a single vector — it's a matrix, one row per rank depth. The formula <code class="inline">IDF_r(kmer) = ln(N_r / (1 + c_r))</code> uses the rank-specific count of distinct prefixes <code class="inline">N_r</code> and the rank-weighted occurrence count <code class="inline">c_r</code>. Per-rank <code class="inline">c_r</code> is normalized by group size so a 5-sequence genus doesn't dominate the kingdom-level row.</p>
+
+  <div class="param-box">
+    <h4><span class="tag">train</span> <code class="inline">per_rank_idf</code> (always on)</h4>
+    <div>Source: <code class="inline">src/training.rs:707</code> (formula), <code class="inline">src/classify.rs:552</code> (per-rank row lookup at descent depth).</div>
+  </div>
+
+  <h3>Worked IDF matrix for the extended dataset</h3>
+  <p>At <code class="inline">k=3</code>, against the 12-sequence training set, four of the 64 k-mers dominate the discrimination budget. Here's how each k-mer's IDF looks at each rank (numbers are illustrative — exact values depend on the per-rank group-size normalization):</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Rank (depth)</th>
+        <th>N<sub>r</sub></th>
+        <th>IDF(<code class="inline">ACG</code>)</th>
+        <th>IDF(<code class="inline">GGC</code>)</th>
+        <th>IDF(<code class="inline">TTA</code>)</th>
+        <th>IDF(<code class="inline">CGA</code>)</th>
+        <th>Commentary</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Kingdom (r=1)</td><td>2</td><td>0.69 → 0.00</td><td>0.69 → 0.00</td><td>0.69 → 0.69</td><td>0.69 → 0.00</td><td>at kingdom level nearly every common k-mer is in both kingdoms; <code class="inline">TTA</code> is Plantae-only → keeps a weight</td></tr>
+      <tr><td>Family (r=2)</td><td>3</td><td>1.10 → 0.10</td><td>1.10 → 0.41</td><td>1.10 → 1.10</td><td>1.10 → 0.69</td><td>family-level separation is where the tree starts doing real work</td></tr>
+      <tr><td>Genus (r=3)</td><td>5</td><td>1.61 → 0.51</td><td>1.61 → 0.92</td><td>1.61 → 1.61</td><td>1.61 → 1.10</td><td>Felidae/Canidae shared k-mers downweighted; unique k-mers rise</td></tr>
+      <tr><td>Species (r=4)</td><td>10</td><td>2.30 → 1.61</td><td>2.30 → 1.95</td><td>2.30 → 2.30</td><td>2.30 → 2.30</td><td>at species level almost everything is informative</td></tr>
+    </tbody>
+  </table>
+  <p class="hist-caption">Shown as <code class="inline">ln(N_r)</code> → actual <code class="inline">ln(N_r/(1+c_r))</code>. The rightmost column is what <em>classify.rs:552</em> picks at each descent step.</p>
+
+  <div class="note"><strong>Why a matrix, not a vector.</strong> A k-mer like <code class="inline">ACG</code> is noisy at kingdom (present everywhere) but discriminative at genus (only Canis has it on seq1/seq2/seq7/seq11). A single global vector would either over-weight it at kingdom or under-weight it at genus. The matrix lets the classifier pick the right row for the depth it's currently deciding.</p></div>
+</div>
+
+<!-- =========== §T3 — FEATURE SELECTION (S17, S18, S19) =========== -->
+<h2>T3. Feature selection at each decision node</h2>
+<div class="panel">
+  <p>At every internal node with at least two children, oxidtaxa picks a set of "decision k-mers" — the features that will be used at classify time to vote among the children. Three knobs change what gets picked.</p>
+
+  <div class="param-box">
+    <h4><span class="tag">train</span> <code class="inline">record_kmers_fraction</code>, <code class="inline">descendant_weighting</code>, <code class="inline">correlation_aware_features</code>, <code class="inline">max_children</code></h4>
+    <div><code class="inline">record_kmers_fraction</code> (0.10): fraction of <code class="inline">n_kmers</code> kept per node. <code class="inline">descendant_weighting</code> (Count): how child profiles are weighted when building the parent's <code class="inline">q</code>. <code class="inline">correlation_aware_features</code> (false): greedy de-dup using Bhattacharyya distance. <code class="inline">max_children</code> (200): above this the node is opaque.</div>
+  </div>
+
+  <h3 id="s17">Scenario S17 — <code class="inline">descendant_weighting</code> flips which k-mer wins</h3>
+  <div class="scenario">
+    <h4><span class="tag">S17</span> Lopsided node: 5-seq Canis vs 2-seq Vulpes at Canidae</h4>
+    <div class="knob-strip">knob: <code class="inline">descendant_weighting = Count | Equal | Log</code></div>
+    <p>At the Canidae node, Canis has 5 sequences and Vulpes has 2 (pretending seq10 is short for the arithmetic). Consider two candidate features:</p>
+    <ul>
+      <li><code class="inline">ACG</code> — in every Canis sequence, in one Vulpes sequence. Raw counts: Canis 5/5, Vulpes 1/2.</li>
+      <li><code class="inline">CGA</code> — in one Canis sequence (seq11), in both Vulpes. Raw counts: Canis 1/5, Vulpes 2/2.</li>
+    </ul>
+    <table>
+      <thead>
+        <tr><th>Weighting</th><th>q_Canis(ACG)</th><th>q_Vulpes(ACG)</th><th>q_Canis(CGA)</th><th>q_Vulpes(CGA)</th><th>Discriminative winner</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code class="inline">Count</code> (seqs sum)</td><td>5</td><td>1</td><td>1</td><td>2</td><td><code class="inline">ACG</code> (Canis 5 vs 1)</td></tr>
+        <tr><td><code class="inline">Equal</code> (per child)</td><td>1.0</td><td>0.5</td><td>0.2</td><td>1.0</td><td><code class="inline">CGA</code> (gap 0.8 &gt; 0.5)</td></tr>
+        <tr><td><code class="inline">Log</code> (compressed)</td><td>ln6 ≈ 1.79</td><td>ln2 ≈ 0.69</td><td>ln2 ≈ 0.69</td><td>ln3 ≈ 1.10</td><td><code class="inline">ACG</code> (gap 1.10 &gt; 0.41)</td></tr>
+      </tbody>
+    </table>
+    <p class="hist-caption">Same data, three different winners. <code class="inline">Count</code> favors features abundant in the dominant child. <code class="inline">Equal</code> weighs each child as a peer regardless of sample depth. <code class="inline">Log</code> dampens the dominant child without erasing it.</p>
+  </div>
+
+  <h3 id="s18">Scenario S18 — correlation-aware selection de-duplicates</h3>
+  <div class="scenario">
+    <h4><span class="tag">S18</span> Two highly-correlated top-entropy k-mers</h4>
+    <div class="knob-strip">knobs: <code class="inline">correlation_aware_features = false</code> (default) vs <code class="inline">true</code></div>
+    <p>Suppose at a node two candidate k-mers have identical presence profiles across children: <code class="inline">ACG</code> and <code class="inline">CGT</code>, both present in every Canis sequence and absent elsewhere. Their information gain is the same.</p>
+    <div class="twocol">
+      <div>
+        <h5>Round-robin (<code class="inline">false</code>)</h5>
+        <div style="text-align:center;margin:6px 0">
+          <span class="kmer-chip picked">ACG</span>
+          <span class="kmer-chip picked">CGT</span>
+          <span class="kmer-chip picked">GTA</span>
+          <span class="kmer-chip picked">GGC</span>
+          <span class="kmer-chip picked">TAC</span>
+        </div>
+        <p class="hist-caption">Both high-entropy k-mers selected. Redundant — <code class="inline">ACG</code> and <code class="inline">CGT</code> fire together so they each cast the "same" vote.</p>
+      </div>
+      <div>
+        <h5>Correlation-aware (<code class="inline">true</code>)</h5>
+        <div style="text-align:center;margin:6px 0">
+          <span class="kmer-chip picked">ACG</span>
+          <span class="kmer-chip dropped">CGT</span>
+          <span class="kmer-chip picked">GTA</span>
+          <span class="kmer-chip picked">GGC</span>
+          <span class="kmer-chip picked">TAC</span>
+          <span class="kmer-chip picked">TTA</span>
+        </div>
+        <p class="hist-caption"><code class="inline">CGT</code>'s Bhattacharyya similarity to <code class="inline">ACG</code> is near 1.0 → penalty shrinks its effective gain to zero. Budget freed, <code class="inline">TTA</code> (Plantae-only) enters the kept list. The classifier now uses five independent signals instead of four-plus-a-duplicate.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 id="s19">Scenario S19 — <code class="inline">max_children</code> makes a node opaque</h3>
+  <div class="scenario">
+    <h4><span class="tag">S19</span> Hyper-branching node (real example: <em>Bacillus</em>, 18,011 species in 16S_Bacteria)</h4>
+    <div class="knob-strip">knob: <code class="inline">max_children = 200</code> (canonical IDTAXA default; DECIPHER <code class="inline">LearnTaxa(maxChildren=200)</code>)</div>
+    <p><strong>This is a performance guardrail, not a truncation.</strong> At a node with N children, feature selection builds an N×n_kmers profile matrix; correlation-aware selection does O(N²) pairwise Bhattacharyya. With N≈18K (Bacillus) that's a ~300M-comparison step during training. IDTAXA (and oxidtaxa) skip feature selection entirely for such nodes. No <code class="inline">DecisionNode</code> is emitted.</p>
+    <p><strong>Real-world frequency.</strong> Every production database we ship trips this: <em>16S_Bacteria</em> has 154 opaque nodes (worst: Bacillus → 18,011 species); <em>ITS1_Fungi</em> 193; <em>CO1_Metazoa</em> 118; <em>ITS2_Plants</em> 96; even small amplicon DBs (12S, 16Smamm) have 1–2. So this path is exercised constantly on real data.</p>
+    <div class="threecol">
+      <div>
+        <h5>Normal node (≤ 200 children)</h5>
+        <svg viewBox="0 0 200 140" width="100%" height="140">
+          <rect x="60" y="10" width="80" height="24" rx="3" fill="#eef7ff" stroke="#2980b9"/>
+          <text class="trace-text" x="100" y="27" text-anchor="middle">Genus</text>
+          <line x1="100" y1="34" x2="40" y2="70" stroke="#888"/>
+          <line x1="100" y1="34" x2="100" y2="70" stroke="#888"/>
+          <line x1="100" y1="34" x2="160" y2="70" stroke="#888"/>
+          <rect x="20" y="70" width="40" height="22" rx="3" fill="#fff" stroke="#888"/>
+          <rect x="80" y="70" width="40" height="22" rx="3" fill="#fff" stroke="#888"/>
+          <rect x="140" y="70" width="40" height="22" rx="3" fill="#fff" stroke="#888"/>
+          <text class="trace-text-small" x="40"  y="86" text-anchor="middle">sp1</text>
+          <text class="trace-text-small" x="100" y="86" text-anchor="middle">sp2</text>
+          <text class="trace-text-small" x="160" y="86" text-anchor="middle">sp3</text>
+          <text class="trace-text-small" x="100" y="120" text-anchor="middle" fill="var(--accent-4)">DecisionNode = {ACG, GGC, …}</text>
+        </svg>
+      </div>
+      <div>
+        <h5>Opaque node (&gt; 200)</h5>
+        <svg viewBox="0 0 200 140" width="100%" height="140">
+          <rect x="60" y="10" width="80" height="24" rx="3" fill="#eef7ff" stroke="#2980b9"/>
+          <text class="trace-text" x="100" y="27" text-anchor="middle">Bacillus</text>
+          <rect x="30" y="55" width="140" height="46" rx="3" fill="#f3f3f3" stroke="#999" stroke-dasharray="3 3"/>
+          <text class="trace-text-small" x="100" y="75" text-anchor="middle" fill="#666">18,011 species —</text>
+          <text class="trace-text-small" x="100" y="90" text-anchor="middle" fill="#666">no feature selection</text>
+          <line x1="100" y1="34" x2="100" y2="55" stroke="#999" stroke-dasharray="2 2"/>
+          <text class="trace-text-small" x="100" y="120" text-anchor="middle" fill="var(--accent-4)">DecisionNode = None</text>
+        </svg>
+      </div>
+      <div>
+        <h5>Classify-time effect (correct)</h5>
+        <p style="font-size:0.85em;margin:0"><code class="inline">dk.is_none()</code> at <em>classify.rs:200</em> → <code class="inline">w_indices = (0..n_children)</code> and <code class="inline">break</code> out of descent. <strong>Leaf phase still runs</strong> over <em>every</em> child subtree — species-level calls are still produced, just without Stage 1 bootstrap voting at this node. The degradation is in <em>confidence quality</em> (one giant 1-of-18K leaf-phase pick, not a chain of per-rank bootstraps) and in <em>classify-time cost</em>, not in path depth.</p>
+      </div>
+    </div>
+    <div class="note"><strong>Practical consequence.</strong> On 16S/ITS/CO1 queries that route to Bacillus, Russula, or any other hyper-branching genus, the per-rank confidence curve flattens across the opaque node's rank and the species confidence reflects leaf-phase <code class="inline">tot_hits/B</code> over a huge candidate pool rather than a bootstrap vote share. Raising <code class="inline">max_children</code> above 200 recovers bootstrap voting at these nodes but blows up training cost (quadratic in correlation-aware mode). Lowering it makes more nodes opaque. 200 is IDTAXA's empirical sweet spot; oxidtaxa inherits the default.</div>
+  </div>
+</div>
+
+<!-- =========== §T4 — FRACTION LEARNING (S14, S15, S20) =========== -->
+<h2>T4. Fraction learning</h2>
+<div class="panel">
+  <p>After feature selection, every internal node starts with <code class="inline">fraction[node] = max_fraction</code>. Self-classification runs each training sequence through its own tree; if a node misclassifies a sequence, its fraction is nudged down by <code class="inline">multiplier · |failures|/n_seqs</code>. Nodes that hit <code class="inline">min_fraction</code> are masked (<code class="inline">fraction=None</code>) and effectively skipped at classify time.</p>
+
+  <div class="param-box">
+    <h4><span class="tag">train</span> <code class="inline">training_threshold</code>, <code class="inline">max_fraction</code>, <code class="inline">min_fraction</code>, <code class="inline">multiplier</code>, <code class="inline">max_iterations</code>, <code class="inline">use_idf_in_descent</code>, <code class="inline">leave_one_out</code></h4>
+    <div>Defaults: 0.80 / 0.06 / 0.01 / 100.0 / 10 / false / false. The nudge-down block lives at <code class="inline">src/training.rs:550–570</code>.</div>
+  </div>
+
+  <h3 id="s20">Scenario S20 — fraction-learning convergence</h3>
+  <div class="scenario">
+    <h4><span class="tag">S20</span> Canis genus node over 10 iterations</h4>
+    <div class="knob-strip">knobs: defaults (<code class="inline">max_iterations=10, min_fraction=0.01, max_fraction=0.06</code>)</div>
+    <p>Starting at 0.06 and decaying as Canis mis-splits seq7/seq11. Axis = iteration; bar length = <code class="inline">fraction[Canis]</code>.</p>
+    <div class="converge-grid">
+      <div></div>
+      <div class="head">iter 1</div><div class="head">2</div><div class="head">3</div><div class="head">4</div><div class="head">5</div><div class="head">6</div><div class="head">7</div><div class="head">8</div><div class="head">9</div><div class="head">10</div>
+
+      <div class="rank-label">Canis</div>
+      <div class="converge-cell"><div class="fill" style="width:100%"></div><div class="v">.060</div></div>
+      <div class="converge-cell"><div class="fill" style="width:88%"></div><div class="v">.053</div></div>
+      <div class="converge-cell"><div class="fill" style="width:73%"></div><div class="v">.044</div></div>
+      <div class="converge-cell"><div class="fill" style="width:60%"></div><div class="v">.036</div></div>
+      <div class="converge-cell"><div class="fill" style="width:48%"></div><div class="v">.029</div></div>
+      <div class="converge-cell"><div class="fill" style="width:38%"></div><div class="v">.023</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:28%"></div><div class="v">.017</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:17%"></div><div class="v">.010</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:6%"></div><div class="v">None</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:6%"></div><div class="v">None</div></div>
+    </div>
+    <p class="hist-caption">At iteration 9 <code class="inline">fraction[Canis]</code> crosses <code class="inline">min_fraction=0.01</code> and is masked (shown as grey "None"). Any sequence routed through Canis after that has its descent end at Canis — classify-time gains Canis as a ceiling for those queries. If the <em>entire tree</em>'s correct-fraction exceeds <code class="inline">training_threshold=0.80</code> before iteration 10, the outer loop exits early.</p>
+  </div>
+
+  <h3 id="s14">Scenario S14 — <code class="inline">use_idf_in_descent</code> changes the convergence path</h3>
+  <div class="scenario">
+    <h4><span class="tag">S14</span> Same node, same data, IDF on vs off</h4>
+    <div class="knob-strip">knob: <code class="inline">use_idf_in_descent = false</code> (default) vs <code class="inline">true</code></div>
+    <p>Without IDF, every feature carries equal weight during self-classification descent — seq7 and seq11 (which share <code class="inline">ACG</code> with their siblings) get misrouted more often, and the nudge-down loop has to work harder. With IDF <em>on</em>, descent uses the per-rank row matching the node's depth (training.rs:462), so the rare <code class="inline">CGA</code> at seq11 rescues it faster.</p>
+    <div class="converge-grid">
+      <div></div>
+      <div class="head">iter 1</div><div class="head">2</div><div class="head">3</div><div class="head">4</div><div class="head">5</div><div class="head">6</div><div class="head">7</div><div class="head">8</div><div class="head">9</div><div class="head">10</div>
+
+      <div class="rank-label">IDF off</div>
+      <div class="converge-cell"><div class="fill" style="width:100%"></div><div class="v">.060</div></div>
+      <div class="converge-cell"><div class="fill" style="width:88%"></div><div class="v">.053</div></div>
+      <div class="converge-cell"><div class="fill" style="width:73%"></div><div class="v">.044</div></div>
+      <div class="converge-cell"><div class="fill" style="width:60%"></div><div class="v">.036</div></div>
+      <div class="converge-cell"><div class="fill" style="width:48%"></div><div class="v">.029</div></div>
+      <div class="converge-cell"><div class="fill" style="width:38%"></div><div class="v">.023</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:28%"></div><div class="v">.017</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:17%"></div><div class="v">.010</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:6%"></div><div class="v">None</div></div>
+      <div class="converge-cell masked"><div class="fill" style="width:6%"></div><div class="v">None</div></div>
+
+      <div class="rank-label">IDF on</div>
+      <div class="converge-cell"><div class="fill" style="width:100%"></div><div class="v">.060</div></div>
+      <div class="converge-cell"><div class="fill" style="width:95%"></div><div class="v">.057</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+      <div class="converge-cell"><div class="fill" style="width:92%"></div><div class="v">.055</div></div>
+    </div>
+    <p class="hist-caption">Off: two seqs keep failing → node eventually masked. On: IDF-weighted descent routes seq7/seq11 correctly by iteration 3, fraction stabilizes near <code class="inline">max_fraction</code>. The node survives, classify-time decisions are crisper.</p>
+  </div>
+
+  <h3 id="s15">Scenario S15 — <code class="inline">leave_one_out</code> reshapes the profile per k-mer</h3>
+  <div class="scenario">
+    <h4><span class="tag">S15</span> Felidae (3 seqs) with per-kmer LOO active</h4>
+    <div class="knob-strip">knob: <code class="inline">leave_one_out = true</code>, fires for any <code class="inline">group_size &gt; 1</code> (singletons skipped)</div>
+    <p>For each training sequence, LOO subtracts that sequence's contribution from its matching sibling's raw k-mer counts and renormalizes by the reduced total. The shape of the profile changes (not just its scale) — singleton k-mers (only the held-out sequence has them) drop to zero; conserved k-mers (every group member has them) stay unchanged after renormalization.</p>
+    <p>For Felidae (n=3), held out is one of seq4 / seq5 / seq8. Its matching sibling is the Felis-Felis branch:</p>
+    <table>
+      <thead>
+        <tr>
+          <th>k-mer</th>
+          <th>raw count (count of seqs with kmer)</th>
+          <th>held-out has it?</th>
+          <th>LOO-adjusted count</th>
+          <th>LOO profile entry</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code class="inline">GGC</code> (3/3 conserved)</td>
+          <td>3</td>
+          <td>yes</td>
+          <td>3 − 1 = 2</td>
+          <td>2 / new_total ≈ 0.10 (≈ unchanged after renormalize)</td>
+        </tr>
+        <tr>
+          <td><code class="inline">CCG</code> (2/3 partial)</td>
+          <td>2</td>
+          <td>no</td>
+          <td>2 − 0 = 2</td>
+          <td>2 / new_total ≈ 0.10 (slightly upweighted)</td>
+        </tr>
+        <tr>
+          <td><code class="inline">CGT</code> (1/3 singleton; only seq8 has it)</td>
+          <td>1</td>
+          <td>yes (held out is seq8)</td>
+          <td>1 − 1 = 0</td>
+          <td>0.0 — k-mer drops out entirely</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="hist-caption"><code class="inline">new_total = raw_totals[Felis] − |kmers[i]|</code>. Singletons (the held-out sequence is the <em>only</em> contributor of <code class="inline">CGT</code>) go to zero — this is the bias correction working: at self-classification time, the held-out sequence's own unique k-mers no longer score it against itself. Conserved k-mers stay informative because the (count − 1) numerator and (total − |kmers[i]|) denominator scale together.</p>
+    <p class="hist-caption"><strong>Why this matters.</strong> Earlier versions of the flag scaled all weights uniformly by <code class="inline">(n−1)/n</code> — but uniform scaling cancels in <code class="inline">vector_sum</code>'s <code class="inline">cur_weight / max_weight</code> ratio, making the flag a no-op. Per-kmer LOO reshapes the profile (not just rescales it), so the bias correction is preserved through normalization. Source: <code class="inline">src/training.rs:481–498</code>, <code class="inline">src/types.rs:280–289</code>.</p>
+    <p class="hist-caption"><strong>Singletons.</strong> A group of size 1 (e.g. <em>Canis_aureus</em>) skips LOO entirely: <code class="inline">group_size &gt; 1</code> is the gate. The size cap (previously "≤ 5") was removed in the bugfix — LOO now fires for any group with at least 2 members. The effect magnitude shrinks naturally with group size (a held-out 1 of 100 contributes less to the profile to begin with), so no upper cap is needed.</p>
+  </div>
+</div>
+
+<!-- =========== §C0 — QUERY DATASETS =========== -->
+<h2>C1. The queries</h2>
+<div class="panel">
+  <p>Classification scenarios below reuse a small set of synthetic queries, each chosen to land on a specific scenario axis.</p>
+  <table>
+    <thead><tr><th>Query</th><th>Sequence</th><th>Length</th><th>What it's for</th></tr></thead>
+    <tbody>
+      <tr><td>q_clean</td><td><code class="inline">ACGTACGTAC</code></td><td>10</td><td>Identical to seq1 → clean descent (S1)</td></tr>
+      <tr><td>q_scatter</td><td><code class="inline">ACGTGGCTTA</code></td><td>10</td><td>Chimeric k-mers from all three families → mid-tree halt (S2)</td></tr>
+      <tr><td>q_canis_close</td><td><code class="inline">ACGTACGTAT</code></td><td>10</td><td>Canidae→Canis clean, but species split 92/8 → leading-not-decisive halt (S3)</td></tr>
+      <tr><td>q_near_tie</td><td><code class="inline">ACGTACGTAG</code></td><td>10</td><td>Equidistant from <em>lupus</em>/<em>latrans</em> → near-tie at leaf (S4/S5/S6)</td></tr>
+      <tr><td>q_beam_rescue</td><td><code class="inline">GGCCTTACGG</code></td><td>10</td><td>k-mers tie Felis/Lynx; both children clear <code class="inline">min_descend</code> via tied bootstraps → beam helps (S7)</td></tr>
+      <tr><td>q_aureus_only</td><td><code class="inline">ACGTACGTAG</code></td><td>10</td><td>Routes to the <em>aureus</em> singleton-leaf (S9)</td></tr>
+      <tr><td>q_long</td><td><code class="inline">CGATCGATCG ATCGATCGAT CGATCGATCG</code></td><td>30</td><td>Exercises <code class="inline">length_normalize</code> (S11)</td></tr>
+      <tr><td>q_tiny</td><td><code class="inline">ACGT</code></td><td>4</td><td>Below <code class="inline">sample_exponent</code> k-mer floor → <code class="inline">too_few_kmers</code> (S12)</td></tr>
+      <tr><td>q_weak</td><td><code class="inline">NNNNNNNNNN</code></td><td>10</td><td>No training matches → <code class="inline">below_threshold</code> at Animalia (S13)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- =========== §C1 — STAGE 1 SCENARIOS =========== -->
+<h2>C2. Stage 1 scenarios — descent gate</h2>
+
+<div class="scenario" id="s1">
+  <h4><span class="tag" style="background:var(--accent-2)">S1</span> Clean descent, leaf reached (<em>q_clean → Canis_lupus</em>)</h4>
+  <div class="knob-strip">knobs: defaults (<code class="inline">min_descend=0.98, beam_width=1, confidence_uses_descent_margin=false</code>)</div>
+  <div class="hist">
+    <h5>Root split (B=100 bootstraps)</h5>
+    <div class="hist-row"><span class="name">Animalia</span><div class="track"><div class="fill" style="width:98%"></div><div class="gate" data-label="0.98·B=98" style="left:98%"></div></div><span class="val">98/100</span></div>
+    <div class="hist-row"><span class="name">Plantae</span><div class="track"><div class="fill loser" style="width:2%"></div></div><span class="val">2/100</span></div>
+  </div>
+  <div class="hist">
+    <h5>Animalia → Family</h5>
+    <div class="hist-row"><span class="name">Canidae</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">100/100</span></div>
+    <div class="hist-row"><span class="name">Felidae</span><div class="track"><div class="fill loser" style="width:0%"></div></div><span class="val">0/100</span></div>
+  </div>
+  <div class="hist">
+    <h5>Canidae → Genus</h5>
+    <div class="hist-row"><span class="name">Canis</span><div class="track"><div class="fill" style="width:99%"></div></div><span class="val">99/100</span></div>
+    <div class="hist-row"><span class="name">Vulpes</span><div class="track"><div class="fill loser" style="width:1%"></div></div><span class="val">1/100</span></div>
+  </div>
+  <div class="hist">
+    <h5>Canis → Species (leaf phase seeded by Stage 1)</h5>
+    <div class="hist-row"><span class="name">Canis_lupus</span><div class="track"><div class="fill" style="width:97%"></div></div><span class="val">97/100</span></div>
+    <div class="hist-row"><span class="name">Canis_latrans</span><div class="track"><div class="fill loser" style="width:2%"></div></div><span class="val">2/100</span></div>
+    <div class="hist-row"><span class="name">Canis_familiaris</span><div class="track"><div class="fill loser" style="width:1%"></div></div><span class="val">1/100</span></div>
+  </div>
+  <div class="outbox ok">taxon         = ["Root", "Animalia", "Canidae", "Canis", "Canis_lupus"]
+confidence    = [100, 98, 100, 99, 97]
+alternatives  = []
+reject_reason = None</div>
+</div>
+
+<div class="scenario" id="s2">
+  <h4><span class="tag" style="background:var(--accent-2)">S2</span> Mid-tree halt, scattered votes (<em>q_scatter</em>)</h4>
+  <div class="knob-strip">knobs: defaults</div>
+  <p>Chimeric input scatters Root-level votes below the 0.98 gate. No <code class="inline">w</code> winner → we fall into the <code class="inline">w50</code> branch; since no kingdom clears 0.50 either, we fall further to "include every child with &gt; 0 votes", which is both. Stage 1 halts at Root.</p>
+  <div class="hist">
+    <h5>Root split (halted)</h5>
+    <div class="hist-row"><span class="name">Animalia</span><div class="track"><div class="fill winner-halt" style="width:62%"></div><div class="gate" data-label="0.98·B" style="left:98%"></div></div><span class="val">62/100</span></div>
+    <div class="hist-row"><span class="name">Plantae</span><div class="track"><div class="fill loser" style="width:38%"></div></div><span class="val">38/100</span></div>
+  </div>
+  <p class="hist-caption"><code class="inline">w50</code> is empty → <code class="inline">w_indices = (0..2)</code> (all children). Leaf phase runs across every Kingdom's reference set.</p>
+  <div class="outbox reject">taxon         = ["Root"]
+confidence    = [100]
+alternatives  = []
+reject_reason = "below_threshold"   # all sub-kingdom confidences below threshold</div>
+</div>
+
+<div class="scenario" id="s3">
+  <h4><span class="tag" style="background:var(--accent-2)">S3</span> Mid-tree halt, leading-but-not-decisive (<em>q_canis_close</em>)</h4>
+  <div class="knob-strip">knobs: defaults</div>
+  <p>At Canis → Species, the top species has 92/100, the runner-up 8/100. 92 &lt; 98 → fails the descent gate. 92 ≥ 50 → <code class="inline">w50</code> non-empty → <code class="inline">w_indices</code> includes every species with &gt; 0 votes.</p>
+  <div class="hist">
+    <h5>Canis → Species (halts here)</h5>
+    <div class="hist-row"><span class="name">Canis_lupus</span><div class="track"><div class="fill winner-halt" style="width:92%"></div><div class="gate" data-label="0.98·B" style="left:98%"></div></div><span class="val">92/100</span></div>
+    <div class="hist-row"><span class="name">Canis_latrans</span><div class="track"><div class="fill loser" style="width:8%"></div></div><span class="val">8/100</span></div>
+  </div>
+  <p class="hist-caption"><code class="inline">w_indices = {lupus, latrans}</code>. Philosophy: when Stage 1 can't commit, let leaf-phase sort through <em>every</em> candidate that was still in the running (method §8a).</p>
+  <div class="outbox ok">taxon         = ["Root", "Animalia", "Canidae", "Canis"]
+confidence    = [100, 99, 100, 92]
+alternatives  = []
+reject_reason = "below_threshold"</div>
+</div>
+
+<div class="scenario" id="s7">
+  <h4><span class="tag" style="background:var(--accent-2)">S7</span> Beam separates two children that <em>both</em> pass <code class="inline">min_descend</code></h4>
+  <div class="knob-strip">knob: <code class="inline">beam_width = 2</code> (defaults: <code class="inline">min_descend=0.98</code>, <code class="inline">B=100</code>)</div>
+  <p><strong>When does beam diverge from greedy?</strong> Only when ≥ 2 children clear <code class="inline">min_descend</code> at the same split. The beam code at <code class="inline">src/classify.rs:430</code> requires the top to pass; <code class="inline">src/classify.rs:458–462</code> drops any runner-up that <em>doesn't</em> also pass — by design (in-source comment: "sub-threshold runner-ups are dropped … without algorithmic justification"). So 58/40 under default gate would halt for <em>both</em> beam and greedy.</p>
+  <p><strong>The realistic case under defaults: tied bootstraps.</strong> The vote-counting loop at <code class="inline">src/classify.rs:380–387</code> awards a vote to <em>every</em> child whose hits equal the rep's max, so ties inflate per-child counts beyond <em>B</em>. At Felidae → Genus, suppose <em>q_beam_rescue</em>'s k-mers are nearly equally represented in the Felis and Lynx profiles. Most reps tie; final tally <strong>Felis 100, Lynx 98, miss 2</strong> (totals exceed B because of ties).</p>
+  <div class="twocol">
+    <div>
+      <h5>Greedy (<code class="inline">beam_width=1</code>)</h5>
+      <svg viewBox="0 0 260 180" width="100%" height="180">
+        <rect x="80" y="10" width="100" height="24" rx="3" fill="#eef7ff" stroke="#2980b9"/>
+        <text class="trace-text" x="130" y="27" text-anchor="middle">Felidae</text>
+        <line x1="130" y1="34" x2="60" y2="70" stroke="#888"/>
+        <line x1="130" y1="34" x2="200" y2="70" stroke="#888"/>
+        <rect x="20" y="70" width="80" height="24" rx="3" fill="#fff" stroke="#27ae60" stroke-width="1.5"/>
+        <text class="trace-text" x="60" y="87" text-anchor="middle">Felis 100 ✓</text>
+        <rect x="160" y="70" width="80" height="24" rx="3" fill="#fff" stroke="#27ae60" stroke-width="1.5"/>
+        <text class="trace-text" x="200" y="87" text-anchor="middle">Lynx 98 ✓</text>
+        <text class="trace-text-small" x="130" y="120" text-anchor="middle" fill="#c0392b">w = {Felis, Lynx}, |w| = 2 ≠ 1 → halt</text>
+        <text class="trace-text-small" x="130" y="138" text-anchor="middle">w_indices = {Felis, Lynx}</text>
+        <text class="trace-text-small" x="130" y="155" text-anchor="middle">one leaf phase, two genera lumped:</text>
+        <text class="trace-text-small" x="130" y="170" text-anchor="middle" fill="#c0392b">Felis_*, Lynx_rufus all in one keep set</text>
+      </svg>
+    </div>
+    <div>
+      <h5>Beam (<code class="inline">beam_width=2</code>)</h5>
+      <svg viewBox="0 0 260 180" width="100%" height="180">
+        <rect x="80" y="10" width="100" height="24" rx="3" fill="#eef7ff" stroke="#2980b9"/>
+        <text class="trace-text" x="130" y="27" text-anchor="middle">Felidae</text>
+        <line x1="130" y1="34" x2="60" y2="70" stroke="#27ae60" stroke-width="2"/>
+        <line x1="130" y1="34" x2="200" y2="70" stroke="#27ae60" stroke-width="2"/>
+        <rect x="20" y="70" width="80" height="24" rx="3" fill="#eef7ff" stroke="#27ae60" stroke-width="1.5"/>
+        <text class="trace-text" x="60" y="87" text-anchor="middle">Felis 100 ✓</text>
+        <rect x="160" y="70" width="80" height="24" rx="3" fill="#eef7ff" stroke="#27ae60" stroke-width="1.5"/>
+        <text class="trace-text" x="200" y="87" text-anchor="middle">Lynx 98 ✓</text>
+        <text class="trace-text-small" x="130" y="108" text-anchor="middle" fill="var(--accent-3)">both ≥ min_descend → both kept</text>
+        <line x1="60"  y1="94" x2="60"  y2="120" stroke="#888"/>
+        <line x1="200" y1="94" x2="200" y2="120" stroke="#888"/>
+        <rect x="10" y="120" width="100" height="22" rx="3" fill="#fff0e6" stroke="#d35400"/>
+        <text class="trace-text" x="60" y="137" text-anchor="middle">leaf at Felis</text>
+        <rect x="150" y="120" width="100" height="22" rx="3" fill="#fff0e6" stroke="#d35400" stroke-width="2"/>
+        <text class="trace-text" x="200" y="137" text-anchor="middle" font-weight="700">leaf at Lynx ✓</text>
+        <text class="trace-text-small" x="130" y="165" text-anchor="middle" fill="var(--accent-3)">two independent leaf phases; best wins</text>
+      </svg>
+    </div>
+  </div>
+  <p class="hist-caption">The real difference: greedy runs <em>one</em> leaf phase over the lumped {Felis ∪ Lynx} candidate pool at Felidae; beam runs <em>two</em> separately-contextualized leaf phases (each rooted at its own genus, with its own <code class="inline">w_indices</code> and descent margins). When the right genus is the runner-up, beam's per-genus context produces cleaner similarity scores. Source: <code class="inline">src/classify.rs:430</code> (top-must-clear), <code class="inline">src/classify.rs:458–462</code> (runner-up-must-also-clear), <code class="inline">src/classify.rs:380–387</code> (tied-rep voting).</p>
+  <p class="hist-caption" style="margin-top:6px"><em>Footnote:</em> the same divergence can occur without ties if the user lowers <code class="inline">min_descend</code> (e.g., to 0.40) — then a clean 55/45 split puts both children over the gate. Either way, beam's distinguishing trait is "≥ 2 children pass," not "rescue the runner-up."</p>
+</div>
+
+<div class="scenario" id="s8">
+  <h4><span class="tag" style="background:var(--accent-2)">S8</span> Descent-margin discount for near-tied splits</h4>
+  <div class="knob-strip">knob: <code class="inline">confidence_uses_descent_margin = true</code>, floor = 0.8</div>
+  <p>At each descent step the margin <code class="inline">m = (top − runner_up)/B</code> is recorded. Confidence at rank <em>i+1</em> gets multiplied by <code class="inline">0.8 + 0.2·m</code> (non-cumulative). Root always stays untouched.</p>
+  <table>
+    <thead><tr><th>Rank</th><th>Split</th><th>Margin m</th><th>Multiplier</th><th>Raw conf</th><th>Reported conf</th></tr></thead>
+    <tbody>
+      <tr><td>Root</td><td>—</td><td>—</td><td>1.00</td><td>100</td><td>100</td></tr>
+      <tr><td>Animalia</td><td>98/2</td><td>0.96</td><td>0.992</td><td>98</td><td>97.2</td></tr>
+      <tr><td>Canidae</td><td>100/0</td><td>1.00</td><td>1.000</td><td>100</td><td>100.0</td></tr>
+      <tr><td>Canis</td><td>60/40</td><td>0.20</td><td>0.840</td><td>90</td><td><strong>75.6</strong></td></tr>
+      <tr><td>lupus</td><td>55/45</td><td>0.10</td><td>0.820</td><td>85</td><td>69.7</td></tr>
+    </tbody>
+  </table>
+  <p class="hist-caption">Two near-tied splits at Canis and at the species rank surface as confidence drops of 14.4 and 15.3 points respectively. The 0.8 floor prevents a close split from zeroing a rank entirely — the classifier is still allowed to say "I got here but I wasn't decisive about it". Source: <code class="inline">src/classify.rs:230–241, 788–812</code>.</p>
+  <div class="outbox ties">taxon         = ["Root", "Animalia", "Canidae", "Canis", "Canis_lupus"]
+confidence    = [100, 97, 100, 76, 70]   # discounted per-rank
+alternatives  = []
+reject_reason = None</div>
+</div>
+
+<!-- =========== §C2 — STAGE 2 SCENARIOS =========== -->
+<h2>C3. Stage 2 scenarios — leaf phase &amp; LCA clamp</h2>
+
+<div class="scenario stage2" id="s4s5">
+  <h4><span class="tag">S4+S5</span> Terminal near-tie, <code class="inline">sibling_aware_leaf</code> off vs on</h4>
+  <div class="knob-strip">knob: <code class="inline">sibling_aware_leaf = false | true</code> (S4/S5), <em>q_near_tie</em></div>
+  <p>Canis → Species: Stage 1 picks <em>lupus</em> (its bootstrap count clears <code class="inline">min_descend</code>), but <em>latrans</em> also has 48/100 votes — barely under 50. Defaults end up at <code class="inline">w_indices = {lupus}</code> only. With sibling-awareness, <code class="inline">w_indices</code> widens to <em>{lupus, latrans}</em>.</p>
+  <div class="twocol">
+    <div>
+      <h5>S4 — off (default)</h5>
+      <div class="hist">
+        <div class="hist-row"><span class="name">lupus tot_hits</span><div class="track"><div class="fill" style="width:60%"></div></div><span class="val">60</span></div>
+      </div>
+      <div class="outbox ok">taxon = [...Canis, Canis_lupus]
+confidence = [..., 60]</div>
+      <p class="hist-caption">latrans was <em>never</em> asked about — its reference sequences weren't in <code class="inline">keep</code>.</p>
+    </div>
+    <div>
+      <h5>S5 — <code class="inline">sibling_aware_leaf=true</code></h5>
+      <div class="hist">
+        <div class="hist-row"><span class="name">lupus tot_hits</span><div class="track"><div class="fill tied" style="width:60%"></div></div><span class="val">60</span></div>
+        <div class="hist-row"><span class="name">latrans tot_hits</span><div class="track"><div class="fill tied" style="width:58%"></div></div><span class="val">58</span></div>
+        <div class="hist-row"><span class="name">familiaris tot_hits</span><div class="track"><div class="fill loser" style="width:5%"></div></div><span class="val">5</span></div>
+      </div>
+      <p class="hist-caption">Runner-ups re-entered <code class="inline">w_indices</code> because they had ≥ 0.5·B votes at the final descent step. <em>latrans</em> is now visible but still doesn't tie without <code class="inline">tie_margin</code>.</p>
+    </div>
+  </div>
+</div>
+
+<div class="scenario stage2" id="s6">
+  <h4><span class="tag">S6</span> <code class="inline">sibling_aware_leaf</code> + <code class="inline">tie_margin</code> → LCA clamp</h4>
+  <div class="knob-strip">knobs: <code class="inline">sibling_aware_leaf=true, tie_margin=0.05</code></div>
+  <p>Same <em>q_near_tie</em>. With <code class="inline">tie_margin=0.05</code>, any group scoring ≥ 0.95·max_tot enters <code class="inline">winners</code>. 58 ≥ 0.95·60 = 57 → yes. Two winners → LCA clamp at <em>Canis</em>.</p>
+  <svg viewBox="0 0 520 180" width="100%" height="180">
+    <rect x="210" y="10" width="100" height="24" rx="3" fill="#eef7ff" stroke="#2980b9"/>
+    <text class="trace-text" x="260" y="27" text-anchor="middle">Canis</text>
+    <line x1="260" y1="34" x2="100" y2="80" stroke="#f0ad4e" stroke-width="2"/>
+    <line x1="260" y1="34" x2="260" y2="80" stroke="#f0ad4e" stroke-width="2"/>
+    <line x1="260" y1="34" x2="420" y2="80" stroke="#888" stroke-dasharray="3 3"/>
+    <rect x="40"  y="80" width="120" height="24" rx="3" fill="#fff" stroke="#f0ad4e" stroke-width="2"/>
+    <text class="trace-text" x="100" y="97" text-anchor="middle">Canis_lupus (60)</text>
+    <rect x="200" y="80" width="120" height="24" rx="3" fill="#fff" stroke="#f0ad4e" stroke-width="2"/>
+    <text class="trace-text" x="260" y="97" text-anchor="middle">Canis_latrans (58)</text>
+    <rect x="360" y="80" width="120" height="24" rx="3" fill="#fff" stroke="#888" opacity="0.4"/>
+    <text class="trace-text" x="420" y="97" text-anchor="middle" opacity="0.6">Canis_familiaris (5)</text>
+    <rect x="160" y="130" width="200" height="28" rx="3" fill="#fff3cd" stroke="#f0ad4e" stroke-width="2" stroke-dasharray="4 2"/>
+    <text class="trace-text" x="260" y="148" text-anchor="middle" font-weight="700">LCA cap = Canis (rank 3)</text>
+  </svg>
+  <div class="outbox ties">taxon         = ["Root", "Animalia", "Canidae", "Canis"]   # truncated at LCA
+confidence    = [100, 98, 100, 92]
+alternatives  = ["Canis_lupus", "Canis_latrans"]
+reject_reason = None    # tied-species is signaled via `alternatives`</div>
+  <p class="hist-caption"><strong>Either knob alone is inert.</strong> Without <code class="inline">sibling_aware_leaf</code>, latrans is not in <code class="inline">keep</code>, so its tot_hits is 0 — no tie to detect. Without <code class="inline">tie_margin</code>, exact equality is required — 58 ≠ 60. Both ship together or neither does anything.</p>
+</div>
+
+<div class="scenario stage2" id="s9">
+  <h4><span class="tag">S9</span> Singleton-leaf gotcha (<em>q_aureus_only → Canis_aureus</em>)</h4>
+  <div class="knob-strip">knobs: defaults</div>
+  <p>If Canis → Species routes to <em>aureus</em> in every bootstrap, <em>aureus</em>'s single training sequence (seq11) gets "picked" on every rep → <code class="inline">tot_hits[aureus] ≈ 60</code>. That 60 is <em>not</em> evidence of match; it's an artifact of the leaf having only one reference.</p>
+  <div class="hist">
+    <h5>Canis → Species tot_hits</h5>
+    <div class="hist-row"><span class="name">Canis_aureus (1 seq)</span><div class="track"><div class="fill tied" style="width:60%"></div></div><span class="val">60</span></div>
+    <div class="hist-row"><span class="name">Canis_lupus (2 seqs)</span><div class="track"><div class="fill loser" style="width:5%"></div></div><span class="val">5</span></div>
+    <div class="hist-row"><span class="name">others</span><div class="track"><div class="fill loser" style="width:2%"></div></div><span class="val">2</span></div>
+  </div>
+  <p class="hist-caption"><strong>Defense in practice.</strong> Use <code class="inline">rank_thresholds=[50,50,50,50,95]</code> — lenient for high ranks, strict for species. A 60/100 singleton-leaf confidence falls below 95 → gets stripped; the genus rank (Canis, ≈100) survives. Source: method doc §9b.</p>
+</div>
+
+<div class="scenario stage2" id="s11">
+  <h4><span class="tag">S11</span> <code class="inline">length_normalize</code> dampens a long reference</h4>
+  <div class="knob-strip">knob: <code class="inline">length_normalize = true</code></div>
+  <p>Long references have more unique k-mers, so they score more raw hits for the same query overlap. Normalization divides each reference's contribution by <code class="inline">sqrt(n_unique/avg)</code>.</p>
+  <table>
+    <thead><tr><th>Reference</th><th>n_unique</th><th>Raw hits</th><th>sqrt(n/avg) divisor</th><th>Normalized hits</th></tr></thead>
+    <tbody>
+      <tr><td>seq1 (Canis_lupus, short)</td><td>4</td><td>30</td><td>√(4/5.5) = 0.85</td><td>30/0.85 = 35.3</td></tr>
+      <tr><td>seq10 (Vulpes_vulpes, long)</td><td>10</td><td>28</td><td>√(10/5.5) = 1.35</td><td>28/1.35 = <strong>20.8</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="hist-caption">Without normalization, seq10 (28) is close enough to seq1 (30) to tie. With normalization, seq1 reaches 35 vs seq10's 21 — the long reference is demoted out of the false tie, and Canis wins decisively. Source: <code class="inline">src/classify.rs</code> (leaf-phase normalize block).</p>
+</div>
+
+<div class="scenario stage2" id="s22">
+  <h4><span class="tag">S22</span> <code class="inline">suppress_ancestor_only_groups</code> — drop a parasitic ancestor entry</h4>
+  <div class="knob-strip">knob: <code class="inline">suppress_ancestor_only_groups = false | true</code></div>
+  <p><strong>Setup.</strong> Suppose we add a hypothetical <em>seq13</em> to the training set with taxonomy <code class="inline">Animalia;Canidae;Canis</code> (no species rank — an "ancestor-only" entry, the kind of record produced when NCBI canonicalization trims an unreliable species name to "<em>Canis sp.</em>"). Its sequence is byte-identical to seq1's. Now, classifying <em>q_clean = ACGTACGTAC</em>:</p>
+  <div class="hist">
+    <h5>tot_hits at Canis (with seq13 byte-identical to seq1, default flag = off)</h5>
+    <div class="hist-row"><span class="name">Canis (ancestor entry)</span><div class="track"><div class="fill tied" style="width:50%"></div></div><span class="val">50</span></div>
+    <div class="hist-row"><span class="name">Canis_lupus (descendant)</span><div class="track"><div class="fill tied" style="width:50%"></div></div><span class="val">50</span></div>
+  </div>
+  <p class="hist-caption">Every replicate ties; share-split awards 0.5 each. The ancestor and descendant land at <code class="inline">tot_hits = 50</code> apiece. The post-bootstrap winners both pass <code class="inline">tie_margin</code> → LCA-cap collapses the report to <em>Canis</em>; species-rank confidence drops to ~50%.</p>
+
+  <div class="hist">
+    <h5>tot_hits at Canis (suppress_ancestor_only_groups = true)</h5>
+    <div class="hist-row"><span class="name">Canis (ancestor entry)</span><div class="track"><div class="fill loser" style="width:0%"></div></div><span class="val">0</span></div>
+    <div class="hist-row"><span class="name">Canis_lupus (descendant)</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">100</span></div>
+  </div>
+  <p class="hist-caption"><strong>Stage 1 (per-replicate share-split filter).</strong> When the tied set contains both Canis (ancestor) and Canis_lupus (descendant), Canis is dropped from the tied set <em>before</em> share-split. <code class="inline">share = 1 / 1 = 1.0</code> goes entirely to Canis_lupus. Repeat across 100 replicates → <code class="inline">tot_hits[Canis_lupus] = 100</code>, <code class="inline">tot_hits[Canis] = 0</code>.</p>
+  <p class="hist-caption"><strong>Stage 2 (post-bootstrap winner-stage filter).</strong> Belt-and-suspenders for cases where prefix-related groups land at equal <code class="inline">tot_hits</code> from disjoint-replicate wins. In our byte-identical case, Stage 1 already zeroed the ancestor, so Stage 2 has nothing to do — but on real data the ancestor often has some outright-win replicates (replicates where it strictly beats the descendant on its own evidence). Those still count; only the <em>tied</em> credit is suppressed.</p>
+  <p class="hist-caption"><strong>Conservation.</strong> Genus-rank confidence is unchanged (Canis_lupus's full <code class="inline">tot_hits = 100</code> climbs through <code class="inline">parents[]</code> and lands at Canis just like the 50+50 split did). Species-rank confidence rises from ~50 to ~100. Higher ranks are untouched.</p>
+  <div class="outbox ok">taxon         = ["Root", "Animalia", "Canidae", "Canis", "Canis_lupus"]
+confidence    = [100, 100, 100, 100, 100]
+alternatives  = []
+reject_reason = None</div>
+  <p class="hist-caption">Source: <code class="inline">src/types.rs:359–378</code> (flag doc), <code class="inline">src/classify.rs</code> share-split filter and winner-stage filter. The flag's defining real-world use case is uncurated reference databases (NCBI dumps with mixed ancestor-only and species-resolved entries); curated databases (every entry resolved to species) are unaffected by it either way.</p>
+</div>
+
+<!-- =========== §C3 — STAGE 3 SCENARIOS =========== -->
+<h2>C4. Stage 3 scenarios — threshold filter &amp; abstention</h2>
+
+<div class="scenario stage3" id="s12">
+  <h4><span class="tag">S12</span> <code class="inline">too_few_kmers</code> abstention (<em>q_tiny</em>)</h4>
+  <div class="knob-strip">knobs: defaults; <code class="inline">S = ⌈L<sup>0.47</sup>⌉</code></div>
+  <p>Query <code class="inline">q_tiny = "ACGT"</code>, L=4. Unique 3-mers: <code class="inline">{ACG, CGT}</code>, size 2. <code class="inline">S = ⌈4<sup>0.47</sup>⌉ = ⌈1.90⌉ = 2</code>. Guard at <code class="inline">src/classify.rs:303</code>: <code class="inline">my_kmers.len() &lt;= s</code> → 2 ≤ 2 → abstain.</p>
+  <div class="outbox reject">taxon         = []
+confidence    = []
+alternatives  = []
+reject_reason = "too_few_kmers"</div>
+  <p class="hist-caption">The gate fires <em>before</em> any descent or bootstrap runs. Every abstention from this path is cheap.</p>
+</div>
+
+<div class="scenario stage3" id="s13">
+  <h4><span class="tag">S13</span> <code class="inline">below_threshold</code> truncates the reported prefix</h4>
+  <div class="knob-strip">knobs: <code class="inline">threshold = 60</code>, <code class="inline">rank_thresholds = None</code></div>
+  <p>After roll-up, confidences are monotonically non-decreasing toward Root. If the species rank falls below threshold but the kingdom is confident, the taxon is truncated at the first rank that fails.</p>
+  <svg viewBox="0 0 520 150" width="100%" height="150">
+    <!-- threshold line -->
+    <line x1="200" y1="15" x2="200" y2="135" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4 2"/>
+    <text class="trace-text-small" x="200" y="10" text-anchor="middle" fill="#c0392b">threshold = 60</text>
+
+    <text class="trace-text" x="20" y="35">Root</text>
+    <rect x="70" y="22" width="320" height="14" fill="url(#g-good)" stroke="#27ae60"/>
+    <rect x="70" y="22" width="320" height="14" fill="#27ae60"/>
+    <text class="trace-text-small" x="400" y="33">100</text>
+
+    <text class="trace-text" x="20" y="60">Animalia</text>
+    <rect x="70" y="47" width="300" height="14" fill="#27ae60"/>
+    <text class="trace-text-small" x="380" y="58">94</text>
+
+    <text class="trace-text" x="20" y="85">Canidae</text>
+    <rect x="70" y="72" width="160" height="14" fill="#c0392b"/>
+    <text class="trace-text-small" x="240" y="83">50 ✗</text>
+
+    <text class="trace-text" x="20" y="110">Canis</text>
+    <rect x="70" y="97" width="100" height="14" fill="#999"/>
+    <text class="trace-text-small" x="180" y="108">32</text>
+
+    <text class="trace-text" x="20" y="135">lupus</text>
+    <rect x="70" y="122" width="80" height="14" fill="#999"/>
+    <text class="trace-text-small" x="160" y="133">25</text>
+  </svg>
+  <div class="outbox reject">taxon         = ["Root", "Animalia"]
+confidence    = [100, 94]
+alternatives  = []
+reject_reason = "below_threshold"</div>
+  <p class="hist-caption">Canidae is the first rank below threshold → the loop breaks; everything below (Canis, lupus) is dropped. Source: <code class="inline">src/classify.rs:853–867</code>.</p>
+</div>
+
+<div class="scenario stage3">
+  <h4><span class="tag">out</span> Output shape — <code class="inline">alternatives</code> vs <code class="inline">reject_reason</code></h4>
+  <div class="knob-strip">clarifying: <code class="inline">reject_reason</code> values only ever include <code class="inline">"too_few_kmers"</code>, <code class="inline">"no_training_match"</code>, <code class="inline">"below_threshold"</code>. Ties are <strong>not</strong> a reject_reason.</div>
+  <div class="twocol">
+    <div>
+      <h5>Tied species (Scenario S6)</h5>
+      <div class="outbox ties">taxon         = [..., "Canis"]
+alternatives  = ["Canis_lupus",
+                 "Canis_latrans"]
+reject_reason = None</div>
+    </div>
+    <div>
+      <h5>Threshold failure (Scenario S13)</h5>
+      <div class="outbox reject">taxon         = [..., "Animalia"]
+alternatives  = []
+reject_reason = "below_threshold"</div>
+    </div>
+  </div>
+  <p class="hist-caption">Ties and threshold failures are <em>independent</em> signals. A query can be both (tied prefix, and also stops due to threshold at the tie level). They appear on different fields of the result.</p>
+</div>
+
+<!-- =========== §P — WHOLE-PIPELINE MEGA-TRACE =========== -->
+<h2>P. Whole-pipeline mega-trace</h2>
+<div class="panel">
+  <p>One full-width view stitching training → classification for a single query (<em>q_clean → Canis_lupus</em>). Every knob that affects output appears as a purple callout on the arrow where it operates. Legend along the bottom.</p>
+  <div class="trace-wrap">
+    <svg viewBox="0 0 2000 900" width="2000" height="900">
+      <defs>
+        <marker id="trace-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#d35400"/>
+        </marker>
+        <marker id="trace-arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#999"/>
+        </marker>
+        <marker id="trace-arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#27ae60"/>
+        </marker>
+      </defs>
+
+      <!-- =========== TRAINING SIDE =========== -->
+      <rect x="0" y="0" width="940" height="900" fill="#fafbff" opacity="0.3"/>
+      <text class="trace-stage-label" x="40" y="30" fill="#2980b9">TRAINING (one-shot)</text>
+
+      <!-- Column 1: Training dataset -->
+      <rect x="30" y="60" width="180" height="300" fill="#eef7ff" stroke="#2980b9" rx="6"/>
+      <text class="trace-text" x="40" y="82" font-weight="700">1. Dataset</text>
+      <text class="trace-text-small" x="40" y="102">seq1…seq12</text>
+      <text class="trace-text-mono" x="40" y="120">ACGTACGTAC  → Canis.lupus</text>
+      <text class="trace-text-mono" x="40" y="135">ACGTACGTAA  → C.latrans</text>
+      <text class="trace-text-mono" x="40" y="150">ACGAACGTAC  → V.lagopus</text>
+      <text class="trace-text-mono" x="40" y="165">GGCCGGCCGG  → F.catus</text>
+      <text class="trace-text-mono" x="40" y="180">TTAATTAATT  → Rosa.canina</text>
+      <text class="trace-text-mono" x="40" y="195">CCGGAATTCC  → C.lupus</text>
+      <text class="trace-text-mono" x="40" y="210">ACGTACGATT  → C.familiaris</text>
+      <text class="trace-text-mono" x="40" y="225">GGCCGGCCGT  → F.silvestris</text>
+      <text class="trace-text-mono" x="40" y="240">TTAATTAACC  → Rosa.gallica</text>
+      <text class="trace-text-mono" x="40" y="255">CGATCG…(30) → V.vulpes</text>
+      <text class="trace-text-mono" x="40" y="270">ACGTACGTAG  → C.aureus*</text>
+      <text class="trace-text-mono" x="40" y="285">GGCCTTAACG  → Lynx.rufus</text>
+      <text class="trace-text-small" x="40" y="308" fill="#c0392b">* singleton leaf</text>
+      <text class="trace-text-small" x="40" y="345" fill="var(--muted)">12 seqs × taxonomy tree</text>
+
+      <!-- Arrow 1→2 + knob callouts -->
+      <path d="M210,200 L260,200" class="trace-arrow"/>
+      <text class="trace-knob" x="215" y="188">k, seed_pattern, n</text>
+
+      <!-- Column 2: K-mer + IDF matrix -->
+      <rect x="260" y="60" width="180" height="300" fill="#eef7ff" stroke="#2980b9" rx="6"/>
+      <text class="trace-text" x="270" y="82" font-weight="700">2. K-mers &amp; IDF</text>
+      <text class="trace-text-small" x="270" y="100">per-seq unique k-mer sets</text>
+      <text class="trace-text-mono" x="270" y="118">seq1 → {ACG,CGT,GTA,TAC}</text>
+      <text class="trace-text-small" x="270" y="140">per-rank IDF matrix:</text>
+      <text class="trace-text-mono" x="270" y="158">        ACG   GGC   TTA</text>
+      <text class="trace-text-mono" x="270" y="173">K:     0.00  0.00  0.69</text>
+      <text class="trace-text-mono" x="270" y="188">F:     0.10  0.41  1.10</text>
+      <text class="trace-text-mono" x="270" y="203">G:     0.51  0.92  1.61</text>
+      <text class="trace-text-mono" x="270" y="218">S:     1.61  1.95  2.30</text>
+      <text class="trace-text-small" x="270" y="245" fill="var(--muted)">picks the row matching</text>
+      <text class="trace-text-small" x="270" y="258" fill="var(--muted)">descent-node depth</text>
+
+      <!-- Arrow 2→3 + knob callouts -->
+      <path d="M440,200 L490,200" class="trace-arrow"/>
+      <text class="trace-knob" x="445" y="182">record_kmers_fraction,</text>
+      <text class="trace-knob" x="445" y="196">descendant_weighting,</text>
+      <text class="trace-knob" x="445" y="210">correlation_aware_features,</text>
+      <text class="trace-knob" x="445" y="224">max_children</text>
+
+      <!-- Column 3: Feature selection -->
+      <rect x="490" y="60" width="200" height="300" fill="#eef7ff" stroke="#2980b9" rx="6"/>
+      <text class="trace-text" x="500" y="82" font-weight="700">3. Build tree</text>
+      <text class="trace-text-small" x="500" y="100">per-node DecisionKmers:</text>
+      <text class="trace-text-mono" x="500" y="118">Root   → {ACG,GGC,TTA,CCG}</text>
+      <text class="trace-text-mono" x="500" y="133">Anim   → {ACG,GGC,CGA,TAC}</text>
+      <text class="trace-text-mono" x="500" y="148">Cani   → {CGT,GTA,CGA,ATT}</text>
+      <text class="trace-text-mono" x="500" y="163">Feli   → {GGC,CCG,TTA}</text>
+      <text class="trace-text-mono" x="500" y="178">Canis  → {CGT,GTA,TAC,ATT}</text>
+      <text class="trace-text-small" x="500" y="205" fill="var(--muted)">profile q built from child</text>
+      <text class="trace-text-small" x="500" y="220" fill="var(--muted)">profiles under the weighting</text>
+      <text class="trace-text-small" x="500" y="245" fill="#c0392b">if children &gt; max_children:</text>
+      <text class="trace-text-small" x="500" y="260" fill="#c0392b">DecisionNode = None (opaque)</text>
+
+      <!-- Arrow 3→4 + knob callouts -->
+      <path d="M690,200 L740,200" class="trace-arrow"/>
+      <text class="trace-knob" x="695" y="182">training_threshold,</text>
+      <text class="trace-knob" x="695" y="196">min/max_fraction,</text>
+      <text class="trace-knob" x="695" y="210">max_iterations, multiplier,</text>
+      <text class="trace-knob" x="695" y="224">use_idf_in_descent,</text>
+      <text class="trace-knob" x="695" y="238">leave_one_out</text>
+
+      <!-- Column 4: Fraction learning -->
+      <rect x="740" y="60" width="180" height="300" fill="#eef7ff" stroke="#2980b9" rx="6"/>
+      <text class="trace-text" x="750" y="82" font-weight="700">4. Fraction learn</text>
+      <text class="trace-text-small" x="750" y="100">per-node fraction after loop:</text>
+      <text class="trace-text-mono" x="750" y="120">Root   = 0.060</text>
+      <text class="trace-text-mono" x="750" y="135">Anim   = 0.060</text>
+      <text class="trace-text-mono" x="750" y="150">Cani   = 0.047</text>
+      <text class="trace-text-mono" x="750" y="165">Feli   = 0.052</text>
+      <text class="trace-text-mono" x="750" y="180" fill="#27ae60">Canis  = 0.055  ← tracked</text>
+      <text class="trace-text-mono" x="750" y="195">Vulpes = 0.060</text>
+      <text class="trace-text-mono" x="750" y="210">Felis  = 0.041</text>
+
+      <!-- miniature fraction trajectory -->
+      <rect x="750" y="230" width="160" height="70" fill="#fff" stroke="#ccc"/>
+      <polyline points="755,235 770,240 785,248 800,258 815,266 830,273 845,278 860,283 875,285 890,285 905,285"
+                fill="none" stroke="#27ae60" stroke-width="2"/>
+      <text class="trace-text-small" x="755" y="248">0.06</text>
+      <text class="trace-text-small" x="755" y="295">iterations 1–10</text>
+
+      <text class="trace-text-small" x="750" y="320" fill="var(--muted)">stops when train acc</text>
+      <text class="trace-text-small" x="750" y="335" fill="var(--muted)">≥ training_threshold</text>
+      <text class="trace-text-small" x="750" y="350" fill="var(--muted)">or iter == max_iterations</text>
+
+      <!-- Trained model output hook -->
+      <circle cx="840" cy="180" r="8" fill="#27ae60" stroke="#fff" stroke-width="2"/>
+      <text class="trace-text-small" x="855" y="184" fill="#27ae60">fraction[Canis]</text>
+
+      <!-- =========== CLASSIFY SIDE =========== -->
+      <rect x="940" y="0" width="1060" height="900" fill="#fff9f3" opacity="0.4"/>
+      <text class="trace-stage-label" x="970" y="30" fill="#d35400">CLASSIFICATION (per query)</text>
+
+      <!-- Column 5: Query -->
+      <rect x="960" y="60" width="160" height="200" fill="#fff0e6" stroke="#d35400" rx="6"/>
+      <text class="trace-text" x="970" y="82" font-weight="700">5. Query</text>
+      <text class="trace-text-mono" x="970" y="102">q = "ACGTACGTAC"</text>
+      <text class="trace-text-mono" x="970" y="117">L = 10</text>
+      <text class="trace-text-small" x="970" y="140">unique 3-mers:</text>
+      <text class="trace-text-mono" x="970" y="158">{ACG, CGT, GTA, TAC}</text>
+      <text class="trace-text-small" x="970" y="180">S = ⌈10^0.47⌉ = 3</text>
+      <text class="trace-text-small" x="970" y="195">B = 100</text>
+      <text class="trace-text-small" x="970" y="225" fill="#c0392b">if |kmers| ≤ S:</text>
+      <text class="trace-text-small" x="970" y="240" fill="#c0392b">  → too_few_kmers</text>
+
+      <!-- Arrow 5→6 + knobs -->
+      <path d="M1120,150 L1170,150" class="trace-arrow"/>
+      <text class="trace-knob" x="1125" y="138">bootstraps,</text>
+      <text class="trace-knob" x="1125" y="152">sample_exponent,</text>
+      <text class="trace-knob" x="1125" y="166">beam_width,</text>
+      <text class="trace-knob" x="1125" y="180">min_descend,</text>
+      <text class="trace-knob" x="1125" y="194">confidence_uses_</text>
+      <text class="trace-knob" x="1125" y="207">descent_margin</text>
+
+      <!-- Column 6: Stage 1 -->
+      <rect x="1170" y="60" width="260" height="340" fill="#eef7ff" stroke="#2980b9" rx="6"/>
+      <text class="trace-text" x="1180" y="82" font-weight="700">6. Stage 1 — descent</text>
+
+      <!-- Tree -->
+      <rect x="1260" y="100" width="80" height="22" rx="3" fill="#fff" stroke="#2980b9"/>
+      <text class="trace-text" x="1300" y="116" text-anchor="middle">Root</text>
+      <line x1="1300" y1="122" x2="1240" y2="150" stroke="#27ae60" stroke-width="2"/>
+      <line x1="1300" y1="122" x2="1370" y2="150" stroke="#ccc"/>
+      <rect x="1200" y="150" width="80" height="22" rx="3" fill="#fff" stroke="#27ae60" stroke-width="1.8"/>
+      <text class="trace-text" x="1240" y="166" text-anchor="middle">Animalia</text>
+      <rect x="1330" y="150" width="80" height="22" rx="3" fill="#fff" stroke="#ccc" opacity="0.4"/>
+      <text class="trace-text" x="1370" y="166" text-anchor="middle" opacity="0.6">Plantae</text>
+
+      <line x1="1240" y1="172" x2="1220" y2="200" stroke="#27ae60" stroke-width="2"/>
+      <rect x="1180" y="200" width="80" height="22" rx="3" fill="#fff" stroke="#27ae60" stroke-width="1.8"/>
+      <text class="trace-text" x="1220" y="216" text-anchor="middle">Canidae</text>
+
+      <line x1="1220" y1="222" x2="1220" y2="250" stroke="#27ae60" stroke-width="2"/>
+      <rect x="1180" y="250" width="80" height="22" rx="3" fill="#fff" stroke="#27ae60" stroke-width="1.8"/>
+      <text class="trace-text" x="1220" y="266" text-anchor="middle">Canis</text>
+
+      <!-- fraction plug-in arrow from training -->
+      <path d="M920,180 C1080,180 1080,260 1180,262" class="trace-fraction-line"/>
+      <text class="trace-text-small" x="1030" y="170" fill="#27ae60">plug fraction[Canis]=0.055</text>
+      <text class="trace-text-small" x="1030" y="184" fill="#27ae60">→ s_dk = ⌈n·frac⌉</text>
+
+      <!-- votes per rank -->
+      <text class="trace-text-small" x="1270" y="292">votes</text>
+      <text class="trace-text-mono" x="1270" y="308">Root: 100/100 ✓</text>
+      <text class="trace-text-mono" x="1270" y="323">Anim: 98/100 ✓ (≥98)</text>
+      <text class="trace-text-mono" x="1270" y="338">Cani: 100/100 ✓</text>
+      <text class="trace-text-mono" x="1270" y="353">Canis: 99/100 ✓</text>
+      <text class="trace-text-mono" x="1270" y="368" fill="#27ae60">descent margins:</text>
+      <text class="trace-text-mono" x="1270" y="383">[.98, 1.0, .99]</text>
+
+      <!-- Arrow 6→7 + knobs -->
+      <path d="M1430,250 L1480,250" class="trace-arrow"/>
+      <text class="trace-knob" x="1435" y="238">sibling_aware_leaf,</text>
+      <text class="trace-knob" x="1435" y="252">tie_margin,</text>
+      <text class="trace-knob" x="1435" y="266">length_normalize</text>
+
+      <!-- Column 7: Stage 2 -->
+      <rect x="1480" y="60" width="260" height="340" fill="#fff0e6" stroke="#d35400" rx="6"/>
+      <text class="trace-text" x="1490" y="82" font-weight="700">7. Stage 2 — leaf phase</text>
+      <text class="trace-text-small" x="1490" y="102">w_indices at Canis = {lupus}</text>
+      <text class="trace-text-small" x="1490" y="117">(no widen; default knobs)</text>
+
+      <!-- tot_hits bars -->
+      <g transform="translate(1490, 135)">
+        <text class="trace-text-small" x="0" y="12">Canis_lupus</text>
+        <rect x="90" y="0" width="150" height="14" fill="#27ae60"/>
+        <text class="trace-text-small" x="248" y="12">97</text>
+
+        <text class="trace-text-small" x="0" y="34">Canis_latrans</text>
+        <rect x="90" y="22" width="5" height="14" fill="#ccc"/>
+        <text class="trace-text-small" x="248" y="34">2</text>
+
+        <text class="trace-text-small" x="0" y="56">Canis_familiaris</text>
+        <rect x="90" y="44" width="3" height="14" fill="#ccc"/>
+        <text class="trace-text-small" x="248" y="56">1</text>
+      </g>
+
+      <text class="trace-text-small" x="1490" y="220">winners = {lupus} (single)</text>
+      <text class="trace-text-small" x="1490" y="235">→ no LCA clamp</text>
+      <text class="trace-text-small" x="1490" y="260">roll-up to get per-rank conf:</text>
+      <text class="trace-text-mono" x="1490" y="278">conf[Root]   = 100</text>
+      <text class="trace-text-mono" x="1490" y="293">conf[Anim]   = 98 + rolled</text>
+      <text class="trace-text-mono" x="1490" y="308">conf[Canid]  = 100</text>
+      <text class="trace-text-mono" x="1490" y="323">conf[Canis]  = 99</text>
+      <text class="trace-text-mono" x="1490" y="338">conf[lupus]  = 97</text>
+
+      <text class="trace-text-small" x="1490" y="365" fill="var(--muted)">(if confidence_uses_descent_margin)</text>
+      <text class="trace-text-small" x="1490" y="380" fill="var(--muted)">each conf *= 0.8 + 0.2·margin</text>
+
+      <!-- Arrow 7→8 + knobs -->
+      <path d="M1740,250 L1790,250" class="trace-arrow"/>
+      <text class="trace-knob" x="1745" y="238">threshold,</text>
+      <text class="trace-knob" x="1745" y="252">rank_thresholds</text>
+
+      <!-- Column 8: Stage 3 -->
+      <rect x="1790" y="60" width="200" height="340" fill="#f3e9ff" stroke="#8e44ad" rx="6"/>
+      <text class="trace-text" x="1800" y="82" font-weight="700">8. Stage 3 — threshold</text>
+      <text class="trace-text-small" x="1800" y="100">walk root-down; truncate at</text>
+      <text class="trace-text-small" x="1800" y="115">first rank below threshold</text>
+
+      <g transform="translate(1800, 140)">
+        <line x1="115" y1="-8" x2="115" y2="130" stroke="#c0392b" stroke-dasharray="3 2"/>
+        <text class="trace-text-small" x="115" y="-12" text-anchor="middle" fill="#c0392b">thr=60</text>
+
+        <text class="trace-text-small" x="0" y="12">Root</text>
+        <rect x="60" y="0" width="180" height="14" fill="#27ae60"/>
+        <text class="trace-text-small" x="248" y="12">100</text>
+
+        <text class="trace-text-small" x="0" y="34">Animalia</text>
+        <rect x="60" y="22" width="176" height="14" fill="#27ae60"/>
+        <text class="trace-text-small" x="248" y="34">98</text>
+
+        <text class="trace-text-small" x="0" y="56">Canidae</text>
+        <rect x="60" y="44" width="180" height="14" fill="#27ae60"/>
+        <text class="trace-text-small" x="248" y="56">100</text>
+
+        <text class="trace-text-small" x="0" y="78">Canis</text>
+        <rect x="60" y="66" width="178" height="14" fill="#27ae60"/>
+        <text class="trace-text-small" x="248" y="78">99</text>
+
+        <text class="trace-text-small" x="0" y="100">lupus</text>
+        <rect x="60" y="88" width="175" height="14" fill="#27ae60"/>
+        <text class="trace-text-small" x="248" y="100">97</text>
+      </g>
+
+      <!-- Column 9: Output -->
+      <!-- Result card below Stage 3 -->
+      <rect x="1500" y="440" width="470" height="220" fill="#1e1e2e" stroke="#27ae60" stroke-width="3" rx="6"/>
+      <text class="trace-text" x="1510" y="462" fill="#cdd6f4" font-weight="700">9. ClassificationResult</text>
+      <text class="trace-text-mono" x="1510" y="486" fill="#cdd6f4">taxon         = ["Root", "Animalia",</text>
+      <text class="trace-text-mono" x="1510" y="501" fill="#cdd6f4">                 "Canidae", "Canis",</text>
+      <text class="trace-text-mono" x="1510" y="516" fill="#cdd6f4">                 "Canis_lupus"]</text>
+      <text class="trace-text-mono" x="1510" y="540" fill="#cdd6f4">confidence    = [100, 98, 100, 99, 97]</text>
+      <text class="trace-text-mono" x="1510" y="564" fill="#cdd6f4">alternatives  = []</text>
+      <text class="trace-text-mono" x="1510" y="588" fill="#cdd6f4">reject_reason = None</text>
+      <text class="trace-text-mono" x="1510" y="612" fill="#cdd6f4">similarity    = 0.98</text>
+
+      <!-- Arrow from Stage 3 to Output -->
+      <path d="M1890,400 L1890,440" class="trace-arrow"/>
+
+      <!-- LEGEND at the very bottom -->
+      <rect x="30" y="720" width="1940" height="150" fill="#fff" stroke="var(--border)"/>
+      <text class="trace-text" x="40" y="742" font-weight="700">Legend — every knob, mapped to the column it changes</text>
+
+      <text class="trace-text-small" x="40" y="765" font-weight="700" fill="#2980b9">TRAINING KNOBS</text>
+      <text class="trace-text-mono" x="40" y="782">col 1→2: k, seed_pattern, n</text>
+      <text class="trace-text-mono" x="40" y="797">col 2→3: record_kmers_fraction, descendant_weighting,</text>
+      <text class="trace-text-mono" x="40" y="812">         correlation_aware_features, max_children</text>
+      <text class="trace-text-mono" x="40" y="827">col 3→4: training_threshold, min/max_fraction, max_iterations,</text>
+      <text class="trace-text-mono" x="40" y="842">         multiplier, use_idf_in_descent, leave_one_out</text>
+
+      <text class="trace-text-small" x="1010" y="765" font-weight="700" fill="#d35400">CLASSIFY KNOBS</text>
+      <text class="trace-text-mono" x="1010" y="782">col 5→6: bootstraps, sample_exponent, beam_width, min_descend,</text>
+      <text class="trace-text-mono" x="1010" y="797">         confidence_uses_descent_margin</text>
+      <text class="trace-text-mono" x="1010" y="812">col 6→7: sibling_aware_leaf, tie_margin, length_normalize</text>
+      <text class="trace-text-mono" x="1010" y="842">col 7→8: threshold, rank_thresholds</text>
+
+      <!-- fraction-link explanation -->
+      <path d="M40,880 L80,880" class="trace-fraction-line"/>
+      <text class="trace-text-small" x="90" y="884" fill="#27ae60">green dashed = learned training artifact flowing into classify</text>
+    </svg>
+  </div>
+  <p class="hist-caption">Wide format; scroll horizontally to see all nine columns. The green dashed line shows <code class="inline">fraction[Canis]</code> (a product of training) plugging into the Canis descent gate at classify time — the single most important artifact that links the two phases.</p>
+</div>
+
+<!-- =========== SCENARIO INDEX =========== -->
+<h2>Appendix: scenario index</h2>
+<div class="panel">
+  <table>
+    <thead><tr><th>#</th><th>Scenario</th><th>Stage</th><th>Knob(s) exercised</th><th>Section</th></tr></thead>
+    <tbody>
+      <tr><td>S1</td><td>Clean descent to leaf</td><td>1</td><td>defaults</td><td><a href="#s1">C2</a></td></tr>
+      <tr><td>S2</td><td>Scattered votes → mid-tree halt</td><td>1</td><td>defaults</td><td><a href="#s2">C2</a></td></tr>
+      <tr><td>S3</td><td>Leading-not-decisive halt</td><td>1</td><td>defaults</td><td><a href="#s3">C2</a></td></tr>
+      <tr><td>S4/S5</td><td>Near-tie, sibling-aware off vs on</td><td>2</td><td><code class="inline">sibling_aware_leaf</code></td><td><a href="#s4s5">C3</a></td></tr>
+      <tr><td>S6</td><td>LCA clamp (sibling-aware + tie_margin)</td><td>2</td><td><code class="inline">sibling_aware_leaf, tie_margin</code></td><td><a href="#s6">C3</a></td></tr>
+      <tr><td>S7</td><td>Beam rescues a runner-up</td><td>1</td><td><code class="inline">beam_width</code></td><td><a href="#s7">C2</a></td></tr>
+      <tr><td>S8</td><td>Per-rank margin discount</td><td>1</td><td><code class="inline">confidence_uses_descent_margin</code></td><td><a href="#s8">C2</a></td></tr>
+      <tr><td>S9</td><td>Singleton-leaf gotcha</td><td>2</td><td>—</td><td><a href="#s9">C3</a></td></tr>
+      <tr><td>S11</td><td><code class="inline">length_normalize</code> demotes long ref</td><td>2</td><td><code class="inline">length_normalize</code></td><td><a href="#s11">C3</a></td></tr>
+      <tr><td>S12</td><td><code class="inline">too_few_kmers</code> abstention</td><td>3</td><td>defaults (tiny query)</td><td><a href="#s12">C4</a></td></tr>
+      <tr><td>S13</td><td><code class="inline">below_threshold</code> truncation</td><td>3</td><td><code class="inline">threshold, rank_thresholds</code></td><td><a href="#s13">C4</a></td></tr>
+      <tr><td>S14</td><td><code class="inline">use_idf_in_descent</code> changes convergence</td><td>train</td><td><code class="inline">use_idf_in_descent</code></td><td><a href="#s14">T4</a></td></tr>
+      <tr><td>S15</td><td>Per-kmer LOO reshape (singletons → 0, conserved preserved)</td><td>train</td><td><code class="inline">leave_one_out</code></td><td><a href="#s15">T4</a></td></tr>
+      <tr><td>S16</td><td>Spaced seed collapses a SNP</td><td>train</td><td><code class="inline">seed_pattern</code></td><td><a href="#s16">T1</a></td></tr>
+      <tr><td>S17</td><td><code class="inline">descendant_weighting</code> flips feature pick</td><td>train</td><td><code class="inline">descendant_weighting</code></td><td><a href="#s17">T3</a></td></tr>
+      <tr><td>S18</td><td>Correlation-aware de-dupes features</td><td>train</td><td><code class="inline">correlation_aware_features</code></td><td><a href="#s18">T3</a></td></tr>
+      <tr><td>S19</td><td>Opaque node at <code class="inline">max_children</code></td><td>train</td><td><code class="inline">max_children</code></td><td><a href="#s19">T3</a></td></tr>
+      <tr><td>S20</td><td>Fraction-learning convergence</td><td>train</td><td><code class="inline">min/max_fraction, multiplier, max_iterations, training_threshold</code></td><td><a href="#s20">T4</a></td></tr>
+      <tr><td>S21</td><td>Convergence over bootstrap count</td><td>1</td><td><code class="inline">bootstraps</code></td><td><em>see method doc §10c</em></td></tr>
+      <tr><td>S22</td><td>Drop ancestor-only training entry that parasitically ties with descendant</td><td>2</td><td><code class="inline">suppress_ancestor_only_groups</code></td><td><a href="#s22">C3</a></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  Oxidtaxa Full Visual Walkthrough · companion to <a href="oxidtaxa_method.html">oxidtaxa_method.html</a>. For the abstract three-filter framing, see method doc §4. For the classification-only terminal-scenario catalog, see method doc §10.
+</footer>
+
+</body>
+</html>

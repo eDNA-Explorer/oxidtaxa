@@ -2,7 +2,7 @@
 
 High-performance taxonomic classifier for eDNA metabarcoding. A Rust rewrite of IDTAXA (DECIPHER) with Python bindings via PyO3.
 
-10-13x faster than R/C at production scale. Identical classification algorithm with per-query independent PRNG for reproducible parallel execution.
+10-13x faster than R/C at production scale. IDTAXA-compatible baseline behavior with per-query independent PRNG for reproducible parallel execution, plus opt-in classification and training extensions.
 
 ## Quick Start
 
@@ -32,11 +32,11 @@ train(
     seed=42,
     k=None,                            # k-mer size (None = auto from sequence lengths)
     record_kmers_fraction=0.10,        # fraction of top k-mers per decision node
-    verbose=True,                      # print progress during training
+    verbose=True,                      # accepted by API; fraction-learning progress is currently always emitted
     seed_pattern=None,                 # spaced seed (e.g., "11011011011"). None = contiguous
     training_threshold=0.8,            # vote fraction to descend during fraction learning
     descendant_weighting="count",      # "count", "equal", or "log"
-    use_idf_in_training=False,         # IDF-weighted scoring during training descent
+    use_idf_in_descent=False,          # IDF-weighted scoring during training/classify descent
     leave_one_out=False,               # per-kmer LOO during fraction learning (subtract held-out's contribution, renormalize)
     correlation_aware_features=False,  # greedy feature selection with redundancy penalty
     processors=1,                      # threads for tree construction + fraction learning
@@ -59,6 +59,9 @@ results = classify(
     length_normalize=False,            # normalize scores by training sequence length
     rank_thresholds=None,              # per-rank thresholds (e.g., [90, 80, 70, 60, 50, 40])
     beam_width=1,                      # candidate paths during tree descent (1 = greedy)
+    tie_margin=0.0,                    # near-tied groups within (1 - margin) of winner join alternatives
+    confidence_uses_descent_margin=False, # discount per-rank confidence by descent decisiveness
+    sibling_aware_leaf=False,          # include terminal siblings with >= 50% descent votes
     suppress_ancestor_only_groups=False, # drop ancestor-only training entries that parasitically tie with descendants
 )
 
@@ -66,6 +69,8 @@ for r in results:
     print(r.taxon)         # list[str] — root-to-leaf lineage
     print(r.confidence)    # list[float] — per-rank confidence percentages
     print(r.alternatives)  # list[str] — tied species (empty when unique)
+    print(r.reject_reason) # None, "too_few_kmers", "no_training_match", or "below_threshold"
+    print(r.similarity)    # leaf-phase similarity scalar
 ```
 
 ### Staged Training API
@@ -103,16 +108,18 @@ for r in results:
         print(f"Detected Canis_lupus (resolved={'Canis_lupus' in r.taxon})")
 ```
 
-When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-separated, empty for non-tied rows):
+When `output_path` is provided, the TSV includes `alternatives`, `reject_reason`, and `similarity` columns:
 
-| read_id  | taxonomic_path                                      | confidence | alternatives              |
-|----------|-----------------------------------------------------|------------|---------------------------|
-| read_042 | Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis | 100.0      | Canis_latrans\|Canis_lupus |
-| read_043 | Eukaryota;Chordata;Mammalia;Carnivora;Felidae;Felis | 95.3       |                           |
+| read_id  | taxonomic_path                                      | confidence | alternatives               | reject_reason | similarity |
+|----------|-----------------------------------------------------|------------|----------------------------|---------------|------------|
+| read_042 | Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis | 100.0      | Canis_latrans\|Canis_lupus |               | 0.98       |
+| read_043 | Eukaryota;Chordata;Mammalia;Carnivora;Felidae;Felis | 95.3       |                            |               | 0.94       |
 
 ## Parameters
 
 ### Classification Parameters
+
+Ranges below are intended operating ranges. The Python binding currently validates string enums, but most numeric ranges are not enforced at the boundary.
 
 | Parameter | Default | Range | Description |
 |-----------|---------|-------|-------------|
@@ -124,12 +131,17 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). Corrects bias from longer references accumulating more k-mer hits. Most useful for variable-length markers. |
 | **rank_thresholds** | None | list of floats | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set, overrides the single `threshold` parameter. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). If shorter than the predicted path, the last value is reused. |
 | **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent (original IDTAXA). At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
+| **tie_margin** | 0.0 | 0.0-1.0 | Relative margin for near-tie reporting. At 0.0, only exact equal `tot_hits` winners tie. At 0.05, groups scoring at least 95% of the winner join the tied set, cap the reported lineage at their LCA, and appear in `alternatives`. |
+| **confidence_uses_descent_margin** | false | true/false | When true, each non-root rank's confidence is multiplied by an affine-scaled descent margin from the split that selected it. This down-weights ranks reached through near-tied descent votes. |
+| **sibling_aware_leaf** | false | true/false | When true, if greedy descent reaches a leaf parent with a single winner, terminal siblings with at least 50% of bootstrap votes are also included in leaf-phase scoring. This can surface near-tied species as `alternatives`. |
 | **suppress_ancestor_only_groups** | false | true/false | When true, drops ancestor-only training entries (e.g. `"Oncorhynchus sp."` after canonical NA-trim) that parasitically tie with a species-resolved descendant. Dual-stage: (1) per-replicate, drop ancestor-prefix groups from the tied set before share-split so the descendant gets full credit; (2) post-bootstrap, drop ancestor-prefix winners so the LCA-cap doesn't collapse to the ancestor's rank. The ancestor's outright-win evidence is preserved. Use when your reference database mixes ancestor-only and descendant-resolved entries. |
 | **deterministic** | false | true/false | When true, uses a single shared PRNG for R-compatible sequential output. When false (default), each query gets an independent PRNG for parallel execution. |
 | **processors** | 1 | 1+ | Number of threads for parallel classification. |
 | **seed** | 42 | any u32 | PRNG seed. In non-deterministic mode, each query gets seed XOR query_index. |
 
 ### Training Parameters
+
+Ranges below are intended operating ranges. The Python binding currently validates string enums, but most numeric ranges are not enforced at the boundary.
 
 | Parameter | Default | Range | Description |
 |-----------|---------|-------|-------------|
@@ -138,12 +150,12 @@ When `output_path` is provided, the TSV gains a 4th column `alternatives` (pipe-
 | **seed_pattern** | None | binary string | Spaced seed pattern for mutation-robust k-mer enumeration. A string of 1s and 0s (e.g., `"11011011011"`). Positions with `1` are used; `0` positions are skipped. See [Spaced K-mers](#spaced-k-mers) below. |
 | **training_threshold** | 0.8 | 0.0-1.0 | Bootstrap vote fraction required to descend during fraction learning. R's IDTAXA hardcodes 0.8. Set closer to `min_descend` (e.g., 0.98) for consistent training/classification thresholds — sequences that wouldn't pass classification descent won't pass training descent either. |
 | **descendant_weighting** | "count" | count/equal/log | How to weight child profiles when computing the merged profile for cross-entropy feature selection. "count" = weight by raw descendant count (original IDTAXA). "equal" = 1/n_children each, preventing large clades from dominating feature selection. "log" = log(1+descendants), a middle ground. |
-| **use_idf_in_training** | false | true/false | Multiply profile weights by IDF weights during the fraction-learning tree descent. Without this, training uses raw profile frequencies while classification uses IDF-weighted scores — a train/test mismatch. Enabling this calibrates fractions under the same scoring regime used at classification time. |
-| **leave_one_out** | false | true/false | Per-kmer leave-one-out during fraction learning. Subtracts the held-out sequence's contribution from the matching sibling's raw k-mer counts and renormalizes by the reduced total — singleton k-mers (held-out is the only contributor) go to zero, conserved k-mers stay unchanged. Reduces self-classification bias by removing circular evidence at fraction calibration; classify-time scoring is unaffected. Most impactful for databases with many low-count species. |
+| **use_idf_in_descent** | false | true/false | Multiply profile weights by rank-appropriate IDF weights during fraction-learning descent, and persist that setting on the model so classify-time descent uses the same scoring regime. Leaf-phase classification always uses IDF weights. |
+| **leave_one_out** | false | true/false | Per-kmer leave-one-out during fraction learning. Subtracts the held-out sequence's contribution from the matching sibling's raw k-mer counts and renormalizes by the reduced total. This correction is applied only when the matching child group has more than one sequence and a positive reduced total; classify-time scoring is unaffected. |
 | **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. At each step, selects the k-mer maximizing `entropy * (1 - max_correlation_with_selected)`. Produces a more diverse, efficient feature set. Slower training but no impact on classification speed. |
 | **processors** | 1 | 1+ | Number of threads. Parallelizes tree construction (sibling subtrees) and fraction learning (sequences within each iteration). |
 | **seed** | 42 | any u32 | PRNG seed for the training bootstrap loop. |
-| **verbose** | true | true/false | Print progress during training (iteration counts, problem sequences/groups). |
+| **verbose** | true | true/false | Accepted by the Python API for compatibility, but currently ignored by the Rust training core. Fraction-learning progress is emitted to stderr regardless of this setting. |
 
 ### Spaced K-mers
 
@@ -212,7 +224,7 @@ correlation_aware_features = [False, True]
 
 # Training/classification consistency
 training_threshold_values = [0.8, 0.9, 0.98]  # match min_descend for consistency
-use_idf_in_training = [False, True]
+use_idf_in_descent = [False, True]
 
 # Bias correction (most useful for sparse databases)
 leave_one_out = [False, True]
@@ -244,19 +256,18 @@ seed_patterns_w7 = [
 
 **Sweep strategy:**
 
+The repository's `train.py` and `classify.py` scripts are minimal helper CLIs. They expose only a subset of the full Python API:
+
+- `train.py`: `--seed`, `--k`, `--record-kmers-fraction`, `--seed-pattern`
+- `classify.py`: `threshold`, `strand`, `min_descend`, `processors`, plus `--bootstraps`, `--sample-exponent`, `--seed`, `--deterministic`, `--length-normalize`, `--rank-thresholds`
+
+Use direct Python API calls for the remaining knobs (`descendant_weighting`, `training_threshold`, `use_idf_in_descent`, `leave_one_out`, `correlation_aware_features`, `beam_width`, `tie_margin`, `confidence_uses_descent_margin`, `sibling_aware_leaf`, `suppress_ancestor_only_groups`).
+
 ```bash
 # Tier 2: train models with different k values
 for k in 6 7 8 9 10; do
     python train.py ref.fasta tax.tsv model_k${k}.bin --k $k
 done
-
-# Tier 4: train models with algorithmic variants
-python train.py ref.fasta tax.tsv model_default.bin
-python train.py ref.fasta tax.tsv model_equal.bin --descendant-weighting equal
-python train.py ref.fasta tax.tsv model_idf.bin --use-idf-in-training
-python train.py ref.fasta tax.tsv model_corr.bin --correlation-aware-features
-python train.py ref.fasta tax.tsv model_loo.bin --leave-one-out
-python train.py ref.fasta tax.tsv model_strict.bin --training-threshold 0.98
 
 # Tier 5: train models with different spaced seeds (all weight=8)
 python train.py ref.fasta tax.tsv model_contiguous.bin
@@ -267,12 +278,39 @@ python train.py ref.fasta tax.tsv model_s15.bin --seed-pattern "110100110010101"
 # Sweep classification params for each model
 for model in model_*.bin; do
     for thresh in 20 30 40 50 60 70 80; do
-        for bw in 1 3; do
-            python classify.py query.fasta $model out_${model}_t${thresh}_bw${bw}.tsv \
-                $thresh both 0.98 0.0 8 --bootstraps 50 --beam-width $bw
-        done
+        python classify.py query.fasta $model out_${model}_t${thresh}.tsv \
+            $thresh both 0.98 8 --bootstraps 50
     done
 done
+```
+
+Full-API example for knobs not exposed by the helper CLIs:
+
+```python
+from oxidtaxa import train, classify
+
+train(
+    "ref.fasta", "tax.tsv", "model_equal.bin",
+    descendant_weighting="equal",
+    use_idf_in_descent=True,
+    leave_one_out=True,
+    correlation_aware_features=True,
+    training_threshold=0.98,
+    processors=8,
+)
+
+results = classify(
+    "query.fasta", "model_equal.bin", "out.tsv",
+    threshold=50,
+    strand="both",
+    min_descend=0.98,
+    processors=8,
+    bootstraps=50,
+    beam_width=3,
+    tie_margin=0.05,
+    sibling_aware_leaf=True,
+    suppress_ancestor_only_groups=True,
+)
 ```
 
 **Tip:** Use `bootstraps=50` during sweeps for 2x speedup. The optimal threshold found at 50 bootstraps transfers directly to production at 100 bootstraps.
@@ -369,17 +407,19 @@ Oxidtaxa was initially validated against R/C IDTAXA with 51 golden tests verifyi
 Classification results are returned in-memory as `List[ClassificationResult]` from `classify()`. When `output_path` is provided, a TSV is also written with header:
 
 ```
-read_id    taxonomic_path                                         confidence  alternatives
-asv_1      Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo  93.85
-asv_2      Eukaryota;Craniata;Mammalia;Myomorpha;Arvicolinae      54.30
-asv_3                                                              0
-asv_4      Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis    100.00      Canis_latrans|Canis_lupus
+read_id    taxonomic_path                                         confidence  alternatives               reject_reason     similarity
+asv_1      Eukaryota;Craniata;Mammalia;Catarrhini;Homininae;Homo  93.85                                                        0.98
+asv_2      Eukaryota;Craniata;Mammalia;Myomorpha;Arvicolinae      54.30                                below_threshold   0.74
+asv_3                                                              0                                     too_few_kmers     0
+asv_4      Eukaryota;Chordata;Mammalia;Carnivora;Canidae;Canis    100.00      Canis_latrans|Canis_lupus                    0.99
 ```
 
 - `read_id`: First whitespace-delimited word from FASTA header
 - `taxonomic_path`: Semicolon-delimited, Root stripped. Truncated at the last confidently-classified rank; no synthetic placeholder ranks appended.
 - `confidence`: Minimum confidence across all reported ranks (0-100)
 - `alternatives`: Pipe-separated short-labels of tied species when the classifier capped at an LCA; empty otherwise (see [Tied-species resolution](#tied-species-resolution))
+- `reject_reason`: Empty when classified; otherwise one of `too_few_kmers`, `no_training_match`, or `below_threshold`. Tied-species reporting is indicated by `alternatives`, not by `reject_reason`.
+- `similarity`: Leaf-phase similarity scalar for the selected training-sequence group. Zero on no-signal abstention paths.
 
 ### Model Format
 

@@ -222,79 +222,365 @@
     margin-top: 10px;
   }
   .param-index code { color: var(--accent-4); font-weight: 600; }
+
+  /* §10 visual walkthrough */
+  .kmer-chip {
+    display: inline-block;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.78em;
+    padding: 2px 7px;
+    margin: 2px 3px;
+    border-radius: 10px;
+    background: #eef7ff;
+    border: 1px solid #b8d6ef;
+    color: #1a3952;
+    font-weight: 600;
+  }
+  .kmer-chip.picked { background: #fff0e6; border-color: #f5b480; color: #7a3600; }
+  .bootstrap-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 8px;
+    border-bottom: 1px dashed #eee;
+    font-size: 0.88em;
+  }
+  .bootstrap-row .label {
+    flex: 0 0 110px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.82em;
+    color: var(--muted);
+  }
+  .bootstrap-row .picked-leaf {
+    margin-left: auto;
+    font-size: 0.82em;
+    color: var(--accent-3);
+    font-weight: 600;
+  }
+  .bootstrap-row .picked-leaf.tie { color: #b5860d; }
+  .bootstrap-row .picked-leaf.halt { color: #c0392b; }
+
+  .hist {
+    margin: 12px 0;
+    padding: 12px 14px;
+    background: #fafbff;
+    border: 1px solid #e4e8f3;
+    border-radius: 6px;
+  }
+  .hist h4 { margin: 0 0 10px; font-size: 0.95em; color: var(--accent-2); }
+  .hist-row {
+    display: grid;
+    grid-template-columns: 120px 1fr 45px;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0;
+    font-size: 0.88em;
+  }
+  .hist-row .name { font-family: monospace; color: var(--ink); }
+  .hist-row .track {
+    position: relative;
+    height: 18px;
+    background: #ecedf5;
+    border-radius: 3px;
+    overflow: visible;
+  }
+  .hist-row .track .fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-3), #82c99a);
+    border-radius: 3px;
+  }
+  .hist-row .track .fill.loser { background: linear-gradient(90deg, #adb5bd, #ced4da); }
+  .hist-row .track .fill.winner-halt { background: linear-gradient(90deg, #e67061, #f1a79c); }
+  .hist-row .track .gate {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    background: #c0392b;
+  }
+  .hist-row .track .gate::after {
+    content: "min_descend";
+    position: absolute;
+    top: -18px;
+    left: 4px;
+    font-size: 0.7em;
+    color: #c0392b;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .hist-row .val { font-family: monospace; text-align: right; font-size: 0.85em; }
+  .hist-caption { font-size: 0.82em; color: var(--muted); margin-top: 6px; }
+
+  .converge-grid {
+    display: grid;
+    grid-template-columns: 80px repeat(6, 1fr);
+    gap: 4px 6px;
+    font-size: 0.82em;
+    font-family: monospace;
+    align-items: center;
+    margin: 10px 0;
+  }
+  .converge-grid .head { font-weight: 600; text-align: center; color: var(--muted); font-family: inherit; font-size: 0.78em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .converge-grid .rank-label { color: var(--ink); padding-right: 6px; }
+  .converge-cell {
+    position: relative;
+    height: 16px;
+    background: #ecedf5;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .converge-cell .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, var(--accent-3), #82c99a);
+  }
+  .converge-cell .v {
+    position: absolute;
+    right: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.72em;
+    color: #1a3952;
+    font-weight: 600;
+    text-shadow: 0 0 2px #fafbff;
+  }
+
+  .trace-wrap { overflow-x: auto; margin: 16px 0; padding: 10px 0; }
+  .trace-stage-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    fill: var(--accent);
+  }
+  .trace-knob {
+    font-size: 11px;
+    font-family: monospace;
+    fill: var(--accent-4);
+    font-weight: 600;
+  }
+  .trace-box {
+    fill: #fff;
+    stroke: var(--border);
+    stroke-width: 1.5;
+  }
+  .trace-box-stage1 { fill: #eef7ff; stroke: var(--accent-2); }
+  .trace-box-stage2 { fill: #fff0e6; stroke: var(--accent); }
+  .trace-box-stage3 { fill: #f3e9ff; stroke: var(--accent-4); }
+  .trace-text { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; fill: var(--ink); }
+  .trace-text-small { font-size: 10px; fill: var(--muted); }
+  .trace-text-mono { font-family: monospace; font-size: 11px; fill: var(--ink); }
+  .trace-arrow { stroke: var(--accent); stroke-width: 2; fill: none; marker-end: url(#trace-arrowhead); }
+  .trace-arrow-soft { stroke: #999; stroke-width: 1.5; fill: none; marker-end: url(#trace-arrowhead-soft); }
 </style>
 </head>
 <body>
 
 <header>
   <h1>Oxidtaxa — How It Works</h1>
-  <p class="sub">A visual walkthrough of the IDTAXA taxonomic classification algorithm, with toy training &amp; classification examples. Every parameter is shown at the point where it hooks into the flow.</p>
+  <p class="sub">A visual walkthrough of the Oxidtaxa taxonomic classification algorithm, with toy training &amp; classification examples. Every parameter is shown at the point where it hooks into the flow.</p>
 </header>
 
-<!-- =========== THE BIG PICTURE =========== -->
-<h2>1. The Big Picture</h2>
+<!-- =========== §1 WHAT OXIDTAXA DOES =========== -->
+<h2>1. What oxidtaxa does</h2>
 <div class="panel">
-  <p>Oxidtaxa has two phases. Training is a <strong>one-shot</strong> process that builds a model; classification runs <strong>per query</strong> and uses the model to assign a taxonomic path with per-rank confidences.</p>
+  <p style="font-size: 1.05em;"><strong>Bootstrapping on sub-sampled k-mers converts raw k-mer scoring into a voting system</strong>, and the vote share becomes a natural per-rank confidence measurement. That's the whole idea in one sentence: if independent replicates of a noisy classifier still agree on a label, you can treat the agreement rate as an honest confidence. The sibling/tie knobs (<code class="inline">tie_margin</code>, <code class="inline">sibling_aware_leaf</code>) sharpen the system's ability to be honest about <em>uncertainty</em> — they don't change what the classifier knows, only how generously it reports when the evidence is close. Per-rank IDF (<code class="inline">per_rank_idf</code>) complements them by making sure k-mer weights are appropriate for <em>which rank is being split</em>, rather than being identical at every level.</p>
 
-  <h3>Training pipeline</h3>
-  <div class="flow-stages">
-    <div class="stage">
-      <h4>Stage 1 — prepare_data</h4>
-      <div class="small">Enumerate k-mers per sequence; compute <strong>per-rank IDF matrix</strong>; build taxonomy tree skeleton.</div>
-    </div>
-    <div class="stage">
-      <h4>Stage 2 — build_tree</h4>
-      <div class="small">At each internal node, select the most-discriminating k-mers (features).</div>
-    </div>
-    <div class="stage">
-      <h4>Stage 3 — learn_fractions</h4>
-      <div class="small">Iteratively calibrate per-node descent thresholds so self-classification hits the target rate.</div>
-    </div>
-  </div>
-  <p style="text-align:center; margin: 6px 0 0;"><strong>→ model.bin</strong> (tree + features + fractions + per-rank IDF + inverted index)</p>
-
-  <h3>Classification pipeline</h3>
-  <div class="flow-stages">
-    <div class="stage classify">
-      <h4>① k-mer extraction</h4>
-      <div class="small">Unique, sorted integer k-mer IDs per query.</div>
-    </div>
-    <div class="stage classify">
-      <h4>② bootstrap × 100</h4>
-      <div class="small">Sub-sample S = L<sup>0.47</sup> k-mers; descend tree independently each time; record margins.</div>
-    </div>
-    <div class="stage classify">
-      <h4>③ tally &amp; report</h4>
-      <div class="small">Confidence per rank; LCA-clamp on tied groups; emit alternatives.</div>
-    </div>
-  </div>
-  <p style="text-align:center; margin: 6px 0 0;"><strong>→ taxon + confidence + alternatives</strong></p>
-
-  <h3>Every knob covered in this document</h3>
-  <table>
-    <thead>
-      <tr><th>Parameter</th><th>Phase</th><th>Section</th><th>What it controls</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><code class="inline">k</code> / <code class="inline">seed_pattern</code></td><td>train</td><td>§3a</td><td>K-mer size &amp; spacing</td></tr>
-      <tr><td><code class="inline">per_rank_idf</code></td><td>train</td><td>§3b</td><td>IDF computed per rank depth instead of globally</td></tr>
-      <tr><td><code class="inline">record_kmers_fraction</code></td><td>train</td><td>§3d</td><td>How many features per decision node</td></tr>
-      <tr><td><code class="inline">descendant_weighting</code>, <code class="inline">correlation_aware_features</code></td><td>train</td><td>§3d</td><td>Feature-selection strategy</td></tr>
-      <tr><td><code class="inline">training_threshold</code>, <code class="inline">leave_one_out</code>, <code class="inline">use_idf_in_training</code></td><td>train</td><td>§3e</td><td>Fraction-learning knobs</td></tr>
-      <tr><td><code class="inline">bootstraps</code>, <code class="inline">sample_exponent</code></td><td>classify</td><td>§4b</td><td>Bootstrap count &amp; sample size</td></tr>
-      <tr><td><code class="inline">min_descend</code></td><td>classify</td><td>§4c</td><td>Vote fraction required to descend a node</td></tr>
-      <tr><td><code class="inline">confidence_uses_descent_margin</code></td><td>classify</td><td>§4c</td><td>Per-rank confidence scaled by descent margin history</td></tr>
-      <tr><td><code class="inline">sibling_aware_leaf</code></td><td>classify</td><td>§4d</td><td>Widen candidate set at the terminal descent step</td></tr>
-      <tr><td><code class="inline">tie_margin</code></td><td>classify</td><td>§4e</td><td>Near-tied groups enter the tied-species report</td></tr>
-      <tr><td><code class="inline">threshold</code>, <code class="inline">rank_thresholds</code></td><td>classify</td><td>§4f</td><td>Final confidence cutoff</td></tr>
-    </tbody>
-  </table>
+  <p>Oxidtaxa has two phases. <strong>Training</strong> is a one-shot process that builds a model; <strong>classification</strong> runs per query and uses the model to assign a taxonomic path with per-rank confidences. The classification phase is best understood as <strong>three filters in series</strong> — a descent gate (<em>how deep do we walk?</em>), a leaf-phase LCA clamp (<em>do we commit to one leaf or report a group?</em>), and a rank-wise threshold filter (<em>how much of the resulting path is evidence-supported enough to report?</em>). §4 unpacks that scaffold; §7–§9 walk through each filter with worked numbers.</p>
 </div>
 
-<!-- =========== TOY DATASET =========== -->
-<h2>2. Toy Reference Dataset</h2>
+<!-- =========== §2 BASELINE IDTAXA =========== -->
+<h2>2. Baseline: canonical IDTAXA</h2>
 <div class="panel">
-  <p>To make arithmetic tractable we use <strong>k=3</strong> (only 4³=64 possible DNA k-mers) and 6 reference sequences spanning 3 families.</p>
+  <p>Oxidtaxa is a Rust reimplementation of IDTAXA (Murali, Bhargava &amp; Wright 2018). Before listing what's different, here's what the <em>original</em> algorithm does — the baseline every oxidtaxa feature compares against.</p>
+
+  <h3>Training (one-shot)</h3>
+  <ol>
+    <li><strong>K-mer enumeration &amp; global IDF.</strong> Each reference sequence is reduced to a sorted set of unique k-mer IDs. A <em>single</em> IDF vector is computed over the whole training set: <code class="inline">IDF(kmer) = ln(N / (1 + n_seqs_containing))</code>. One weight per k-mer, used identically regardless of rank depth.</li>
+    <li><strong>Per-node feature selection.</strong> At every internal node of the taxonomy, compute each k-mer's cross-entropy across the children. Keep the top fraction by discriminative power (higher |Δ| between child distributions). Each node ends up with a compact "decision kit" of features.</li>
+    <li><strong>Iterative fraction learning.</strong> For each training sequence: subsample ~√L k-mers, descend the tree greedily using <strong>unweighted</strong> k-mer counts (IDF is applied only at classification time, not during training), check whether it reached its correct leaf. If &lt;80% of sequences reach their label, nudge down the fractions of nodes that routed sequences wrong; iterate. Each misclassified sequence immediately updates fractions before the next sequence is processed (Gauss-Seidel style).</li>
+  </ol>
+
+  <h3>Classification (per query)</h3>
+  <ol>
+    <li><strong>K-mer extraction.</strong> Extract unique k-mer IDs from the query (length L).</li>
+    <li><strong>Bootstrap × 100.</strong> Each bootstrap subsamples <code class="inline">S = L<sup>0.47</sup></code> k-mers without replacement.</li>
+    <li><strong>Greedy tree descent.</strong> At each node, every child is scored by the fraction of its <em>stored descendant profile</em> that the bootstrap's sampled k-mers cover (profile = k-mer frequencies among the child's training sequences, built at training time). Descend into the single winning child iff <code class="inline">winner / total ≥ fraction</code>; else stop. IDF is <em>not</em> applied at this step — profiles are the voting weights here.</li>
+    <li><strong>Per-rank confidence.</strong> Across bootstraps, <code class="inline">confidence[rank] = (bootstraps reaching this rank's winner) / B</code>. That vote share <em>is</em> the confidence — no other corrections.</li>
+    <li><strong>Leaf-phase match.</strong> Run an <em>IDF-weighted</em> k-mer match against the reference sequences behind the stopping-node's candidates. Single highest-scoring group wins. Report one taxon; exact-score ties are rare and silently broken. This is the only point where IDF weights enter classification.</li>
+    <li><strong>Threshold.</strong> Truncate the reported path at the first rank whose confidence falls below a single global threshold.</li>
+  </ol>
+
+  <div class="note" style="font-size: 0.9em;"><strong>Core invariants of the 2018 algorithm:</strong>
+    <ul style="margin: 4px 0;">
+      <li>Decision-tree descent, one child per step</li>
+      <li>Bootstrap vote fraction &nbsp;=&nbsp; rank confidence (no margin/discount logic)</li>
+      <li>One IDF value per k-mer, applied the same at every rank (and only at leaf-phase — descent votes use profiles)</li>
+      <li>One reported taxon per query; no "alternatives" channel; no tied-species reporting</li>
+      <li>Shared sequential PRNG across the bootstrap pass</li>
+    </ul>
+    §3 enumerates every point where oxidtaxa diverges.
+  </div>
+</div>
+
+<!-- =========== §3 DIFFERENCES =========== -->
+<h2>3. How oxidtaxa differs from IDTAXA</h2>
+<div class="panel">
+  <p>Every deviation from §2 is listed below, grouped by category. Defaults are chosen so that turning every opt-in feature off recovers (close to) strict IDTAXA semantics — the opt-in knobs widen reporting or sharpen confidence; they don't fundamentally change what gets classified.</p>
+
+  <table>
+    <thead>
+      <tr><th>#</th><th>Difference</th><th>Category</th><th>Default</th><th>Section</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>A</strong></td>
+        <td><code class="inline">per_rank_idf</code> — IDF is a <em>matrix</em> (one row per rank depth), not a single vector</td>
+        <td>Algorithm</td>
+        <td><strong>always on</strong></td>
+        <td>§6b</td>
+      </tr>
+      <tr>
+        <td><strong>B</strong></td>
+        <td>Per-query independent PRNG (seed XOR query-index) — bootstraps are reproducible per-query and parallelizable</td>
+        <td>Implementation</td>
+        <td>always on</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><strong>C</strong></td>
+        <td>Batch fraction updates during training (all sequences per iteration, update once) instead of Gauss-Seidel</td>
+        <td>Implementation</td>
+        <td>always on</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><strong>D</strong></td>
+        <td>Inverted k-mer index — O(query_kmers · avg_posting) leaf-phase scoring; ~3–1000× faster at large DB size</td>
+        <td>Acceleration</td>
+        <td>always on</td>
+        <td>§11</td>
+      </tr>
+      <tr>
+        <td><strong>E</strong></td>
+        <td><code class="inline">beam_width</code> — maintain top-<em>K</em> descent paths in parallel; leaf-phase picks the winner</td>
+        <td>Feature</td>
+        <td>1 (greedy = IDTAXA)</td>
+        <td>§7c</td>
+      </tr>
+      <tr>
+        <td><strong>F</strong></td>
+        <td><code class="inline">sibling_aware_leaf</code> — at the terminal descent step, include any sibling with ≥ 0.5B votes in leaf-phase scoring</td>
+        <td>Feature</td>
+        <td>off</td>
+        <td>§8a</td>
+      </tr>
+      <tr>
+        <td><strong>G</strong></td>
+        <td><code class="inline">tie_margin</code> — groups within (1 − tie_margin) of max_tot are co-winners; reported as <code class="inline">alternatives</code> with LCA clamp on the taxon</td>
+        <td>Feature</td>
+        <td>0 (exact ties only)</td>
+        <td>§8c</td>
+      </tr>
+      <tr>
+        <td><strong>H</strong></td>
+        <td><code class="inline">descendant_weighting</code> — choice of Count / Equal / Log weighting when building per-child profiles for feature selection</td>
+        <td>Feature</td>
+        <td>Count (= IDTAXA)</td>
+        <td>§6d</td>
+      </tr>
+      <tr>
+        <td><strong>I</strong></td>
+        <td><code class="inline">use_idf_in_descent</code> — apply rank-appropriate IDF weights during fraction-learning descent and persist that setting so classify-time descent uses the same scoring regime. Leaf-phase classification always uses IDF</td>
+        <td>Feature</td>
+        <td>off</td>
+        <td>§6e</td>
+      </tr>
+      <tr>
+        <td><strong>J</strong></td>
+        <td><code class="inline">leave_one_out</code> — per-kmer leave-one-out: subtract the held-out sequence's contribution from the matching sibling's raw counts and renormalize during fraction learning</td>
+        <td>Feature</td>
+        <td>off</td>
+        <td>§6e</td>
+      </tr>
+      <tr>
+        <td><strong>K</strong></td>
+        <td><code class="inline">correlation_aware_features</code> — greedy feature selection penalizing redundancy with already-chosen k-mers</td>
+        <td>Feature</td>
+        <td>off</td>
+        <td>§6d</td>
+      </tr>
+      <tr>
+        <td><strong>L</strong></td>
+        <td><code class="inline">suppress_ancestor_only_groups</code> — drop ancestor-only training entries that parasitically tie with species-resolved descendants (dual-stage: per-replicate share-split + post-bootstrap winner stage)</td>
+        <td>Feature</td>
+        <td>off</td>
+        <td>§8d</td>
+      </tr>
+      <tr>
+        <td><strong>M</strong></td>
+        <td>No-sentinel output — truncated paths carry depth via list length + <code class="inline">reject_reason</code>, not an <code class="inline">unclassified_*</code> placeholder</td>
+        <td>Reporting</td>
+        <td>always on</td>
+        <td>§9b</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="margin-top: 14px;"><strong>Two groupings.</strong> <em>Always-on</em> changes (A–D, M) are foundational — they're part of what "oxidtaxa" <em>is</em>: per-rank IDF, per-query PRNG, parallel training, inverted-index leaf phase, and clean truncation output. <em>Opt-in</em> features (E–L) are the tunable layer; with every opt-in at its default, classification runs the strict IDTAXA decision flow on top of the faster per-rank-IDF'd core.</p>
+
+  <div class="note" style="font-size: 0.9em;"><strong>Why this matters for reproducibility.</strong> When comparing an oxidtaxa run to a published IDTAXA result, start by checking the <em>opt-in</em> rows (E–L): those are where behavior diverges in ways a user controls. The always-on rows (A–D, M) change implementation but not classification <em>outcomes</em> in a meaningful way — per-rank IDF is a sharper signal, but the tree shape, descent rule, and leaf-phase logic are unchanged.</div>
+</div>
+
+<!-- =========== §4 MENTAL MODEL =========== -->
+<h2>4. The mental model: three filters in series</h2>
+<div class="panel">
+  <p>Before diving into mechanics, carry this scaffold with you. A query passes through three independent pruning stages at classification time, each applied at a different moment and consulting a different piece of evidence:</p>
+
+  <pre class="ascii">  ┌──────────────────────────────────────────────────────────────┐
+  │ STAGE 1 — DESCENT GATE                          knob: min_descend
+  │   consulted: aggregated bootstrap votes at each node
+  │   asks:      "did one child get ≥ min_descend · B votes?"
+  │   effect:    decides HOW DEEP we walk before stopping
+  │   result:    a stopping node (leaf or mid-tree)
+  └──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │ STAGE 2 — LEAF-PHASE + LCA CLAMP                knob: tie_margin
+  │   consulted: per-bootstrap best-reference hits (tot_hits)
+  │   asks:      "which group wins, and are there tied winners?"
+  │   effect:    may CLAMP the reported lineage at the LCA of tied
+  │              winners, even if descent could have gone further
+  │   result:    a candidate lineage + per-rank confidences rolled
+  │              up from tot_hits
+  └──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │ STAGE 3 — RANK-WISE THRESHOLD FILTER            knob: threshold
+  │                                                 or rank_thresholds
+  │   consulted: rolled-up per-rank confidences
+  │   asks:      "does confidence[i] ≥ threshold[i] at every rank?"
+  │   effect:    truncates the reported lineage at the first rank
+  │              whose confidence isn't evidence-supported enough
+  │   result:    the final reported taxon + confidences + alternatives
+  └──────────────────────────────────────────────────────────────┘</pre>
+
+  <p>The key thing these three stages do <em>not</em> share is the evidence they consult. Stage 1 counts <strong>per-node descent votes</strong>. Stages 2 and 3 both read from <strong>leaf-phase <code class="inline">tot_hits</code></strong> (Stage 2 on the raw group totals, Stage 3 on the per-rank rollup). Descent votes and leaf-phase hits are two <em>different</em> bootstrap tallies produced by the same 100 replicates — §7b and §8b make this explicit.</p>
+
+  <p>One-sentence summaries you can use to navigate the rest of this document:</p>
+  <ul style="margin: 6px 0 0; font-size: 0.92em;">
+    <li><code class="inline">min_descend</code> (§7b) decides <em>how deep we attempt</em>.</li>
+    <li><code class="inline">tie_margin</code> (§8c) decides <em>whether the winner's lineage must be clamped at an LCA</em>.</li>
+    <li><code class="inline">threshold</code> / <code class="inline">rank_thresholds</code> (§9a) decide <em>how much of that lineage is evidence-supported enough to report</em>.</li>
+  </ul>
+</div>
+
+<!-- =========== §5 TOY DATASET =========== -->
+<h2>5. Toy reference dataset</h2>
+<div class="panel">
+  <p>To make arithmetic tractable we use <strong>k=3</strong> (only 4³=64 possible DNA k-mers) and 6 reference sequences spanning 3 families. Everything in §6–§9 is worked against this dataset.</p>
 
   <table>
     <thead>
@@ -311,10 +597,20 @@
   </table>
 </div>
 
-<!-- =========== TRAINING STEPS =========== -->
-<h2>3. Training, Step by Step</h2>
+<!-- =========== §6 TRAINING =========== -->
+<h2>6. Training — producing the model artifacts</h2>
+<div class="panel">
+  <p>Training is a one-shot process that produces the four pieces Stages 1 and 2 will consume at classification time:</p>
+  <ul style="margin: 4px 0 0; font-size: 0.92em;">
+    <li><strong>A taxonomy tree skeleton</strong> (§6c) — the walks Stage 1 performs.</li>
+    <li><strong>A per-rank IDF matrix</strong> (§6b) — the weights applied to k-mer votes at each depth.</li>
+    <li><strong>A compact "decision kit" of k-mers at every internal node</strong> (§6d) — the features each Stage-1 split consults.</li>
+    <li><strong>A per-node <code class="inline">fraction</code></strong> (§6e) — how many of those features each bootstrap samples at that node.</li>
+  </ul>
+  <p style="margin: 10px 0 0;"><strong>→ model.bin</strong> (tree + features + fractions + per-rank IDF + inverted index).</p>
+</div>
 
-<h3><span class="step-badge">3a</span>K-mer enumeration</h3>
+<h3><span class="step-badge">6a</span>K-mer enumeration</h3>
 <div class="panel">
   <p>Each sequence is converted to a sorted list of <em>unique</em> integer k-mer IDs. Encoding: <code class="inline">A=0, C=1, G=2, T=3</code>, so ACG&nbsp;=&nbsp;0·16&nbsp;+&nbsp;1·4&nbsp;+&nbsp;2&nbsp;=&nbsp;6.</p>
   <pre class="ascii">seq1 ACGTACGTAC → unique sorted IDs: {6(ACG), 27(CGT), 44(GTA), 49(TAC)}
@@ -372,7 +668,7 @@ seq4 GGCCGGCCGG → unique sorted IDs: {21(CCG), 26(CGG), 37(GCC), 42(GGC)}</pre
   </table>
 </div>
 
-<h3><span class="step-badge">3b</span>IDF weights — per rank, not global</h3>
+<h3><span class="step-badge">6b</span>IDF weights — per rank, not global</h3>
 <div class="panel">
   <p>Rare k-mers should carry more signal than common ones. Oxidtaxa computes IDF <strong>per rank depth</strong>: a k-mer can be informative at genus but noise at kingdom.</p>
 
@@ -380,7 +676,7 @@ seq4 GGCCGGCCGG → unique sorted IDs: {21(CCG), 26(CGG), 37(GCC), 42(GGC)}</pre
   group training sequences by their taxonomic prefix up to depth r
   assign each sequence weight w_i = 1 / (sequences in its prefix group)
   c = Σ w_i  over sequences that contain the k-mer
-  IDF_r(kmer) = ln( N_r / (1 + c) )                  # src/training.rs:685</pre>
+  IDF_r(kmer) = ln( N_r / (1 + c) )                  # src/training.rs:707</pre>
 
   <p>The weighting means each prefix group contributes <strong>at most 1</strong> to <code class="inline">c</code> — and <em>less</em> when only a fraction of its sequences have the k-mer. That's important when a clade is unevenly represented.</p>
 
@@ -407,11 +703,11 @@ seq4 GGCCGGCCGG → unique sorted IDs: {21(CCG), 26(CGG), 37(GCC), 42(GGC)}</pre
 idf_weights_by_rank[1]  →  used at Family  split  (e.g. ACG weight = 0.41)
 idf_weights_by_rank[2]  →  used at Genus   split  (e.g. ACG weight = 0.41)
 idf_weights_by_rank[3]  →  used at Species split  (e.g. ACG weight = 0.29)</pre>
-    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/training.rs:313</code> (compute), <code class="inline">src/classify.rs:504</code> (lookup).</p>
+    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/training.rs:313</code> (compute), <code class="inline">src/classify.rs:552</code> (per-rank row lookup at descent depth).</p>
   </div>
 </div>
 
-<h3><span class="step-badge">3c</span>Taxonomy tree construction</h3>
+<h3><span class="step-badge">6c</span>Taxonomy tree construction</h3>
 <div class="panel">
   <svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg">
     <path class="tree-edge" d="M 450,40 L 250,100"/>
@@ -465,7 +761,7 @@ idf_weights_by_rank[3]  →  used at Species split  (e.g. ACG weight = 0.29)</pr
   </div>
 </div>
 
-<h3><span class="step-badge">3d</span>Feature selection at each decision node</h3>
+<h3><span class="step-badge">6d</span>Feature selection at each decision node</h3>
 <div class="panel">
   <p>At each internal node with ≥2 children, keep only the top <code class="inline">record_kmers_fraction</code> of k-mers by discriminative power. At the <strong>Canis</strong> node (C. lupus = seq1+2, C. latrans = seq3):</p>
 
@@ -482,33 +778,43 @@ idf_weights_by_rank[3]  →  used at Species split  (e.g. ACG weight = 0.29)</pr
     </tbody>
   </table>
   <p>The Canis node stores a compact "decision kit": <code class="inline">{CGT, GTA, CGA, GAT, ATC}</code>.</p>
+  <p style="font-size: 0.9em; color: var(--muted);">Knobs: <code class="inline">record_kmers_fraction</code> (how many per node), <code class="inline">descendant_weighting</code> and <code class="inline">correlation_aware_features</code> (how per-child profiles are built and how redundancy is penalized).</p>
 </div>
 
-<h3><span class="step-badge">3e</span>Fraction learning (iterative calibration)</h3>
+<h3><span class="step-badge">6e</span>Fraction learning (iterative calibration)</h3>
 <div class="panel">
-  <p>Each node learns a <strong>sampling fraction</strong> — how aggressively a bootstrap must prefer one child over its siblings for descent to count. Iterate until the self-classification rate hits <code class="inline">training_threshold</code> (default 0.8).</p>
+  <p>Each node learns a <strong>per-node sampling rate</strong> called <code class="inline">fraction</code>. It controls <em>how many of the node's decision k-mers each bootstrap samples</em> at classification time — it is <strong>not</strong> a descent threshold. The descent gate itself is the global <code class="inline">min_descend</code> (see §7b). Training iterates until self-classification hits <code class="inline">training_threshold</code> (default 0.8).</p>
 
   <pre class="ascii">for each training sequence:
-  1. subsample ~sqrt(L) unique kmers
+  1. subsample ~sqrt(L) unique kmers from the sequence
   2. start at root
-  3. at each node: score each child, descend if winner/total ≥ node.fraction
-  4. if descent ended at WRONG leaf, nudge offending node fractions down
-check: did ≥80% of seqs reach their correct leaf?
+  3. at each node:
+       s_dk   = ceil( n_decision_kmers · node.fraction )
+       per bootstrap, sample s_dk kmers; vote for the top-scoring child
+       aggregate votes across B bootstraps
+       descend iff  winner_votes / B  ≥  min_descend
+  4. if descent ended at the WRONG leaf,
+       nudge the offending nodes' fractions DOWN
+check: did ≥ training_threshold of seqs reach their correct leaf?
   yes → DONE    no → iterate</pre>
+
+  <p><strong>Why lowering <code class="inline">fraction</code> helps at misclassifying nodes.</strong> Smaller <code class="inline">fraction</code> → fewer k-mers sampled per bootstrap at that node → noisier per-replicate votes → bootstraps disagree more often → fewer replicates converge on any single winner → the aggregated top-vote share is less likely to clear <code class="inline">min_descend</code> → descent stops there instead of committing to the wrong child. Training is therefore tuning classification-time behavior <em>indirectly</em>, by making the node's evidence harder to overcommit on, without ever touching the global <code class="inline">min_descend</code>.</p>
+
+  <p style="font-size: 0.9em; color: var(--muted);">Other knobs that live here: <code class="inline">leave_one_out</code> (per-kmer self-bias correction — subtract the held-out sequence's contribution and renormalize), <code class="inline">use_idf_in_descent</code> (IDF-weighted training descent, using the per-rank IDF row matching the node's depth, persisted so classify-time descent matches). Source: <code class="inline">src/classify.rs:210–245</code> (how fraction feeds s_dk and votes feed min_descend), <code class="inline">src/training.rs:550–570</code> (the nudge-down rule).</p>
 </div>
 
-<!-- =========== CLASSIFICATION STEPS =========== -->
-<h2>4. Classification, Step by Step</h2>
+<!-- =========== §7 STAGE 1 — DESCENT GATE =========== -->
+<h2>7. Classification — Stage 1: the descent gate</h2>
+<div class="panel">
+  <p>Stage 1 answers <em>how deep do we walk?</em> It consults only one kind of evidence — aggregated bootstrap votes at each internal node — and the only knob that shapes the decision is <code class="inline">min_descend</code>. One modifier also lives here: <code class="inline">beam_width</code> (§7c), which keeps more than one active path at a time.</p>
+</div>
 
-<h3><span class="step-badge">4a</span>Toy query</h3>
+<h3><span class="step-badge">7a</span>Query, k-mers, and bootstrap sub-sampling</h3>
 <div class="panel">
   <pre class="ascii">query  ACGTACGTTC       ← differs from seq1 by one base in the middle
 unique 3-mers = {ACG(6), CGT(27), GTA(44), TAC(49), GTT(47), TTC(55)}
 L = 6 unique k-mers</pre>
-</div>
 
-<h3><span class="step-badge">4b</span>Bootstrap sub-sampling</h3>
-<div class="panel">
   <p>Each bootstrap randomly selects <code class="inline">S = L<sup>sample_exponent</sup></code> unique k-mers from the query and descends the tree independently.</p>
   <pre class="ascii">L = 6,   sample_exponent = 0.47
 S = 6^0.47 ≈ 2.35 → round to 2 (toy; production runs have S ≈ 15-30)
@@ -518,95 +824,184 @@ Bootstrap #2:  {GTA, TAC}
 Bootstrap #3:  {ACG, TTC}
 ...
 Bootstrap #100: ...</pre>
-</div>
 
-<h3><span class="step-badge">4c</span>Tree descent &amp; per-step margins</h3>
-<div class="panel">
-  <p>For each bootstrap, we walk from Root toward leaves. At each node, every child accumulates votes across the bootstrap's k-mer draws. Whether to descend depends on the winning child's share of votes.</p>
-
-  <h4>Single-bootstrap walk (Bootstrap #1, sample = {ACG, CGT})</h4>
-  <pre class="ascii">  Root                       <span style="color:#a6e3a1;">score(Animalia) = IDF₀(ACG) + IDF₀(CGT) = 0.00 + 0.69 = 0.69</span>
-  ├── Animalia               <span style="color:#a6e3a1;">score(Plantae)  = 0</span>
-  └── Plantae                                       ← descent requires
-  winner = Animalia                                    winner/total ≥ min_descend (0.98)
-  0.69 / 0.69 = 1.00  ≥ 0.98  →  DESCEND
-                             ▼
-  Animalia → Canidae → Canis   (all straightforward)
-                             ▼
-  Canis  (feature kmers {CGT, GTA, CGA, GAT, ATC};  using IDF₂ row)
-  ├── C. lupus    matched: {CGT, GTA}      → 2 hits  → wins this bootstrap
-  └── C. latrans  matched: {CGT}           → 1 hit</pre>
-
-  <p>Across 100 bootstraps, each node tallies vote_counts per child. A typical aggregate:</p>
-
-  <pre class="ascii">at the Canis node, after 100 bootstraps:
-  vote_counts[C. lupus]    = 62
-  vote_counts[C. latrans]  = 55       ← close runner-up
-  vote_counts[C. familiaris] = 12
-  # (sums > 100 because bootstraps can tie and vote for multiple)</pre>
-
-  <div class="param-box">
-    <h4>confidence_uses_descent_margin</h4>
-    <p style="margin:0 0 6px;">At each descent step, record how decisively the winner beat the runner-up:</p>
-    <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">margin[node_i] = max( (top_votes − runner_up_votes) / B ,  0.1 )</pre>
-
-    <p style="margin:6px 0 0;"><strong>Scoping rule:</strong> the margin recorded at node <em>i</em> is the decisiveness of the single decision that <em>selects</em> rank <em>i+1</em>. Its discount applies <em>only</em> to rank <em>i+1</em> — no compounding across ranks. Each rank's confidence is penalized by the one margin that chose it, and by nothing else.</p>
-
-    <pre class="ascii" style="margin:8px 0; font-size: 0.78em;">for each rank i &gt; 0 (Kingdom, Phylum, ...):
-    confidence[i]  *=  margin[i − 1]       # the margin of the decision
-                                           # that selected THIS rank, only</pre>
-
-    <p style="margin:6px 0 0;"><strong>Why non-cumulative.</strong> Margin is a decisiveness score, not a probability — multiplying them across ranks has no clean statistical meaning, it just compounds penalties. The raw vote-fraction confidence already encodes path dependence (a bootstrap only reaches rank <em>i</em> if it passed every prior split correctly). Compounding margins on top double-counts path uncertainty and collapses deep ranks to near-zero (e.g. 0.3⁶ ≈ 0.0007 for six 60/40 splits).</p>
-
-    <table style="margin:10px 0 0; font-size:0.85em;">
-      <thead><tr><th>Descent step</th><th>top/B</th><th>runner/B</th><th>margin recorded</th><th>applied to…</th></tr></thead>
-      <tbody>
-        <tr><td>at Root, picks Kingdom</td><td>98</td><td>2</td><td>0.96</td><td>Kingdom only</td></tr>
-        <tr><td>at Animalia, picks Family</td><td>95</td><td>5</td><td>0.90</td><td>Family only</td></tr>
-        <tr><td>at Canidae, picks Genus</td><td>60</td><td>40</td><td>0.20</td><td>Genus only</td></tr>
-      </tbody>
-    </table>
-
-    <p style="margin:10px 0 0;">So with raw confidences [100, 98, 95, 92]:</p>
-    <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">Root:    100  × 1      = 100.0    # no selecting decision
-Kingdom:  98  × 0.96   =  94.1    # × Root→Kingdom margin only
-Family:   95  × 0.90   =  85.5    # × Animalia→Family margin only
-Genus:    92  × 0.20   =  18.4    # × Canidae→Genus margin only
-                                    (Genus penalty does NOT propagate down;
-                                     Species below would be multiplied by
-                                     its own margin, not Genus's.)</pre>
-    <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:230</code> (greedy record), <code class="inline">src/classify.rs:388</code> (beam record), <code class="inline">src/classify.rs:744</code> (apply). The beam path carries a per-candidate <code class="inline">descent_margins</code> Vec so the discount is honored for <code class="inline">beam_width &gt; 1</code>.</p>
+  <div class="note" style="font-size: 0.9em;">
+    <strong>Why subsample?</strong> The subsampling <em>is</em> the confidence mechanism. If every bootstrap saw every query k-mer, all 100 replicates would be identical computations and the "vote share" at any node would always be 100% or 0% — a point estimate masquerading as a distribution. Subsampling injects deliberate variance: the <em>rate</em> at which independent replicates still agree becomes a legitimate frequentist confidence. At hard nodes where siblings are close, fraction learning (§6e) further shrinks the per-replicate sample so disagreement surfaces exactly where you need it — at splits that <em>shouldn't</em> commit on thin evidence.
   </div>
 </div>
 
-<h3><span class="step-badge">4d</span>Terminal descent step &amp; sibling widening</h3>
+<h3><span class="step-badge">7b</span>Tree descent &amp; <code class="inline">min_descend</code></h3>
 <div class="panel">
-  <p>At the <strong>last</strong> descent step (the split whose children are leaves), the baseline picks a single winner. That decision is final — no further descent, no chance for a close runner-up to be reconsidered.</p>
+  <p>The whole ensemble walks the tree together, not 100 independent walks. At each node, each of the B=100 bootstraps draws s_dk k-mers from the node's <strong>decision-kit features</strong> (§6d), scores each child against that sample using the child's stored <strong>descendant profile</strong>, and casts one vote for the max-scoring child. After all 100 votes are tallied, <code class="inline">min_descend</code> decides whether the ensemble descends or halts.</p>
 
-  <pre class="ascii">baseline behavior:
-  w_indices = [winner]                           # everyone else discarded
-              ↓
-  only this leaf's reference sequences enter the leaf-phase match</pre>
+  <p>The per-child score within one bootstrap (implemented as <code class="inline">vector_sum</code> in <code class="inline">src/matching.rs:31–57</code>):</p>
+
+  <pre class="ascii">score(child_j) =  Σ profile_j[i]  for sampled i where query matched
+                  ──────────────────────────────────────────────────
+                   Σ profile_j[i]  for all sampled i
+
+where profile_j[i] = frequency of decision-kit kmer i among child j's
+                     descendant training sequences (built at §6d).
+                     No IDF multiplication here.</pre>
+
+  <h4>Single-bootstrap example (Bootstrap #1, sample = {ACG, CGT})</h4>
+  <pre class="ascii">  Root decision kit contains features discriminating Animalia vs Plantae.
+  Animalia profile: ACG=0.6, CGT=0.6, ... (most Animalia refs carry these)
+  Plantae profile:  ACG=0.0, CGT=0.0, TTA=1.0, AAT=1.0 (disjoint set)
+
+  sample = {ACG, CGT}
+  score(Animalia) = (0.6 + 0.6) / (0.6 + 0.6) = 1.0      ← matched all sampled mass
+  score(Plantae)  = (0.0 + 0.0) / (0.0 + 0.0)  =  0.0     ← matched none
+
+  winner = Animalia.  This bootstrap votes +1 for Animalia at Root.</pre>
+
+  <p>The ensemble then repeats this at every node, with every bootstrap re-sampling s_dk k-mers fresh. After 100 votes at Root, the aggregate determines the descent.</p>
+
+  <p>Across 100 bootstraps, each node tallies <strong>descent votes</strong> per child. A typical aggregate at the Canidae node (children: Canis, Vulpes):</p>
+
+  <pre class="ascii">at the Canidae node, after 100 bootstraps:
+  vote_counts[Canis]   =  92
+  vote_counts[Vulpes]  =   8
+  # (sums can exceed 100: if two children tie within a bootstrap,
+  #  BOTH receive a vote — src/classify.rs:220–228)
+
+  min_descend · B  =  0.98 · 100  =  98
+      Canis:   92  <  98   ✗   (does NOT clear)
+      Vulpes:   8  <  98   ✗
+
+      ↓
+      descent STOPS at Canidae — nothing clears the gate.</pre>
+
+  <div class="note" style="font-size: 0.9em;">
+    <strong>Descent votes ≠ reported confidence.</strong> These per-node vote counts are used <em>only</em> by the <code class="inline">min_descend</code> gate — they're consumed at each node and then discarded. They are <em>not</em> what appears as "confidence" in the output. Reported confidence comes from a <em>different</em> bootstrap tally, <code class="inline">tot_hits</code>, generated at leaf-phase (§8b) and then rolled up the tree.
+  </div>
+
+  <h4>What happens when no child clears <code class="inline">min_descend</code></h4>
+  <p>The 92/8 case above is the common one: <strong>nobody clears</strong>. The code's contract is "descend only when exactly one child is decisively ahead." So both the 0-winner case (scattered votes) and the ≥2-winner case (tied siblings each clearing via intra-bootstrap ties) trigger the <em>same</em> fallback:</p>
+
+  <pre class="ascii">w = [children with vote_counts ≥ min_descend · B]
+
+if w.len() == 1:
+    descend into that unique winner               # the "easy" case
+else:
+    # w.len() == 0 OR w.len() >= 2 — both mean "cannot commit"
+    w_indices = [children with any votes]         # widened candidate set
+    break                                         # stop descent at this node
+    → leaf-phase runs at the NON-LEAF stopping node
+      against every reference sequence beneath
+      every child in w_indices.</pre>
+
+  <p>Greedy path: <code class="inline">src/classify.rs:246–258</code>. Beam path: <code class="inline">src/classify.rs:481–499</code> — same behavior.</p>
+
+  <p>So a 58/40 Root-level split with <code class="inline">min_descend = 0.98</code> doesn't pick the 58 — it halts descent at Root, widens <code class="inline">w_indices</code> to <code class="inline">{Animalia, Plantae}</code>, and hands the entire database to leaf-phase scoring. That's not a bug; it's the designed-for conservative behavior. Leaf-phase k-mer matching is the safety net when tree descent refuses to commit.</p>
+</div>
+
+<h3><span class="step-badge">7c</span>Beam-width descent</h3>
+<div class="panel">
+  <p>So far every walk through the tree has committed to a single winner at every split. That's the <em>greedy</em> path, and it's what you get when <code class="inline">beam_width = 1</code> (the default). Beam descent lets the classifier keep the top-<em>K</em> candidate paths alive through the tree and only resolve the tie at leaf-phase scoring in Stage 2.</p>
+
+  <h4>Greedy vs. beam, visually</h4>
+  <p>Beam diverges from greedy only when <em>multiple children pass <code class="inline">min_descend</code></em> at the same split. The realistic case under default <code class="inline">min_descend=0.98</code>, <code class="inline">B=100</code> is <strong>tied bootstraps</strong>: every rep where two children's hits are equal awards a vote to <em>both</em> (<code class="inline">src/classify.rs:380–387</code>), so per-child counts can exceed B and two children can both clear 98. Imagine the Animalia→{Canidae, Felidae} decision producing <code class="inline">Canidae 100, Felidae 98, miss 2</code>. Both pass. Greedy halts at Animalia (its halt condition is "<code class="inline">w.len() != 1</code>" — too many children passed); beam keeps both descents alive.</p>
+
+  <pre class="ascii">greedy (beam_width = 1)                 beam (beam_width = 2)
+
+  Root                                     Root
+   └── <span style="color:#a6e3a1;">Animalia</span>  (98/2)                    └── <span style="color:#a6e3a1;">Animalia</span>  (98/2)
+        ├── <span style="color:#a6e3a1;">Canidae</span>  (100, ≥98)                ├── <span style="color:#a6e3a1;">Canidae</span>  (100, ≥98)  ← kept
+        └── <span style="color:#a6e3a1;">Felidae</span>  (98,  ≥98)                └── <span style="color:#a6e3a1;">Felidae</span>  (98,  ≥98)  ← also kept
+        ↳ |w| = 2 ≠ 1 → HALT                          │    └── Canis  ↘
+          w_indices = {Canidae, Felidae}              │         └── C. lupus
+          one leaf phase over the lumped pool         └── Felis
+                                                            └── F. catus
+
+(both genera in one leaf phase)         (each genus gets its own leaf phase;
+                                         highest-scoring leaf wins overall.)</pre>
+
+  <h4>How a candidate is represented</h4>
+  <p>Each active path is a <code class="inline">BeamCandidate</code> struct tracking its current node, the sibling leaves it has selected for leaf-phase (<code class="inline">w_indices</code>), and its cumulative path score.</p>
+
+  <h4>Expansion and pruning, per level</h4>
+  <pre class="ascii">for each rank:
+  next = []
+  for each active candidate:
+    if top child's vote-frac &lt; min_descend:        # gate
+      add candidate as TERMINAL (halt; same as greedy)
+      continue
+    descend into the top child                    # always
+    for each runner-up:
+      if vote-frac &gt;= min_descend:                 # gate again
+        descend into it too                       # only confident runner-ups
+      else:
+        break                                      # vote-sorted, so done
+  sort next by score (descending)
+  active = next[:beam_width]                      # prune to top K</pre>
+  <p>So beam expansion is doubly gated by <code class="inline">min_descend</code>: the top child must pass (else the candidate halts), <em>and</em> any runner-up must pass independently to be kept. This is by design — beam deliberately does <strong>not</strong> rescue sub-threshold runner-ups, because doing so would inflate off-target classification rate (see in-source comment, <code class="inline">src/classify.rs:451–457</code>). Beam therefore widens the search only when the data itself produces ≥ 2 confident children at one node — most often via tied bootstrap reps, occasionally via a relaxed <code class="inline">min_descend</code>. The greedy path (K=1) is the degenerate case where, even if multiple children would have qualified, only one survives the prune.</p>
+
+  <h4>Final selection: no vote merge</h4>
+  <p>When descent terminates (every active candidate sits at a leaf-parent or has nowhere to go), each surviving candidate runs <code class="inline">leaf_phase_score</code> independently. The single highest-scoring leaf wins. There is no vote-pooling or union across beam candidates — they compete directly on their leaf-phase similarity.</p>
 
   <div class="param-box">
-    <h4>sibling_aware_leaf</h4>
-    <p style="margin:0 0 6px;">At the terminal step <em>only</em>, widen the candidate set:</p>
-    <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">w_indices = {j : vote_counts[j] ≥ 0.5·B  or  j == winner}</pre>
-
-    <p style="margin:6px 0 0;"><strong>Applied to our running example</strong> (B=100, votes: C. lupus=62, C. latrans=55, C. familiaris=12):</p>
-    <table style="margin:10px 0 0; font-size: 0.85em;">
-      <thead><tr><th>Child</th><th>votes</th><th>flag off</th><th>flag on</th></tr></thead>
+    <h4>beam_width <span class="tag">default: 1</span></h4>
+    <p style="margin:0 0 6px;">Number of candidate descent paths kept alive at each rank. <code class="inline">1</code> is exactly the original greedy descent. Higher values explore alternatives through ambiguous splits; the final leaf is still a single pick, but the search space is wider.</p>
+    <table style="margin:10px 0; font-size:0.85em;">
+      <thead><tr><th>Setting</th><th>Behavior when ≥ 2 children pass <code class="inline">min_descend</code> at a split (e.g. 100/98 from tied reps)</th></tr></thead>
       <tbody>
-        <tr><td>C. lupus</td><td>62</td><td><span class="kept">kept (winner)</span></td><td><span class="kept">kept (winner)</span></td></tr>
-        <tr><td>C. latrans</td><td>55</td><td>dropped</td><td><span class="kept">kept (≥ 50)</span></td></tr>
-        <tr><td>C. familiaris</td><td>12</td><td>dropped</td><td>dropped</td></tr>
+        <tr><td>beam_width = 1</td><td>Greedy halts (<code class="inline">|w| ≠ 1</code>); single leaf-phase over the lumped candidate pool</td></tr>
+        <tr><td>beam_width = 2</td><td>Both qualifying children stay active; each gets its own leaf-phase; best leaf wins overall</td></tr>
+        <tr><td>beam_width = 4</td><td>Up to four qualifying children survive each cut, pruned back to 4 at every rank</td></tr>
       </tbody>
     </table>
-    <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:263</code>. Internal splits are unaffected — this only widens the final candidate set that feeds leaf-phase scoring.</p>
+    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>What beam does NOT do.</strong> A 58/40 split under default <code class="inline">min_descend=0.98</code> halts identically for greedy and beam — the runner-up is sub-threshold, and beam is explicitly coded to drop sub-threshold runner-ups (<code class="inline">src/classify.rs:451–457</code>). Beam helps only when the data itself produces multiple confident children at the same node.</p>
+    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Interaction note.</strong> <code class="inline">beam_width</code> widens the search <em>mid-tree</em>; <code class="inline">sibling_aware_leaf</code> (§8a) widens the candidate set at the <em>terminal</em> descent step only. They're orthogonal — you can enable either, both, or neither.</p>
+    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/types.rs:318</code> (parameter), <code class="inline">src/classify.rs:289</code> (beam entry), <code class="inline">src/classify.rs:307</code> (<code class="inline">BeamCandidate</code>), <code class="inline">src/classify.rs:430</code> (top-must-pass), <code class="inline">src/classify.rs:458–462</code> (runner-up-must-also-pass), <code class="inline">src/classify.rs:503</code> (sort &amp; prune), <code class="inline">src/classify.rs:512</code> (leaf-phase selection across beam).</p>
   </div>
 </div>
 
-<h3><span class="step-badge">4e</span>Leaf-phase scoring &amp; winner groups</h3>
+<!-- =========== §8 STAGE 2 — LEAF-PHASE + LCA =========== -->
+<h2>8. Classification — Stage 2: leaf-phase scoring &amp; LCA clamp</h2>
+<div class="panel">
+  <p>Stage 2 takes whatever Stage 1 hands over — a stopping node and a candidate-set <code class="inline">w_indices</code> of child leaves to consider — and runs the <em>real</em> k-mer match against the reference sequences beneath those candidates. The output is a candidate lineage with per-rank confidences. Two knobs shape this stage: <code class="inline">sibling_aware_leaf</code> (what Stage 1 is allowed to hand over) and <code class="inline">tie_margin</code> (how close counts as a co-winner).</p>
+</div>
+
+<h3><span class="step-badge">8a</span>The Stage-1→Stage-2 hand-off: two widening mechanisms</h3>
+<div class="panel">
+  <p>The candidate set <code class="inline">w_indices</code> that Stage 1 hands to Stage 2 is produced by <em>one of two</em> distinct code paths, and the difference matters. They look similar from the output side but have different thresholds and different trigger conditions.</p>
+
+  <h4>Mechanism 1 — halt-in-the-middle fallback (always on, no flag)</h4>
+  <p>Fires whenever Stage 1 halts because no child clears <code class="inline">min_descend</code> at any node (leaf-parent or internal). This is the common case at <code class="inline">min_descend=0.98</code>. The code hands the whole non-zero-vote subtree down to leaf-phase:</p>
+
+  <pre class="ascii" style="font-size: 0.8em;">w50 = {children with vote_counts ≥ 0.5·B}
+
+if w50 is empty:                                 # very scattered, no majority signal
+    w_indices = [ALL children]
+else:                                            # at least one child nearly won
+    w_indices = [children with &gt; 0 votes]</pre>
+
+  <p><strong>Applied to the Canidae 92/8 halt:</strong> Canis=92 ≥ 50 → <code class="inline">w50</code> non-empty → <code class="inline">w_indices</code> = all children with &gt; 0 votes = <code class="inline">{Canis, Vulpes}</code>. Note that Vulpes is included <em>not</em> because 8 clears some sibling threshold — it's included because it simply got &gt; 0 votes in a halt scenario. The philosophy: when Stage 1 can't commit, let leaf-phase's evidence-based scoring sort through every candidate that was still in the running. Source: <code class="inline">src/classify.rs:246–258</code>.</p>
+
+  <h4>Mechanism 2 — terminal sibling widening (<code class="inline">sibling_aware_leaf</code>)</h4>
+  <p>Fires only at the <em>last</em> descent step when Stage 1 <em>succeeds</em> — a single child cleared <code class="inline">min_descend</code> <em>and</em> that child's subtree is leaves. The baseline picks just the winner; the flag optionally widens with a strict 0.5·B threshold:</p>
+
+  <pre class="ascii" style="font-size: 0.8em;">baseline:                           sibling_aware_leaf on:
+  w_indices = [winner]                w_indices = {j : vote_counts[j] ≥ 0.5·B or j == winner}</pre>
+
+  <p><strong>Applied to a Canis terminal step that clears</strong> (hypothetical B=100, votes: C. lupus=62, C. latrans=55, C. familiaris=12):</p>
+  <table style="margin:10px 0 0; font-size: 0.85em;">
+    <thead><tr><th>Child</th><th>votes</th><th>flag off</th><th>flag on</th></tr></thead>
+    <tbody>
+      <tr><td>C. lupus</td><td>62</td><td><span class="kept">kept (winner)</span></td><td><span class="kept">kept (winner)</span></td></tr>
+      <tr><td>C. latrans</td><td>55</td><td>dropped</td><td><span class="kept">kept (≥ 50)</span></td></tr>
+      <tr><td>C. familiaris</td><td>12</td><td>dropped</td><td>dropped</td></tr>
+    </tbody>
+  </table>
+  <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:259–272</code>.</p>
+
+  <div class="note" style="font-size: 0.9em;">
+    <strong>Why the asymmetry.</strong> Mechanism 1 fires precisely when there's no strong signal — the ensemble couldn't commit, so the code widens aggressively on the principle that leaf-phase needs the broadest possible candidate set to still produce an honest answer. Mechanism 2 fires when there <em>is</em> a strong signal (a winner cleared min_descend) but the user opts into also keeping close runners-up; a strict 0.5·B threshold makes sense there because we only want genuine contenders in the mix, not any sibling that happened to get a vote. The two thresholds (0 vs 0.5·B) encode different philosophies: "cast a wide net when blind" vs "include only strong runners-up when sighted."
+  </div>
+</div>
+
+<h3><span class="step-badge">8b</span>Leaf-phase scoring and confidence rollup</h3>
 <div class="panel">
   <p>For every candidate in <code class="inline">w_indices</code>, the classifier runs a k-mer match against each individual reference sequence behind that leaf. Scores are grouped by taxonomic leaf; the best group wins.</p>
 
@@ -619,6 +1014,43 @@ Group totals:
   C. lupus group      max over members = 18.4
   C. latrans group    max over members = 18.3</pre>
 
+  <h4>How per-rank confidences are built from <code class="inline">tot_hits</code></h4>
+  <p>This is where the numbers that show up in the output actually come from. Leaf-phase produces one tally per <em>group</em> (one per candidate leaf), and those tallies propagate up the taxonomy tree:</p>
+
+  <pre class="ascii">tot_hits  — one count per leaf group, over B bootstraps:
+  C. lupus         62     (winner)
+  C. latrans       30
+  C. familiaris     8     all Canidae ─── sum 100 contributes to Canidae, Animalia, Root
+  F. catus          6     Felidae      ─── contributes to Animalia, Root
+  Rosa canina       4     Plantae      ─── contributes to Root only
+                   ──
+                  110     (can exceed B when intra-bootstrap ties tot_hits up)
+
+roll-up  (src/classify.rs:773–786):
+  confidence[rank i]  =  Σ  tot_hits[group]  /  B  · 100
+                      over all groups whose lineage passes through rank i
+
+      rank          contributions                           confidence
+      ────          ─────────────                           ──────────
+      Root          every group (62+30+8+6+4)                  110/100 = 100 (capped)
+      Animalia      lupus+latrans+familiaris+catus (106)       100
+      Canidae       lupus+latrans+familiaris (100)             100
+      Canis         lupus+latrans+familiaris (100)             100
+      C. lupus      lupus only (62)                             62</pre>
+
+  <p>Two structural properties follow:</p>
+  <ul style="font-size: 0.92em;">
+    <li><strong>Monotonically non-decreasing toward Root.</strong> Every rank's confidence is the sum of its children's contributions, so confidence can only grow (or stay the same) as you walk up the tree. This is what makes the Stage 3 threshold filter able to truncate as a contiguous prefix — once a rank fails its threshold, every rank below it is guaranteed to fail too.</li>
+    <li><strong>Per-rank confidences all come from the same leaf-phase tallies.</strong> There is no separate "Kingdom bootstrap" or "Family bootstrap." The same 100 replicates produce <code class="inline">tot_hits</code> once; every rank's reported confidence is a different <em>view</em> of that same table.</li>
+  </ul>
+
+  <div class="note" style="font-size: 0.9em;">
+    <strong>Singleton-leaf gotcha.</strong> When <code class="inline">w_indices</code> at the stopping node points at a single leaf that has only <em>one</em> training reference, every bootstrap trivially "picks" that ref — it's the only option. <code class="inline">tot_hits</code> at that group therefore ≈ (fraction of bootstraps that sampled any k-mer overlapping the one ref). Species-level confidence collapses from the meaningful <em>"how decisively did my winner beat its siblings?"</em> signal to a much weaker <em>"did any sampled k-mer touch this ref at all?"</em> signal — and a query that shares a single diagnostic k-mer with an unrelated species can come back with 60% species confidence that means almost nothing. Mitigations: <code class="inline">sibling_aware_leaf</code> (§8a, widens <code class="inline">w_indices</code>), <code class="inline">tie_margin</code> (§8c), trust parent ranks (which aggregate across multiple leaves), or raise <code class="inline">rank_thresholds</code> at the species tier specifically (§9a).
+  </div>
+</div>
+
+<h3><span class="step-badge">8c</span>Co-winners and LCA clamp: <code class="inline">tie_margin</code></h3>
+<div class="panel">
   <div class="param-box">
     <h4>tie_margin</h4>
     <p style="margin:0 0 6px;">Baseline keeps only groups with <em>exactly</em> max score. With <code class="inline">tie_margin &gt; 0</code>, near-tied groups also qualify:</p>
@@ -632,57 +1064,117 @@ Group totals:
         <tr><td>tie_margin = 0.02</td><td>≥ 18.03</td><td><span class="kept">{C. lupus, C. latrans}</span></td></tr>
       </tbody>
     </table>
-    <p style="margin:8px 0 0; font-size: 0.9em;">When <code class="inline">|winners| &gt; 1</code>, the classifier caps the reported <code class="inline">taxon</code> at the winners' LCA and lists every winner in <code class="inline">alternatives</code>. Source: <code class="inline">src/classify.rs:706</code>.</p>
+    <p style="margin:8px 0 0; font-size: 0.9em;">When <code class="inline">|winners| &gt; 1</code>, the classifier caps the reported <code class="inline">taxon</code> at the winners' LCA and lists every winner in <code class="inline">alternatives</code>. Source: <code class="inline">src/classify.rs:742–749</code>.</p>
   </div>
 
-  <p><strong>sibling_aware_leaf and tie_margin together:</strong> <code class="inline">sibling_aware_leaf</code> <em>brings C. latrans into the match</em>; <code class="inline">tie_margin</code> <em>lets the close score actually count</em>. One without the other usually changes nothing — the typical configuration enables both.</p>
+  <p><strong><code class="inline">sibling_aware_leaf</code> and <code class="inline">tie_margin</code> together:</strong> <code class="inline">sibling_aware_leaf</code> (§8a) <em>brings C. latrans into the match</em>; <code class="inline">tie_margin</code> <em>lets the close score actually count</em>. One without the other usually changes nothing — the typical configuration enables both.</p>
 </div>
 
-<h3><span class="step-badge">4f</span>Tally votes, apply margin discount, apply threshold</h3>
+<h3><span class="step-badge">8d</span>Ancestor-prefix suppression: <code class="inline">suppress_ancestor_only_groups</code></h3>
 <div class="panel">
-  <p>Now we combine everything into the per-rank confidences. Two scenarios demonstrate the full machinery:</p>
+  <p>When a reference database contains an <em>ancestor-only</em> training entry (e.g. <code class="inline">"Oncorhynchus sp."</code> after canonical NA-trim) and a species-resolved descendant under the same ancestor, the two groups tie in every replicate where their training sequences match the query equivalently. Each tied group then receives <code class="inline">share = 1/n_tied = 0.5</code> of the per-replicate credit — the descendant's <code class="inline">tot_hits</code> is depressed by ~50% relative to a curated database that lacks the ancestor entry.</p>
 
-  <h4>Scenario A — baseline (all margin/sibling/tie flags off)</h4>
+  <p>The flag fires <strong>two filters in series</strong>:</p>
+
+  <pre class="ascii">  per replicate (share-split stage):
+     tied = { groups with hit == max_val }
+     if |tied| &gt; 1 and suppress_ancestor_only_groups:
+        drop any j ∈ tied whose path is a strict prefix of
+        another tied group's path                   ← stage 1
+     share = 1 / |surviving tied|
+
+  post-bootstrap (winner stage):
+     winners = argmax(tot_hits)  (with optional tie_margin)
+     if |winners| &gt; 1 and suppress_ancestor_only_groups:
+        drop any winner whose path is a strict prefix of
+        another winner's path                       ← stage 2
+     selected ← random from filtered winners</pre>
+
+  <div class="param-box">
+    <h4>suppress_ancestor_only_groups <span class="tag">default: off</span></h4>
+    <p style="margin:0 0 6px;">When true, prefix-related groups are suppressed at both the per-replicate share-split and the post-bootstrap winner stage. The ancestor's <em>outright-win</em> replicates (where it strictly beats every descendant on its own evidence) are preserved — the share-split filter only fires when <code class="inline">n_tied &gt; 1</code>.</p>
+    <table style="margin:10px 0; font-size: 0.85em;">
+      <thead><tr><th>Tied set in this replicate</th><th>Action</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>{ancestor} alone</td><td>filter not entered (singleton)</td><td>ancestor gets 1.0 — unchanged</td></tr>
+        <tr><td>{ancestor, descendant} byte-identical</td><td>drop ancestor</td><td>descendant gets 1.0 (was 0.5)</td></tr>
+        <tr><td>{C_lupus, C_latrans} true sister tie</td><td>no prefix relation; no drops</td><td>each 0.5 — unchanged</td></tr>
+        <tr><td>{Family, Genus, Species} chain</td><td>drop Family + Genus</td><td>Species gets 1.0</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Conservation property.</strong> Cross-rank confidence at-or-above the dropped node's rank is conserved relative to flag=off — the descendant's now-full <code class="inline">tot_hits</code> climbs through <code class="inline">parents[]</code> and lands the same total at the ancestor's rank. Species-rank confidence rises (was halved, now full); higher ranks are unchanged.</p>
+    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/types.rs:359–378</code> (flag doc), <code class="inline">src/classify.rs</code> share-split filter (per-replicate) and winner-stage filter (post-bootstrap).</p>
+  </div>
+
+  <div class="note" style="font-size: 0.9em;">
+    <strong>When to use.</strong> Turn this on when your reference database mixes ancestor-only entries (e.g. records that were trimmed at "<em>Genus</em> sp." because the species name was unreliable) with species-resolved entries under the same ancestor. The byte-identical case is the worst — every replicate ties — so the credit halving is structural. Curated databases (every entry resolved to species) are unaffected by the flag either way.
+  </div>
+</div>
+
+<h3><span class="step-badge">8e</span>End-to-end: what Stage 2 hands to Stage 3</h3>
+<div class="panel">
+  <p>Two runs of the toy query through Stage 2, to see how the §8 knobs compose before Stage 3 enters the picture.</p>
+
+  <h4>Scenario A — baseline (all Stage 2 flags off)</h4>
   <div style="margin: 12px 0;">
     <div class="rankbar"><span class="label">Animalia</span><span class="bar" style="width: 320px;">98 / 100 (98%)</span></div>
     <div class="rankbar"><span class="label">Canidae</span><span class="bar" style="width: 310px;">95 / 100 (95%)</span></div>
     <div class="rankbar"><span class="label">Canis</span><span class="bar" style="width: 300px;">92 / 100 (92%)</span></div>
     <div class="rankbar"><span class="label">C. lupus</span><span class="bar fail" style="width: 150px;">62 / 100 (62%)</span></div>
   </div>
-  <pre class="ascii">threshold = 60 → all ranks pass → final assignment is C. lupus.
-Result:
+  <pre class="ascii">Stage 2 hand-off to Stage 3:
   taxon        = [Root, Animalia, Canidae, Canis, Canis_lupus]
   confidence   = [100, 98, 95, 92, 62]
   alternatives = []                              ← C. latrans silently dropped</pre>
 
-  <h4>Scenario B — with <code class="inline">confidence_uses_descent_margin</code> + <code class="inline">sibling_aware_leaf</code> + <code class="inline">tie_margin=0.02</code> on</h4>
-  <p>Same votes, but now:</p>
-  <ul style="font-size: 0.9em; margin: 4px 0 10px;">
-    <li><code class="inline">confidence_uses_descent_margin</code> multiplies per-rank confidence by cumulative margin (from §4c): 0.96, 0.864, 0.173.</li>
-    <li><code class="inline">sibling_aware_leaf</code> brings C. latrans into leaf-phase; <code class="inline">tie_margin=0.02</code> makes it a co-winner → LCA clamp.</li>
-  </ul>
+  <h4>Scenario B — <code class="inline">sibling_aware_leaf</code> + <code class="inline">tie_margin=0.02</code> on</h4>
+  <p>Same votes, but now <code class="inline">sibling_aware_leaf</code> brings C. latrans into leaf-phase and <code class="inline">tie_margin=0.02</code> makes it a co-winner → LCA clamp at Canis. Per-rank confidences themselves are unchanged from the rollup — the only difference is where the lineage is allowed to report to:</p>
   <div style="margin: 12px 0;">
-    <div class="rankbar"><span class="label">Animalia (×0.96)</span><span class="bar" style="width: 310px;">98 × 0.96 = 94.1%</span></div>
-    <div class="rankbar"><span class="label">Canidae  (×0.864)</span><span class="bar" style="width: 285px;">95 × 0.864 = 82.1%</span></div>
-    <div class="rankbar"><span class="label">Canis    (×0.173)</span><span class="bar fail" style="width: 60px;">92 × 0.173 = 15.9%</span></div>
+    <div class="rankbar"><span class="label">Animalia</span><span class="bar" style="width: 320px;">98 / 100 (98%)</span></div>
+    <div class="rankbar"><span class="label">Canidae</span><span class="bar" style="width: 310px;">95 / 100 (95%)</span></div>
+    <div class="rankbar"><span class="label">Canis</span><span class="bar" style="width: 300px;">92 / 100 (92%)</span></div>
     <div class="rankbar"><span class="label">species rank</span><span class="bar fail" style="width: 30px;">— (clamped at Canis LCA)</span></div>
   </div>
-  <pre class="ascii">threshold = 60:
-  Animalia 94.1 ≥ 60 ✓     Canidae 82.1 ≥ 60 ✓     Canis 15.9 < 60 ✗
-  species not reported because the LCA clamp already stopped us at Canis.
+  <pre class="ascii">Stage 2 hand-off to Stage 3:
+  taxon        = [Root, Animalia, Canidae, Canis]   ← clamped by tie_margin LCA
+  confidence   = [100, 98, 95, 92]
+  alternatives = [Canis_latrans, Canis_lupus]      ← both tied species reported</pre>
+</div>
 
-Result:
-  taxon         = [Root, Animalia, Canidae]     ← Canis dropped by margin discount
-  confidence    = [100, 94.1, 82.1]
-  alternatives  = [Canis_latrans, Canis_lupus]  ← both tied species reported
-  reject_reason = "below_threshold"</pre>
+<!-- =========== §9 STAGE 3 — THRESHOLD =========== -->
+<h2>9. Classification — Stage 3: the rank-wise threshold filter</h2>
+<div class="panel">
+  <p>Stage 3 is the last trim. It walks Root-down through the confidences Stage 2 produced and truncates the lineage at the first rank that fails its threshold. Because confidences are monotonically non-decreasing toward Root (§8b), once a rank fails, every rank below is guaranteed to fail too — so the truncation is always a <strong>contiguous prefix</strong>.</p>
+</div>
+
+<h3><span class="step-badge">9a</span><code class="inline">threshold</code> and <code class="inline">rank_thresholds</code></h3>
+<div class="panel">
+  <h4>Global threshold</h4>
+  <p>With the Scenario-A confidences <code class="inline">[100, 98, 95, 92, 62]</code> and <code class="inline">threshold = 60</code>: all ranks pass → final assignment is C. lupus.</p>
+
+  <p>With the Scenario-B confidences <code class="inline">[100, 98, 95, 92]</code> (already clamped at Canis) and <code class="inline">threshold = 60</code>: all ranks pass → taxon is <code class="inline">[Root, Animalia, Canidae, Canis]</code>, alternatives <code class="inline">[Canis_latrans, Canis_lupus]</code>. The LCA clamp from Stage 2 is what prevents a species-level report here, not Stage 3.</p>
+
+  <h4>Per-rank thresholds</h4>
+  <p>Instead of a single global <code class="inline">threshold = 60</code>, use <code class="inline">rank_thresholds = [0, 50, 70, 80, 90, 95]</code> (Root, Kingdom, Phylum, Class, Order/Family, Genus/Species). Stage 3 now applies a <em>different</em> threshold at each rank, walking Root-down. Against a noisier query that produced rolled-up confidences <code class="inline">[100, 72, 65, 55]</code>:</p>
+
+  <pre class="ascii">rank          confidence   threshold   outcome
+────          ──────────   ─────────   ───────
+Root            100            0         pass
+Animalia         72           50         pass
+Canidae          65           70         ✗ FAIL → truncate here
+Canis            55           80         (not evaluated)
+
+final taxon   = [Root, Animalia]
+final conf    = [100, 72]</pre>
+
+  <p>Per-tier thresholds let you express policies like "I'll accept Kingdom on ≥50 evidence but won't commit to a species unless it clears 95." This is how the singleton-leaf gotcha (§8b) is typically addressed in practice: keep <code class="inline">threshold</code> lenient for high ranks, tight for the species rank, so noisy singleton-leaf species confidence gets filtered out while the well-supported genus still reports. Source: <code class="inline">src/classify.rs:853–865</code>.</p>
 
   <div class="note">
-    <strong>How the knobs interact:</strong> <code class="inline">sibling_aware_leaf</code> widens candidates, <code class="inline">tie_margin</code> widens winners, <code class="inline">confidence_uses_descent_margin</code> discounts confidence along near-tied descents. Individually each is mild — together they let the classifier honestly report "we got close, but we can't commit below genus, and here are the candidates you should consider."
+    <strong>How the knobs interact across the three stages:</strong> <code class="inline">sibling_aware_leaf</code> and <code class="inline">tie_margin</code> both shape Stage 2 (what leaf-phase considers a winner and how far the LCA clamps). <code class="inline">threshold</code> / <code class="inline">rank_thresholds</code> are Stage 3 only. Together they let the classifier honestly report "we got close, but we can't commit below genus, and here are the candidates you should consider."
   </div>
 </div>
 
-<h3><span class="step-badge">4g</span>No-sentinel output format</h3>
+<h3><span class="step-badge">9b</span>Output format — no sentinel</h3>
 <div class="panel">
   <p>The Python <code class="inline">ClassificationResult</code> and the TSV file show the <em>same</em> truncated path — no synthetic <code class="inline">unclassified_*</code> sentinel. Truncation depth is carried by the <code class="inline">confidence</code> list length and by <code class="inline">reject_reason</code>.</p>
 
@@ -694,25 +1186,460 @@ Result:
       <tr>
         <td><strong>Python</strong></td>
         <td>
-          <pre class="ascii" style="margin:0;">taxon         = ["Root", "Animalia", "Canidae"]
-confidence    = [100, 94.1, 82.1]
+          <pre class="ascii" style="margin:0;">taxon         = ["Root", "Animalia", "Canidae", "Canis"]
+confidence    = [100, 98, 95, 92]
 alternatives  = ["Canis_latrans", "Canis_lupus"]
-reject_reason = "below_threshold"</pre>
+reject_reason = None   # tied-species is signaled by non-empty `alternatives`,
+                       # not by a dedicated reject_reason string</pre>
         </td>
       </tr>
       <tr>
         <td><strong>TSV</strong></td>
         <td>
-          <pre class="ascii" style="margin:0;">read_id  taxonomic_path   confidence  alternatives              reject_reason
-asv_1    Animalia;Canidae 82.1        Canis_latrans|Canis_lupus below_threshold</pre>
+          <pre class="ascii" style="margin:0;">read_id  taxonomic_path         confidence  alternatives              reject_reason  similarity
+asv_1    Animalia;Canidae;Canis 92          Canis_latrans|Canis_lupus                0.98</pre>
         </td>
       </tr>
     </tbody>
   </table>
 </div>
 
-<!-- =========== INVERTED INDEX =========== -->
-<h2>5. Inverted Index — Why Classification Is Fast</h2>
+<!-- =========== §10 VISUAL WALKTHROUGH =========== -->
+<h2>10. Seeing it run — end-to-end visual walkthrough</h2>
+<div class="panel">
+  <p>§7–§9 dissected classification into three stages. This section shows all of them running <em>at once</em> on the toy query <code class="inline">ACGTACGTTC</code>, with the 100 bootstraps made visible. Every number used here is lifted from the worked examples in §7–§8, so you can cross-check it in both places.</p>
+  <p style="font-size: 0.88em; color: var(--muted); margin-bottom: 0;">Read top-to-bottom: (10a) individual bootstrap draws → (10b) vote histograms at each node → (10c) confidence converging as bootstraps accumulate → (10d) the whole pipeline on one picture.</p>
+  <p style="font-size: 0.9em; margin: 10px 0 0;"><strong>See also:</strong> <a href="oxidtaxa_walkthrough.html">oxidtaxa_walkthrough.html</a> for the full scenario catalog — every qualitatively-distinct training and classification outcome (20+ scenarios, including beam rescue, LCA clamp, descent-margin discount, singleton-leaf gotcha, opaque nodes, and the end-to-end mega-trace that stitches training into classification).</p>
+</div>
+
+<h3><span class="step-badge">10a</span>The 100 bootstraps, explicitly</h3>
+<div class="panel">
+  <p>Each bootstrap samples <code class="inline">S = L<sup>0.47</sup> ≈ 2</code> k-mers from the query's 6 unique k-mers, then walks the tree using only those. Here are the first 8 of 100 draws — different k-mer pairs, some reach C. lupus cleanly, some are ambiguous:</p>
+
+  <div style="background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; margin: 10px 0;">
+    <div class="bootstrap-row"><span class="label">Bootstrap #1</span>
+      <span class="kmer-chip picked">ACG</span><span class="kmer-chip picked">CGT</span>
+      <span class="picked-leaf">→ C. lupus</span></div>
+    <div class="bootstrap-row"><span class="label">Bootstrap #2</span>
+      <span class="kmer-chip picked">GTA</span><span class="kmer-chip picked">TAC</span>
+      <span class="picked-leaf">→ C. lupus</span></div>
+    <div class="bootstrap-row"><span class="label">Bootstrap #3</span>
+      <span class="kmer-chip picked">ACG</span><span class="kmer-chip picked">TTC</span>
+      <span class="picked-leaf tie">→ tie (lupus, latrans)</span></div>
+    <div class="bootstrap-row"><span class="label">Bootstrap #4</span>
+      <span class="kmer-chip picked">CGT</span><span class="kmer-chip picked">GTT</span>
+      <span class="picked-leaf">→ C. lupus</span></div>
+    <div class="bootstrap-row"><span class="label">Bootstrap #5</span>
+      <span class="kmer-chip picked">TAC</span><span class="kmer-chip picked">TTC</span>
+      <span class="picked-leaf halt">→ halts at Canidae</span></div>
+    <div class="bootstrap-row"><span class="label">Bootstrap #6</span>
+      <span class="kmer-chip picked">ACG</span><span class="kmer-chip picked">GTA</span>
+      <span class="picked-leaf">→ C. lupus</span></div>
+    <div class="bootstrap-row"><span class="label">Bootstrap #7</span>
+      <span class="kmer-chip picked">GTT</span><span class="kmer-chip picked">TTC</span>
+      <span class="picked-leaf halt">→ halts at Animalia</span></div>
+    <div class="bootstrap-row"><span class="label">Bootstrap #8</span>
+      <span class="kmer-chip picked">CGT</span><span class="kmer-chip picked">TAC</span>
+      <span class="picked-leaf tie">→ tie (lupus, latrans)</span></div>
+    <div class="bootstrap-row" style="border-bottom: none; color: var(--muted);"><span class="label">...</span>
+      <em style="font-size: 0.85em;">92 more bootstraps, same pattern — k-mer draw, tree walk, record outcome</em></div>
+  </div>
+
+  <p>The full query's k-mer pool is <span class="kmer-chip">ACG</span><span class="kmer-chip">CGT</span><span class="kmer-chip">GTA</span><span class="kmer-chip">TAC</span><span class="kmer-chip">GTT</span><span class="kmer-chip">TTC</span>, and each bootstrap picks 2 of those 6. There are C(6,2)=15 possible pairs, so across 100 bootstraps most pairs are drawn several times — that's why the aggregate vote counts in 10b are smooth even though individual bootstraps look jumpy.</p>
+
+  <div class="note" style="font-size: 0.88em;"><strong>Key observation.</strong> Notice that some bootstraps (#5, #7) halt mid-tree instead of reaching a leaf — their sampled k-mers don't give any child enough vote share to clear <code class="inline">min_descend</code>. These "short walks" are not failures; they're the mechanism by which oxidtaxa refuses to commit to depth the evidence doesn't support. Stage 1 is <em>allowed</em> to stop early, and it uses that permission.</div>
+</div>
+
+<h3><span class="step-badge">10b</span>Vote distributions at each decision node</h3>
+<div class="panel">
+  <p>Aggregate the 100 bootstraps at every internal node. Each child's bar is the fraction of bootstraps that voted for it as the winner at <em>that</em> node. The red line is <code class="inline">min_descend · B = 98</code> — the gate. Children left of the line can't trigger descent; children right of it do.</p>
+
+  <div class="hist">
+    <h4>Root → Kingdom split  <span style="font-weight: 400; color: var(--muted); font-size: 0.85em;">(clean case — winner clears)</span></h4>
+    <div class="hist-row">
+      <span class="name">Animalia</span>
+      <div class="track"><div class="fill" style="width: 98%;"></div><div class="gate" style="left: 98%;"></div></div>
+      <span class="val">98</span>
+    </div>
+    <div class="hist-row">
+      <span class="name">Plantae</span>
+      <div class="track"><div class="fill loser" style="width: 2%;"></div></div>
+      <span class="val">2</span>
+    </div>
+    <p class="hist-caption">Animalia clears 98 ≥ min_descend·B; descend into Animalia. ✓</p>
+  </div>
+
+  <div class="hist">
+    <h4>Animalia → Family split  <span style="font-weight: 400; color: var(--muted); font-size: 0.85em;">(decisive)</span></h4>
+    <div class="hist-row">
+      <span class="name">Canidae</span>
+      <div class="track"><div class="fill" style="width: 95%;"></div><div class="gate" style="left: 98%;"></div></div>
+      <span class="val">95</span>
+    </div>
+    <div class="hist-row">
+      <span class="name">Felidae</span>
+      <div class="track"><div class="fill loser" style="width: 5%;"></div></div>
+      <span class="val">5</span>
+    </div>
+    <p class="hist-caption">Canidae leads 95/100, but at <code class="inline">min_descend=0.98</code> it falls just short of the gate (95 &lt; 98). In practice this means descent <em>halts at Animalia</em> for those bootstraps using the strict default. <code class="inline">min_descend</code> is unforgiving.</p>
+  </div>
+
+  <div class="hist">
+    <h4>Canidae → Genus split  <span style="font-weight: 400; color: var(--muted); font-size: 0.85em;">(nobody clears — classic §7b case)</span></h4>
+    <div class="hist-row">
+      <span class="name">Canis</span>
+      <div class="track"><div class="fill winner-halt" style="width: 92%;"></div><div class="gate" style="left: 98%;"></div></div>
+      <span class="val">92</span>
+    </div>
+    <div class="hist-row">
+      <span class="name">Vulpes</span>
+      <div class="track"><div class="fill loser" style="width: 8%;"></div></div>
+      <span class="val">8</span>
+    </div>
+    <p class="hist-caption">Canis is clearly ahead — but 92 &lt; 98. So Stage 1 halts here and hands <code class="inline">w_indices = {Canis, Vulpes}</code> to leaf-phase. The "leading but not decisive" signal is preserved (it becomes an alternative), not discarded.</p>
+  </div>
+
+  <div class="hist">
+    <h4>Terminal Canis → Species split  <span style="font-weight: 400; color: var(--muted); font-size: 0.85em;">(three-way, close runner-up)</span></h4>
+    <div class="hist-row">
+      <span class="name">C. lupus</span>
+      <div class="track"><div class="fill" style="width: 62%;"></div><div class="gate" style="left: 98%;"></div></div>
+      <span class="val">62</span>
+    </div>
+    <div class="hist-row">
+      <span class="name">C. latrans</span>
+      <div class="track"><div class="fill loser" style="width: 30%;"></div></div>
+      <span class="val">30</span>
+    </div>
+    <div class="hist-row">
+      <span class="name">C. familiaris</span>
+      <div class="track"><div class="fill loser" style="width: 8%;"></div></div>
+      <span class="val">8</span>
+    </div>
+    <p class="hist-caption">At the terminal split, <code class="inline">sibling_aware_leaf</code> widens the cut-off to 0.5·B = 50 (green bars only). C. latrans (30) falls below that, so only C. lupus enters leaf-phase — unless the flag is off, in which case just the single winner does. Neither flag lets Vulpes through because it's a different subtree.</p>
+  </div>
+
+  <div class="note" style="font-size: 0.88em;"><strong>Why the histograms matter.</strong> The number you see in the output as "confidence 92" is <em>this</em> — a literal count of how often, out of 100 noisy independent replicates, the classifier agreed on the same answer. If the underlying evidence were weak, the tallest bar would be shorter and you'd see it; if ambiguous, you'd see two bars of similar height. The histogram is the confidence, made literal.</div>
+</div>
+
+<h3><span class="step-badge">10c</span>Confidence converges as bootstraps accumulate</h3>
+<div class="panel">
+  <p>The classifier doesn't need all 100 bootstraps to reach a good answer. Here's the per-rank confidence computed after 1, 10, 25, 50, 75, and 100 bootstraps have finished — you can see the signal solidify:</p>
+
+  <div class="converge-grid">
+    <div></div>
+    <div class="head">after 1</div>
+    <div class="head">after 10</div>
+    <div class="head">after 25</div>
+    <div class="head">after 50</div>
+    <div class="head">after 75</div>
+    <div class="head">after 100</div>
+
+    <div class="rank-label">Kingdom</div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+
+    <div class="rank-label">Family</div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 90%;"></div><div class="v">90</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 96%;"></div><div class="v">96</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 94%;"></div><div class="v">94</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 96%;"></div><div class="v">96</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 98%;"></div><div class="v">98</div></div>
+
+    <div class="rank-label">Genus</div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 90%;"></div><div class="v">90</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 92%;"></div><div class="v">92</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 94%;"></div><div class="v">94</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 94%;"></div><div class="v">94</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 95%;"></div><div class="v">95</div></div>
+
+    <div class="rank-label">Species</div>
+    <div class="converge-cell"><div class="fill" style="width: 100%;"></div><div class="v">100</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 70%;"></div><div class="v">70</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 64%;"></div><div class="v">64</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 60%;"></div><div class="v">60</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 63%;"></div><div class="v">63</div></div>
+    <div class="converge-cell"><div class="fill" style="width: 62%;"></div><div class="v">62</div></div>
+  </div>
+
+  <p style="font-size: 0.9em;">Three things become visible:</p>
+  <ul style="font-size: 0.9em; margin-top: 0;">
+    <li><strong>Kingdom locks in immediately.</strong> Animalia vs. Plantae is never in doubt once there's any non-Plantae evidence.</li>
+    <li><strong>Shallow ranks converge faster than deep ones.</strong> Family stabilizes near 95–98 by 50 bootstraps; Species keeps wobbling around 60–65 right through the end. Deep decisions genuinely are less certain and the bootstrap distribution tells you so.</li>
+    <li><strong>Early readings are misleading.</strong> At 1 bootstrap everything looks 100% (one replicate either reached the leaf or didn't); the uncertainty doesn't materialize until you've run enough independent replicates to <em>disagree</em>. This is why <code class="inline">bootstraps = 100</code> and not 5 — you need enough replicates for disagreement to show up.</li>
+  </ul>
+</div>
+
+<h3><span class="step-badge">10d</span>The whole pipeline on one picture</h3>
+<div class="panel">
+  <p>Everything §7–§9 described, stitched together on one frame. Follow the arrows left-to-right: query enters on the left, the three stages run through the middle, the final output emerges on the right. Each knob is called out next to the arrow it gates.</p>
+
+  <div class="trace-wrap">
+    <svg viewBox="0 0 1400 880" xmlns="http://www.w3.org/2000/svg" style="min-width: 1200px; max-width: 100%;">
+      <defs>
+        <marker id="trace-arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="trace-arrowhead-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#999"/>
+        </marker>
+      </defs>
+
+      <!-- COLUMN 1: QUERY + KMERS -->
+      <text class="trace-stage-label" x="30" y="30">Input</text>
+      <rect class="trace-box" x="30" y="50" width="240" height="70" rx="6"/>
+      <text class="trace-text" x="40" y="72">Query sequence</text>
+      <text class="trace-text-mono" x="40" y="95">ACGTACGTTC</text>
+      <text class="trace-text-small" x="40" y="110">L = 10 bases, 8 raw 3-mers</text>
+
+      <rect class="trace-box" x="30" y="145" width="240" height="100" rx="6"/>
+      <text class="trace-text" x="40" y="167">Unique 3-mers (L=6)</text>
+      <foreignObject x="38" y="175" width="230" height="70">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: 'SF Mono', monospace; font-size: 10px;">
+          <span class="kmer-chip" style="font-size: 10px; padding: 1px 5px;">ACG</span><span class="kmer-chip" style="font-size: 10px; padding: 1px 5px;">CGT</span><span class="kmer-chip" style="font-size: 10px; padding: 1px 5px;">GTA</span><span class="kmer-chip" style="font-size: 10px; padding: 1px 5px;">TAC</span><span class="kmer-chip" style="font-size: 10px; padding: 1px 5px;">GTT</span><span class="kmer-chip" style="font-size: 10px; padding: 1px 5px;">TTC</span>
+        </div>
+      </foreignObject>
+
+      <rect class="trace-box" x="30" y="270" width="240" height="110" rx="6"/>
+      <text class="trace-text" x="40" y="292">Bootstrap ensemble</text>
+      <text class="trace-text-small" x="40" y="310">100 independent replicates</text>
+      <text class="trace-text-small" x="40" y="325">each samples S = ⌈L^0.47⌉ = 2 k-mers</text>
+      <text class="trace-text-small" x="40" y="343">B1: {ACG, CGT}</text>
+      <text class="trace-text-small" x="40" y="358">B2: {GTA, TAC}</text>
+      <text class="trace-text-small" x="40" y="373">... × 98 more</text>
+
+      <!-- Arrow to Stage 1 -->
+      <path class="trace-arrow" d="M 270 320 L 340 320"/>
+
+      <!-- COLUMN 2: STAGE 1 - DESCENT -->
+      <text class="trace-stage-label" x="340" y="30" style="fill: var(--accent-2);">Stage 1 — Descent gate</text>
+      <text class="trace-knob" x="340" y="48">knob: min_descend (0.98)</text>
+
+      <rect class="trace-box trace-box-stage1" x="340" y="60" width="340" height="440" rx="6"/>
+
+      <!-- Mini tree inside stage 1 -->
+      <!-- Root -->
+      <rect x="460" y="75" width="100" height="28" rx="4" fill="#fff" stroke="var(--accent-2)" stroke-width="1.5"/>
+      <text class="trace-text" x="510" y="94" text-anchor="middle">Root</text>
+      <text class="trace-text-small" x="510" y="68" text-anchor="middle">100 bootstraps enter</text>
+
+      <!-- edges root -> Animalia / Plantae -->
+      <path d="M 510 103 L 420 145" stroke="#555" fill="none" stroke-width="2"/>
+      <path d="M 510 103 L 600 145" stroke="#ccc" fill="none" stroke-width="1"/>
+      <text class="trace-text-mono" x="445" y="125" fill="var(--accent-3)">98 →</text>
+      <text class="trace-text-mono" x="580" y="125" fill="#999">← 2</text>
+
+      <!-- Animalia -->
+      <rect x="370" y="145" width="110" height="28" rx="4" fill="#fff" stroke="var(--accent-2)" stroke-width="1.5"/>
+      <text class="trace-text" x="425" y="164" text-anchor="middle">Animalia</text>
+      <!-- Plantae (greyed out) -->
+      <rect x="560" y="145" width="90" height="28" rx="4" fill="#f5f5f5" stroke="#ccc" stroke-width="1"/>
+      <text class="trace-text" x="605" y="164" text-anchor="middle" fill="#999">Plantae</text>
+
+      <!-- edges Animalia -> Canidae / Felidae -->
+      <path d="M 425 173 L 400 220" stroke="#555" fill="none" stroke-width="2"/>
+      <path d="M 425 173 L 500 220" stroke="#ccc" fill="none" stroke-width="1"/>
+      <text class="trace-text-mono" x="360" y="205" fill="var(--accent-3)">95</text>
+      <text class="trace-text-mono" x="495" y="205" fill="#999">5</text>
+
+      <!-- Canidae -->
+      <rect x="350" y="220" width="100" height="28" rx="4" fill="#fff" stroke="var(--accent-2)" stroke-width="1.5"/>
+      <text class="trace-text" x="400" y="239" text-anchor="middle">Canidae</text>
+      <!-- Felidae greyed -->
+      <rect x="480" y="220" width="80" height="28" rx="4" fill="#f5f5f5" stroke="#ccc" stroke-width="1"/>
+      <text class="trace-text" x="520" y="239" text-anchor="middle" fill="#999">Felidae</text>
+
+      <!-- edges Canidae -> Canis / Vulpes -->
+      <path d="M 400 248 L 380 295" stroke="#555" fill="none" stroke-width="2"/>
+      <path d="M 400 248 L 470 295" stroke="#ccc" fill="none" stroke-width="1"/>
+      <text class="trace-text-mono" x="340" y="280" fill="#b5860d">92</text>
+      <text class="trace-text-mono" x="475" y="280" fill="#999">8</text>
+
+      <!-- Canis (halted - red border) -->
+      <rect x="335" y="295" width="90" height="28" rx="4" fill="#fff3cd" stroke="#c0392b" stroke-width="2"/>
+      <text class="trace-text" x="380" y="314" text-anchor="middle">Canis</text>
+      <!-- Vulpes greyed -->
+      <rect x="455" y="295" width="80" height="28" rx="4" fill="#f5f5f5" stroke="#ccc" stroke-width="1"/>
+      <text class="trace-text" x="495" y="314" text-anchor="middle" fill="#999">Vulpes</text>
+
+      <!-- Halt annotation -->
+      <text class="trace-text-mono" x="545" y="313" fill="#c0392b">92 &lt; 98  → HALT</text>
+
+      <!-- Dashed line showing w_indices -->
+      <rect x="335" y="340" width="240" height="70" rx="4" fill="#fff" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text class="trace-text" x="455" y="358" text-anchor="middle" fill="#c0392b">w_indices hand-off</text>
+      <text class="trace-text-small" x="455" y="375" text-anchor="middle">{Canis, Vulpes} carry over</text>
+      <text class="trace-text-small" x="455" y="390" text-anchor="middle">to Stage 2 leaf-phase</text>
+      <text class="trace-text-small" x="455" y="404" text-anchor="middle" fill="var(--muted)">(or just {Canis} when sibling_aware_leaf = off)</text>
+
+      <text class="trace-text-small" x="360" y="445">Result: descent halted at Canidae.</text>
+      <text class="trace-text-small" x="360" y="460">Leaf candidates carried forward: Canis subtree.</text>
+      <text class="trace-text-small" x="360" y="480" fill="var(--accent-4)">(also: beam_width would keep top-K paths alive here)</text>
+
+      <!-- Arrow to Stage 2 -->
+      <path class="trace-arrow" d="M 680 280 L 760 280"/>
+      <text class="trace-knob" x="720" y="270" text-anchor="middle">→ w_indices</text>
+
+      <!-- COLUMN 3: STAGE 2 - LEAF PHASE -->
+      <text class="trace-stage-label" x="760" y="30" style="fill: var(--accent);">Stage 2 — Leaf-phase + LCA</text>
+      <text class="trace-knob" x="760" y="48">knobs: sibling_aware_leaf, tie_margin</text>
+
+      <rect class="trace-box trace-box-stage2" x="760" y="60" width="320" height="440" rx="6"/>
+
+      <text class="trace-text" x="775" y="82">Leaf-phase: per-query-kmer scan</text>
+      <text class="trace-text-small" x="775" y="98">against every reference under w_indices</text>
+
+      <text class="trace-text" x="775" y="128">tot_hits per group (100 bootstraps):</text>
+      <rect x="775" y="140" width="290" height="18" fill="#ecedf5" rx="2"/>
+      <rect x="775" y="140" width="180" height="18" fill="var(--accent-3)" rx="2"/>
+      <text class="trace-text-mono" x="960" y="154" fill="var(--ink)">C. lupus = 62</text>
+
+      <rect x="775" y="163" width="290" height="18" fill="#ecedf5" rx="2"/>
+      <rect x="775" y="163" width="87" height="18" fill="#adb5bd" rx="2"/>
+      <text class="trace-text-mono" x="960" y="177" fill="var(--ink)">C. latrans = 30</text>
+
+      <rect x="775" y="186" width="290" height="18" fill="#ecedf5" rx="2"/>
+      <rect x="775" y="186" width="23" height="18" fill="#adb5bd" rx="2"/>
+      <text class="trace-text-mono" x="960" y="200" fill="var(--ink)">C. familiaris = 8</text>
+
+      <text class="trace-text" x="775" y="230">Rank rollup (monotonic toward Root):</text>
+      <text class="trace-text-mono" x="775" y="250">Root     = 110 → cap 100</text>
+      <text class="trace-text-mono" x="775" y="267">Animalia = 100</text>
+      <text class="trace-text-mono" x="775" y="284">Canidae  = 100</text>
+      <text class="trace-text-mono" x="775" y="301">Canis    =  95</text>
+      <text class="trace-text-mono" x="775" y="318">Species  =  62  (C. lupus only)</text>
+
+      <text class="trace-text" x="775" y="355">tie_margin = 0.02 test:</text>
+      <text class="trace-text-small" x="775" y="372">max_tot × (1 − 0.02) = 62 × 0.98 = 60.76</text>
+      <text class="trace-text-small" x="775" y="388">latrans (30) &lt; 60.76  →  NOT a co-winner</text>
+      <text class="trace-text-small" x="775" y="408">→ no LCA clamp, full path to species kept.</text>
+      <text class="trace-text-small" x="775" y="424" fill="var(--muted)">(with tie_margin ≥ 0.52, latrans tips in; LCA clamps to Canis.)</text>
+
+      <text class="trace-text-small" x="775" y="455" fill="var(--accent)">Stage 2 out: taxon [Root, Animalia, Canidae, Canis, C. lupus]</text>
+      <text class="trace-text-small" x="775" y="472" fill="var(--accent)">              confidence [100, 100, 100, 95, 62]</text>
+      <text class="trace-text-small" x="775" y="488" fill="var(--accent)">              alternatives []</text>
+
+      <!-- Arrow to Stage 3 -->
+      <path class="trace-arrow" d="M 1080 280 L 1140 280"/>
+      <text class="trace-knob" x="1110" y="270" text-anchor="middle">→ conf[]</text>
+
+      <!-- COLUMN 4: STAGE 3 + OUTPUT -->
+      <text class="trace-stage-label" x="1140" y="30" style="fill: var(--accent-4);">Stage 3 — Threshold</text>
+      <text class="trace-knob" x="1140" y="48">knob: threshold = 60</text>
+
+      <rect class="trace-box trace-box-stage3" x="1140" y="60" width="240" height="220" rx="6"/>
+
+      <text class="trace-text" x="1150" y="82">Walk root-down:</text>
+      <text class="trace-text-mono" x="1150" y="105" fill="var(--accent-3)">Root    100 ≥ 60  ✓</text>
+      <text class="trace-text-mono" x="1150" y="122" fill="var(--accent-3)">Kingdom 100 ≥ 60  ✓</text>
+      <text class="trace-text-mono" x="1150" y="139" fill="var(--accent-3)">Family  100 ≥ 60  ✓</text>
+      <text class="trace-text-mono" x="1150" y="156" fill="var(--accent-3)">Genus    95 ≥ 60  ✓</text>
+      <text class="trace-text-mono" x="1150" y="173" fill="var(--accent-3)">Species  62 ≥ 60  ✓</text>
+
+      <text class="trace-text-small" x="1150" y="205">All ranks pass.</text>
+      <text class="trace-text-small" x="1150" y="220">Contiguous prefix kept;</text>
+      <text class="trace-text-small" x="1150" y="235">no truncation.</text>
+
+      <text class="trace-text-small" x="1150" y="265" fill="var(--muted)">(rank_thresholds = [0,50,70,80,90,95]</text>
+      <text class="trace-text-small" x="1150" y="278" fill="var(--muted)">would fail Species at 62 &lt; 95.)</text>
+
+      <!-- Final output box -->
+      <rect class="trace-box" x="1140" y="310" width="240" height="190" rx="6" fill="#fff" stroke="var(--accent-3)" stroke-width="2"/>
+      <text class="trace-stage-label" x="1145" y="330" style="fill: var(--accent-3);">Final output</text>
+
+      <text class="trace-text-mono" x="1150" y="355">taxon:</text>
+      <text class="trace-text-small" x="1150" y="370">Root;Animalia;</text>
+      <text class="trace-text-small" x="1150" y="385">Canidae;Canis;</text>
+      <text class="trace-text-small" x="1150" y="400">C. lupus</text>
+
+      <text class="trace-text-mono" x="1150" y="425">confidence:</text>
+      <text class="trace-text-small" x="1150" y="440">[100, 100, 100, 95, 62]</text>
+
+      <text class="trace-text-mono" x="1150" y="465">alternatives:</text>
+      <text class="trace-text-small" x="1150" y="480">[ ]</text>
+
+      <text class="trace-text-mono" x="1150" y="497" fill="var(--muted)">(reject_reason: none)</text>
+
+      <!-- Bottom legend strip -->
+      <line x1="30" y1="540" x2="1380" y2="540" stroke="var(--border)" stroke-width="1"/>
+      <text class="trace-stage-label" x="30" y="565" style="fill: var(--muted);">Legend</text>
+
+      <rect x="110" y="555" width="16" height="16" rx="2" fill="var(--accent-3)"/>
+      <text class="trace-text-small" x="132" y="567">winner at gate</text>
+
+      <rect x="220" y="555" width="16" height="16" rx="2" fill="#b5860d"/>
+      <text class="trace-text-small" x="242" y="567">leader but halted (&lt; min_descend)</text>
+
+      <rect x="430" y="555" width="16" height="16" rx="2" fill="#adb5bd"/>
+      <text class="trace-text-small" x="452" y="567">dropped / loser</text>
+
+      <rect x="540" y="553" width="16" height="20" rx="2" fill="#fff3cd" stroke="#c0392b" stroke-width="2"/>
+      <text class="trace-text-small" x="562" y="567">Stage 1 stopping node</text>
+
+      <text class="trace-text-small" x="700" y="567" fill="var(--muted)">Grey nodes/edges: pruned paths. Solid arrows: main flow. All numbers lifted from §7–§8 scenarios.</text>
+
+      <!-- Stage-band text at bottom -->
+      <rect x="30" y="600" width="240" height="260" fill="#f5f5f5" rx="4"/>
+      <text class="trace-text" x="40" y="622" font-weight="600">Stage 1 detail recap</text>
+      <text class="trace-text-small" x="40" y="643">• per-node descent votes</text>
+      <text class="trace-text-small" x="40" y="660">• threshold: winner/B ≥ 0.98</text>
+      <text class="trace-text-small" x="40" y="677">• if no child clears, halt,</text>
+      <text class="trace-text-small" x="40" y="694">  pass all children with votes</text>
+      <text class="trace-text-small" x="40" y="711">  to Stage 2 via w_indices</text>
+      <text class="trace-text-small" x="40" y="738">Knobs active here:</text>
+      <text class="trace-text-small" x="40" y="755" fill="var(--accent-4)">• min_descend</text>
+      <text class="trace-text-small" x="40" y="772" fill="var(--accent-4)">• beam_width</text>
+      <text class="trace-text-small" x="40" y="789" fill="var(--accent-4)">• sibling_aware_leaf (terminal)</text>
+
+      <rect x="340" y="600" width="340" height="260" fill="#eef7ff" rx="4"/>
+      <text class="trace-text" x="350" y="622" font-weight="600">Stage 2 detail recap</text>
+      <text class="trace-text-small" x="350" y="643">• leaf-phase scores query k-mers against</text>
+      <text class="trace-text-small" x="350" y="660">  every reference sequence under w_indices</text>
+      <text class="trace-text-small" x="350" y="677">• per-bootstrap best-match recorded in tot_hits</text>
+      <text class="trace-text-small" x="350" y="694">• groups tallied; winners = groups ≥</text>
+      <text class="trace-text-small" x="350" y="711">  max_tot × (1 − tie_margin)</text>
+      <text class="trace-text-small" x="350" y="728">• if |winners| &gt; 1: LCA-clamp taxon;</text>
+      <text class="trace-text-small" x="350" y="745">  list all winners as alternatives</text>
+      <text class="trace-text-small" x="350" y="762">• rank confidences rolled up from tot_hits</text>
+      <text class="trace-text-small" x="350" y="789" fill="var(--accent-4)">Knobs: sibling_aware_leaf, tie_margin</text>
+
+      <rect x="760" y="600" width="320" height="260" fill="#fff0e6" rx="4"/>
+      <text class="trace-text" x="770" y="622" font-weight="600">Stage 3 detail recap</text>
+      <text class="trace-text-small" x="770" y="643">• walk root-down through rolled-up confidences</text>
+      <text class="trace-text-small" x="770" y="660">• truncate at first rank that fails its threshold</text>
+      <text class="trace-text-small" x="770" y="677">• because confidences are monotonic toward</text>
+      <text class="trace-text-small" x="770" y="694">  Root, truncation is always a prefix</text>
+      <text class="trace-text-small" x="770" y="711">• reject_reason records why (below_threshold /</text>
+      <text class="trace-text-small" x="770" y="728">  too_few_kmers / no_training_match; ties use</text>
+      <text class="trace-text-small" x="770" y="745">  `alternatives`, reject_reason stays None)</text>
+      <text class="trace-text-small" x="770" y="755" fill="var(--accent-4)">Knobs: threshold, rank_thresholds</text>
+      <text class="trace-text-small" x="770" y="780" fill="var(--muted)">Result is what appears in the TSV/Python output.</text>
+
+      <rect x="1140" y="600" width="240" height="260" fill="#f3e9ff" rx="4"/>
+      <text class="trace-text" x="1150" y="622" font-weight="600">Output shape</text>
+      <text class="trace-text-small" x="1150" y="643">Per query, oxidtaxa emits:</text>
+      <text class="trace-text-small" x="1150" y="665">• taxon — list, truncated</text>
+      <text class="trace-text-small" x="1150" y="680">  at Stage 3 failure point</text>
+      <text class="trace-text-small" x="1150" y="700">• confidence — same length</text>
+      <text class="trace-text-small" x="1150" y="715">  as taxon</text>
+      <text class="trace-text-small" x="1150" y="735">• alternatives — tied-species</text>
+      <text class="trace-text-small" x="1150" y="750">  from Stage 2 LCA</text>
+      <text class="trace-text-small" x="1150" y="770">• reject_reason — why path</text>
+      <text class="trace-text-small" x="1150" y="785">  stops short, or null</text>
+    </svg>
+  </div>
+
+  <p style="font-size: 0.9em; color: var(--muted);">Tip: Stage 1 lives in blue, Stage 2 in orange, Stage 3 in purple. Those same colors show up in §4's three-filter diagram, so you can flip between the abstract (§4) and concrete (here) versions of the same scaffold.</p>
+</div>
+
+<!-- =========== §11 INVERTED INDEX =========== -->
+<h2>11. Performance: the inverted index</h2>
 <div class="panel">
   <p>During training Oxidtaxa builds a posting list mapping each k-mer ID to the training sequences containing it:</p>
   <pre class="ascii">ACG(6)   →  [seq1, seq2, seq3]
@@ -721,6 +1648,8 @@ CGA(24)  →  [seq3]
 GCC(37)  →  [seq4, seq5]
 TTA(60)  →  [seq6]
 ...</pre>
+
+  <p>At classification time, Stage 2's leaf-phase scoring (§8b) iterates over query k-mers rather than over reference sequences — which is why it can widen <code class="inline">w_indices</code> to large candidate sets (from Stage-1 stopping at a mid-tree node, or from beam descent, or from <code class="inline">sibling_aware_leaf</code>) without a runtime cost in the common case.</p>
 
   <table>
     <thead>
@@ -734,76 +1663,44 @@ TTA(60)  →  [seq6]
   </table>
 </div>
 
-<!-- =========== UNIFIED FLOW =========== -->
-<h2>6. Unified Flow — All Knobs in Place</h2>
+<!-- =========== §12 PARAMETER INDEX =========== -->
+<h2>12. Appendix: parameter index</h2>
 <div class="panel">
-  <pre class="ascii">              TRAINING                                 CLASSIFICATION
-              ────────                                 ──────────────
-              references                                    query
-                  │                                            │
-                  ▼                                            ▼
-          enumerate k-mers                            enumerate k-mers
-          (k, seed_pattern)                                    │
-                  │                                      ┌─────┴─────┐
-                  ▼                                      │ bootstrap │ × bootstraps
-  compute per-rank IDF matrix ◄── <span class="tie">per_rank_idf</span>      │ (S kmers) │
-                  │                                      └─────┬─────┘
-                  ▼                                            ▼
-          build taxonomy tree                  at each node: vote, compute
-                  │                            ┌──────────────┴──────────────┐
-                  ▼                            │ if winner/B ≥ min_descend   │
-  feature selection at each node               │   descend                   │
-  (record_kmers_fraction,                      │ else                        │
-   descendant_weighting,                       │   stop here                 │
-   correlation_aware_features)                 └──────────────┬──────────────┘
-                  │                                           │
-                  ▼                                 ┌─────────┴─────────┐
-  iterative fraction learning                       │ record margin     │◄── <span class="tie">confidence_uses_descent_margin</span>
-  (training_threshold,                              │ (top − runner)/B  │
-   use_idf_in_training,                             └─────────┬─────────┘
-   leave_one_out)                                             ▼
-                  │                             last descent step: widen     ◄── <span class="tie">sibling_aware_leaf</span>
-                  ▼                             w_indices to siblings ≥ 0.5B
-             model.bin                                        │
-                                                              ▼
-                                               leaf-phase match (per-seq);
-                                               group by leaf; find max_tot
-                                                              │
-                                                              ▼
-                                               winners = groups within       ◄── <span class="tie">tie_margin</span>
-                                                 (1 − tie_margin)·max_tot
-                                                              │
-                                                              ▼
-                                               apply cumulative margin       ◄── <span class="tie">confidence_uses_descent_margin</span>
-                                               discount to each rank's
-                                               confidence
-                                                              │
-                                                              ▼
-                                               LCA-clamp taxon at winners'
-                                               LCA; apply threshold or
-                                               rank_thresholds; emit
-                                               alternatives
+  <p>Every knob that appears in the document, alphabetical by code identifier, with the section where it's introduced. For differences-from-IDTAXA context (default state, category), see §3.</p>
 
-                                             → taxon + confidence + alternatives</pre>
-</div>
-
-<!-- =========== MENTAL MODEL =========== -->
-<h2>7. The Core Insight</h2>
-<div class="panel">
-  <p style="font-size: 1.05em;">
-    <strong>Bootstrapping on sub-sampled k-mers converts raw k-mer scoring into a voting system</strong>,
-    and the vote share becomes a natural per-rank confidence measurement. The margin/sibling/tie
-    knobs (<code class="inline">tie_margin</code>, <code class="inline">confidence_uses_descent_margin</code>,
-    <code class="inline">sibling_aware_leaf</code>) sharpen the system's ability to be honest about
-    <em>uncertainty</em> — they don't change what the classifier knows, only how generously it reports
-    when the evidence is close. The per-rank IDF (<code class="inline">per_rank_idf</code>) complements
-    them by making sure k-mer weights are appropriate for <em>which rank is being split</em>, rather
-    than being the same at every level.
-  </p>
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Phase</th><th>Section</th><th>What it controls</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code class="inline">beam_width</code></td><td>classify</td><td>§7c</td><td>Number of candidate paths maintained during tree descent</td></tr>
+      <tr><td><code class="inline">bootstraps</code>, <code class="inline">sample_exponent</code></td><td>classify</td><td>§7a</td><td>Bootstrap count &amp; per-replicate sample size (<code class="inline">S = L<sup>sample_exponent</sup></code>)</td></tr>
+      <tr><td><code class="inline">confidence_uses_descent_margin</code></td><td>classify</td><td>§7b/§8c</td><td>Per-rank confidence multiplied by the descent margin at each split (0.8 floor, non-cumulative)</td></tr>
+      <tr><td><code class="inline">correlation_aware_features</code></td><td>train</td><td>§6d</td><td>Greedy feature selection penalizing redundancy with already-chosen k-mers</td></tr>
+      <tr><td><code class="inline">descendant_weighting</code></td><td>train</td><td>§6d</td><td>Count / Equal / Log weighting when building per-child profiles</td></tr>
+      <tr><td><code class="inline">k</code>, <code class="inline">seed_pattern</code></td><td>train</td><td>§6a</td><td>K-mer size &amp; spacing</td></tr>
+      <tr><td><code class="inline">leave_one_out</code></td><td>train</td><td>§6e</td><td>Per-kmer leave-one-out: subtract held-out sequence's contribution from sibling's raw counts and renormalize</td></tr>
+      <tr><td><code class="inline">length_normalize</code></td><td>classify</td><td>§8b</td><td>Scale leaf-phase hits by <code class="inline">1/√(n_unique/avg)</code> to dampen long-reference inflation</td></tr>
+      <tr><td><code class="inline">max_children</code></td><td>train</td><td>§6d</td><td>Max child count at which feature selection runs; above, the node becomes opaque (no DecisionNode)</td></tr>
+      <tr><td><code class="inline">max_fraction</code>, <code class="inline">min_fraction</code></td><td>train</td><td>§6e</td><td>Ceiling/floor on per-node learned sampling fraction</td></tr>
+      <tr><td><code class="inline">max_iterations</code></td><td>train</td><td>§6e</td><td>Outer-loop cap on fraction learning</td></tr>
+      <tr><td><code class="inline">min_descend</code></td><td>classify</td><td>§7b</td><td>Vote fraction required to descend a node (Stage 1 gate)</td></tr>
+      <tr><td><code class="inline">multiplier</code></td><td>train</td><td>§6e</td><td>Per-failure fraction-decrement scale (feeds <code class="inline">delta</code>)</td></tr>
+      <tr><td><code class="inline">n</code></td><td>train</td><td>§6a</td><td>Target reference count used only to auto-pick <code class="inline">k</code> when unspecified</td></tr>
+      <tr><td><code class="inline">per_rank_idf</code></td><td>train</td><td>§6b</td><td>IDF computed per rank depth instead of globally (always on)</td></tr>
+      <tr><td><code class="inline">record_kmers_fraction</code></td><td>train</td><td>§6d</td><td>How many features per decision node</td></tr>
+      <tr><td><code class="inline">sibling_aware_leaf</code></td><td>classify</td><td>§8a</td><td>Widen <code class="inline">w_indices</code> at the terminal descent step</td></tr>
+      <tr><td><code class="inline">suppress_ancestor_only_groups</code></td><td>classify</td><td>§8d</td><td>Drop ancestor-only training entries that parasitically tie with species-resolved descendants (dual-stage: share-split + winner)</td></tr>
+      <tr><td><code class="inline">threshold</code>, <code class="inline">rank_thresholds</code></td><td>classify</td><td>§9a</td><td>Per-rank confidence cutoff (Stage 3 filter)</td></tr>
+      <tr><td><code class="inline">tie_margin</code></td><td>classify</td><td>§8c</td><td>Near-tied groups enter the tied-species report (Stage 2 LCA clamp)</td></tr>
+      <tr><td><code class="inline">training_threshold</code></td><td>train</td><td>§6e</td><td>Self-classification rate required to stop fraction learning</td></tr>
+      <tr><td><code class="inline">use_idf_in_descent</code></td><td>train</td><td>§6e</td><td>Apply IDF weights (per-rank matrix row at descent depth) during fraction-learning descent and classify-time descent</td></tr>
+    </tbody>
+  </table>
 </div>
 
 <footer>
-  Oxidtaxa — a Rust rewrite of IDTAXA (Murali, Bhargava &amp; Wright 2018) with per-query independent PRNG, per-rank IDF, margin/sibling-aware classification, and inverted-index acceleration.
+  Oxidtaxa — a Rust rewrite of IDTAXA (Murali, Bhargava &amp; Wright 2018) with per-query independent PRNG, per-rank IDF, sibling-aware classification, beam-width descent, and inverted-index acceleration.
 </footer>
 
 </body>
