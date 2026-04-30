@@ -862,19 +862,77 @@ fn test_suppress_preserves_higher_rank_confidence() {
     assert!(len >= 4, "expected at least Root..Canidae reported, got off={}, on={}",
             off[0].confidence.len(), on[0].confidence.len());
     for i in 0..len {
-        // Skip the rank at which the LCA-cap or threshold may have
-        // affected emission identity (the deepest shared rank). Compare
-        // the ranks strictly above that.
-        if i == len - 1 {
-            continue;
-        }
+        // No skip: the cross-rank accumulator credits each non-selected
+        // group's tot_hits at every rank at-or-above the group's own node.
+        // For the dropped ancestor, that includes the ancestor's natural
+        // rank (the deepest shared rank between off and on lineages).
+        // Pre-fix this assertion failed at i == len-1 because the walk
+        // started at parents[unique_groups[j]] and skipped that rank.
         assert!(
             (off[0].confidence[i] - on[0].confidence[i]).abs() < 1e-3,
             "rank {} confidence differs: off={}, on={} \
-             (cross-rank accumulator should be unaffected)",
+             (cross-rank accumulator should credit ancestor's own rank)",
             i,
             off[0].confidence[i],
             on[0].confidence[i]
+        );
+    }
+}
+
+#[test]
+fn test_suppress_leaf_only_credited_by_base() {
+    // Leaf invariant: under FLAG=ON with a tied ancestor-descendant fixture,
+    // the deepest reported rank receives ONLY base_confidence (= the
+    // selected group's own tot_hits contribution). No walk from a
+    // non-selected group can reach the leaf because walks only climb the
+    // tree, and every other group lives at-or-above the selected.
+    //
+    // Concretely: every rank shallower than the leaf accumulates the
+    // dropped ancestor's tot_hits via the cross-rank accumulator, so the
+    // shallower ranks have strictly greater confidence than the leaf.
+    // If this invariant fails, the accumulator is double-crediting the
+    // leaf or the ancestor's evidence is being misrouted.
+    let ts = build_ancestor_descendant_fixture();
+    let query = vec![
+        "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string(),
+    ];
+    let names = vec!["q".to_string()];
+
+    // threshold=1.0 so all ranks pass the threshold filter and the full
+    // lineage is reported (we want to assert on every confidence, not on
+    // the truncated emission output).
+    let cfg = ClassifyConfig {
+        threshold: 1.0,
+        suppress_ancestor_only_groups: true,
+        ..Default::default()
+    };
+    let result = id_taxa(
+        &query, &names, &ts, &cfg, StrandMode::Top, OutputType::Extended, 42, true,
+    );
+
+    assert_eq!(result.len(), 1);
+    let conf = &result[0].confidence;
+    assert!(
+        conf.len() >= 2,
+        "expected at least leaf + one ancestor rank, got {}",
+        conf.len()
+    );
+
+    let leaf = *conf.last().unwrap();
+    for (i, &c) in conf.iter().enumerate().take(conf.len() - 1) {
+        assert!(
+            c > leaf + 1e-3,
+            "rank {} confidence ({}) must be strictly greater than leaf ({}); \
+             violation suggests ancestor evidence is misrouted or the leaf \
+             is double-credited",
+            i,
+            c,
+            leaf
         );
     }
 }

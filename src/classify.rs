@@ -800,7 +800,9 @@ fn leaf_phase_score(
     // resolved descendant ties with them in the bootstrap. The ancestor's
     // kmer evidence is unaffected: `tot_hits[ancestor]` is unchanged and
     // still flows up to ancestor-rank confidences via the cross-rank
-    // accumulator at line 775-786 (which iterates `tot_hits`, not `winners`).
+    // accumulator below (which iterates `tot_hits`, not `winners`, and
+    // starts each walk at the group's own node so the ancestor's own
+    // rank is credited even when the ancestor is dropped from `winners`).
     //
     // ts.taxonomy[node] is stored with a trailing ';' (built in
     // training.rs:202-213 as taxa = format!("Root;{}", t) where t was built
@@ -871,7 +873,13 @@ fn leaf_phase_score(
     let mut confidences = vec![base_confidence; predicteds.len()];
     for (j, &th) in tot_hits.iter().enumerate() {
         if th > 0.0 && j != selected {
-            let mut p = parents[unique_groups[j]];
+            // Start at the group's own node (not its parent) so a group whose
+            // own node lies on `predicteds` — the case for an ancestor-only
+            // training entry whose descendant is `selected` — credits its
+            // tot_hits at its OWN rank instead of skipping past it. For
+            // sibling/descendant groups, `unique_groups[j]` is not in
+            // `predicteds` and the first iteration is a harmless no-match.
+            let mut p = unique_groups[j];
             loop {
                 if let Some(m) = predicteds.iter().position(|&x| x == p) {
                     confidences[m] += th / b as f64 * 100.0;
@@ -913,14 +921,21 @@ fn leaf_phase_score(
     // `predicteds` so the `above` filter can cap the reportable lineage there.
     //
     // Every non-selected winner's pairwise LCA with `selected` is the deepest
-    // ancestor of `unique_groups[j]` that lives in `predicteds`. The group-wise
-    // LCA is the shallowest (smallest index) of those pairwise LCAs, since it
-    // must be an ancestor of every winner.
+    // ancestor-or-equal of `unique_groups[j]` that lives in `predicteds`. The
+    // group-wise LCA is the shallowest (smallest index) of those pairwise
+    // LCAs, since it must be an ancestor of every winner. The walk below
+    // starts at `unique_groups[j]` itself so an ancestor-only winner's own
+    // node is accepted as the cap (rather than its parent's position).
     let (lca_cap, alternatives): (Option<usize>, Vec<String>) = if winners.len() > 1 {
         let mut deepest_allowed = predicteds.len() - 1;
         for &j in &winners {
             if j == selected { continue; }
-            let mut p = parents[unique_groups[j]];
+            // Start at the winner's own node so the LCA-cap accepts
+            // `unique_groups[j]` itself as the cap when this winner is a
+            // strict ancestor of `selected` (i.e., the LCA is the winner's
+            // own node). The pre-fix start at parents[X] capped one rank
+            // too shallow in that case.
+            let mut p = unique_groups[j];
             loop {
                 if let Some(pos) = predicteds.iter().position(|&x| x == p) {
                     if pos < deepest_allowed { deepest_allowed = pos; }
