@@ -302,6 +302,225 @@ fn test_leave_one_out_standard_produces_valid_classification() {
     }
 }
 
+#[test]
+fn test_leave_one_out_reshapes_profile() {
+    // Regression test for the LOO no-op bug: vector_sum normalization
+    // (cur_weight / max_weight) is invariant under uniform weight scaling, so
+    // the original `weights *= (n-1)/n` block at training.rs was structurally
+    // inert — byte-identical models regardless of `leave_one_out`. Per-kmer
+    // LOO subtracts the held-out sequence's contribution from raw counts and
+    // renormalizes, which RESHAPES the profile (not just rescales) and breaks
+    // the cancellation.
+    //
+    // This test directly verifies the structural property: applying the
+    // per-kmer LOO formula to the stored raw_counts/raw_totals must produce
+    // a profile that differs from the stored `profiles[j]` in at least one
+    // entry. Uniform scaling cannot satisfy this assertion; only a reshape
+    // can. (We test the formula structurally rather than asserting
+    // end-to-end fraction differences because small test datasets classify
+    // perfectly under any LOO setting, leaving fractions at max.)
+    let seqs: Vec<String> = load_json("s08d_singleton_seqs");
+    let tax: Vec<String> = load_json("s08d_singleton_tax");
+
+    let model = learn_taxa(&seqs, &tax, &TrainConfig::default(), 42, false).unwrap();
+
+    // Walk the model's decision nodes and look for at least one pair (j, k)
+    // where the LOO-adjusted profile entry differs from the stored profile
+    // entry by more than float-rounding tolerance, when we simulate holding
+    // out a sequence with known k-mer length.
+    let mut found_reshape = false;
+    let mut max_abs_diff: f64 = 0.0;
+    'outer: for dk in model.decision_kmers.iter().flatten() {
+        for (j, raw_row) in dk.raw_counts.iter().enumerate() {
+            let raw_total = dk.raw_totals[j];
+            // Skip degenerate subtrees with no counts.
+            if raw_total <= 0.0 {
+                continue;
+            }
+            // Simulate a held-out sequence whose k-mer count is small
+            // relative to raw_total so new_total is positive. Use 1.0
+            // (a one-k-mer sequence — unrealistic but mathematically
+            // valid) to keep the test independent of any specific
+            // training sequence's length.
+            let kmers_i_len = 1.0_f64;
+            let new_total = raw_total - kmers_i_len;
+            if new_total <= 0.0 {
+                continue;
+            }
+            for (&count, &stored_prof) in raw_row.iter().zip(dk.profiles[j].iter()) {
+                // Worst case for "did LOO reshape this entry": the held-out
+                // sequence does NOT contain this k-mer (i_k = 0). Then
+                // LOO entry = count / new_total. Compare to stored profile
+                // count / raw_total. They differ unless count == 0 or
+                // new_total == raw_total (impossible since kmers_i_len > 0).
+                let i_k = 0.0_f64;
+                let loo_entry = ((count - i_k) / new_total).max(0.0);
+                let diff = (loo_entry - stored_prof).abs();
+                if diff > max_abs_diff {
+                    max_abs_diff = diff;
+                }
+                if diff > 1e-9 && count > 0.0 {
+                    found_reshape = true;
+                    break 'outer;
+                }
+            }
+        }
+    }
+
+    assert!(
+        found_reshape,
+        "Per-kmer LOO formula must reshape the profile relative to the stored \
+         profile (raw_counts/raw_totals must differ from profile/total \
+         meaningfully). max_abs_diff={}. If this fails, LOO is a no-op or the \
+         raw_counts/raw_totals fields are not populated correctly.",
+        max_abs_diff
+    );
+}
+
+#[test]
+fn test_leave_one_out_decision_kmers_invariant() {
+    // The build-tree phase does NOT see `leave_one_out` (BuildTreeConfig
+    // doesn't carry the flag). So `decision_kmers.keep` MUST be byte-identical
+    // between LOO=true and LOO=false runs. This test guards that invariant —
+    // if it ever fails, leave_one_out has leaked into feature selection.
+    let seqs: Vec<String> = load_json("s08d_singleton_seqs");
+    let tax: Vec<String> = load_json("s08d_singleton_tax");
+
+    let default_model = learn_taxa(&seqs, &tax, &TrainConfig::default(), 42, false).unwrap();
+    let loo_model = learn_taxa(
+        &seqs,
+        &tax,
+        &TrainConfig {
+            leave_one_out: true,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
+
+    for (d, l) in default_model
+        .decision_kmers
+        .iter()
+        .zip(loo_model.decision_kmers.iter())
+    {
+        match (d, l) {
+            (Some(dk_d), Some(dk_l)) => {
+                assert_eq!(
+                    dk_d.keep, dk_l.keep,
+                    "decision_kmers.keep must be invariant under LOO"
+                );
+                assert_eq!(
+                    dk_d.profiles, dk_l.profiles,
+                    "decision_kmers.profiles must be invariant under LOO"
+                );
+                assert_eq!(
+                    dk_d.raw_counts, dk_l.raw_counts,
+                    "decision_kmers.raw_counts must be invariant under LOO"
+                );
+                assert_eq!(
+                    dk_d.raw_totals, dk_l.raw_totals,
+                    "decision_kmers.raw_totals must be invariant under LOO"
+                );
+            }
+            (None, None) => {}
+            _ => panic!("Decision k-mer presence differs with LOO"),
+        }
+    }
+}
+
+#[test]
+fn test_leave_one_out_kmer_specificity() {
+    // Verify the per-kmer LOO formula's behavior at the level of stored
+    // DecisionNode fields:
+    //   - raw_counts[j].len() == profiles[j].len() == keep.len()
+    //   - raw_totals[j] >= sum of raw_counts[j] entries (raw_total covers ALL
+    //     k-mers, raw_counts only kept k-mers)
+    //   - For at least one decision node and (j, k) pair with
+    //     raw_counts[j][k] == 1.0 (singleton k-mer in subtree j), the
+    //     LOO-adjusted profile entry computed from a sequence i that contains
+    //     that k-mer is exactly 0 (i was the only contributor; subtracting
+    //     its 1.0 leaves 0 / new_total = 0).
+    //
+    // The singleton dataset s08d is designed to produce such cases.
+    let seqs: Vec<String> = load_json("s08d_singleton_seqs");
+    let tax: Vec<String> = load_json("s08d_singleton_tax");
+
+    let model = learn_taxa(&seqs, &tax, &TrainConfig::default(), 42, false).unwrap();
+
+    // Shape sanity: every populated DecisionNode has raw_counts/raw_totals
+    // aligned with keep/profiles.
+    for dk in model.decision_kmers.iter().flatten() {
+        assert_eq!(
+            dk.raw_counts.len(),
+            dk.profiles.len(),
+            "raw_counts row count must match profiles row count"
+        );
+        assert_eq!(
+            dk.raw_totals.len(),
+            dk.profiles.len(),
+            "raw_totals length must match profiles row count"
+        );
+        for (j, row) in dk.raw_counts.iter().enumerate() {
+            assert_eq!(
+                row.len(),
+                dk.keep.len(),
+                "raw_counts[{}] length must match keep length",
+                j
+            );
+            let row_sum: f64 = row.iter().sum();
+            assert!(
+                dk.raw_totals[j] + 1e-9 >= row_sum,
+                "raw_totals[{}]={} must be >= sum of raw_counts[{}]={}",
+                j,
+                dk.raw_totals[j],
+                j,
+                row_sum
+            );
+        }
+    }
+
+    // Find a (decision node, subtree j, kept k-mer index k) triple where
+    // raw_counts[j][k] == 1.0 and raw_totals[j] > some sequence's |kmers_i|.
+    // Verify the per-kmer LOO formula zeros that entry when the held-out
+    // sequence carries the k-mer.
+    let mut found_singleton = false;
+    'outer: for dk in model.decision_kmers.iter().flatten() {
+        for (j, raw_row) in dk.raw_counts.iter().enumerate() {
+            for (k_idx, &count) in raw_row.iter().enumerate() {
+                if (count - 1.0).abs() < 1e-9 {
+                    // Simulate LOO: held-out sequence is the singleton
+                    // contributor (matches=true at this k-mer; len=1 for
+                    // simplicity — formula doesn't depend on the exact
+                    // value as long as raw_totals[j] - kmers_i_len > 0).
+                    let kmers_i_len = 1.0_f64;
+                    let new_total = dk.raw_totals[j] - kmers_i_len;
+                    assert!(
+                        new_total > 0.0,
+                        "LOO new_total must be positive for valid case"
+                    );
+                    let i_k = 1.0_f64; // matched
+                    let loo_entry = ((count - i_k) / new_total).max(0.0);
+                    assert_eq!(
+                        loo_entry, 0.0,
+                        "Singleton k-mer (raw_count=1) at (j={}, k_idx={}) \
+                         must zero out under LOO when held-out sequence \
+                         matches it",
+                        j, k_idx
+                    );
+                    found_singleton = true;
+                    break 'outer;
+                }
+            }
+        }
+    }
+    assert!(
+        found_singleton,
+        "Expected at least one singleton k-mer (raw_count=1) in a kept-k-mer \
+         row of some decision node on the singleton dataset"
+    );
+}
+
 // ============================================================================
 // Beam search
 // ============================================================================

@@ -352,7 +352,7 @@ fn _build_tree_inner(
     };
 
     let mut decision_kmers: Vec<Option<DecisionNode>> = vec![None; prepared.taxonomy.len()];
-    let (_root_profile, _root_desc, nodes) = create_tree(
+    let (_root_profile, _root_raw_counts, _root_raw_total, _root_desc, nodes) = create_tree(
         0,
         &prepared.children,
         &prepared.sequences_per_node,
@@ -466,8 +466,39 @@ fn _learn_fractions_inner(
 
                         let mut hits = vec![vec![0.0f64; b]; subtrees.len()];
                         for (j, _subtree) in subtrees.iter().enumerate() {
-                            let mut weights_j: Vec<f64> = if config.use_idf_in_descent {
-                                dk.profiles[j]
+                            // Per-kmer LOO: subtract the held-out sequence's
+                            // contribution from the matching sibling's raw
+                            // counts and renormalize by the reduced total.
+                            // Must reshape the profile (not just rescale)
+                            // because vector_sum returns cur_weight /
+                            // max_weight, which is invariant under uniform
+                            // scaling. Singleton k-mers go to 0; conserved
+                            // k-mers are preserved after renormalization.
+                            // Approximate at internal siblings (treats the
+                            // subtree as a flat collection of leaf-sequences,
+                            // ignoring descendant_weighting).
+                            let kmers_i_len = prepared.kmers[i].len() as f64;
+                            let base_profile_j: Vec<f64> = match loo_child_idx {
+                                Some((loo_j, group_size))
+                                    if j == loo_j
+                                        && group_size > 1
+                                        && dk.raw_totals[j] - kmers_i_len > 0.0 =>
+                                {
+                                    let new_total = dk.raw_totals[j] - kmers_i_len;
+                                    dk.raw_counts[j]
+                                        .iter()
+                                        .zip(matches.iter())
+                                        .map(|(&count, &m)| {
+                                            let i_k = if m { 1.0 } else { 0.0 };
+                                            ((count - i_k) / new_total).max(0.0)
+                                        })
+                                        .collect()
+                                }
+                                _ => dk.profiles[j].clone(),
+                            };
+
+                            let weights_j: Vec<f64> = if config.use_idf_in_descent {
+                                base_profile_j
                                     .iter()
                                     .zip(dk.keep.iter())
                                     .map(|(&prof, &km)| {
@@ -480,17 +511,8 @@ fn _learn_fractions_inner(
                                     })
                                     .collect()
                             } else {
-                                dk.profiles[j].clone()
+                                base_profile_j
                             };
-
-                            if let Some((loo_j, group_size)) = loo_child_idx {
-                                if j == loo_j && group_size > 1 && group_size <= 5 {
-                                    let scale = (group_size - 1) as f64 / group_size as f64;
-                                    for w in &mut weights_j {
-                                        *w *= scale;
-                                    }
-                                }
-                            }
 
                             hits[j] = vector_sum(&matches, &weights_j, &sampling, b);
                         }
@@ -748,6 +770,34 @@ fn percentile_nchar(sequences: &[String], p: f64) -> usize {
 /// Sparse profile: sorted by k-mer index (0-based), only non-zero entries.
 type SparseProfile = Vec<(usize, f64)>;
 
+/// Element-wise sum of multiple sparse profiles. `Result[k] = Σ_i profiles[i][k]`.
+/// Same k-way-merge structure as `merge_sparse_profiles` but unweighted and
+/// unnormalized — used for raw count vectors during LOO state propagation.
+fn sum_sparse_profiles(profiles: &[SparseProfile]) -> SparseProfile {
+    let mut cursors = vec![0usize; profiles.len()];
+    let mut result = Vec::new();
+    loop {
+        let mut min_key = usize::MAX;
+        for (i, p) in profiles.iter().enumerate() {
+            if cursors[i] < p.len() && p[cursors[i]].0 < min_key {
+                min_key = p[cursors[i]].0;
+            }
+        }
+        if min_key == usize::MAX {
+            break;
+        }
+        let mut val = 0.0f64;
+        for (i, p) in profiles.iter().enumerate() {
+            if cursors[i] < p.len() && p[cursors[i]].0 == min_key {
+                val += p[cursors[i]].1;
+                cursors[i] += 1;
+            }
+        }
+        result.push((min_key, val));
+    }
+    result
+}
+
 /// Merge multiple weighted sparse profiles into a single sparse profile (weighted average).
 fn merge_sparse_profiles(
     profiles: &[SparseProfile],
@@ -837,6 +887,14 @@ fn bhattacharyya_with_stats(a_stats: &BhattacharyyaStats, b_stats: &Bhattacharyy
 /// Uses sparse profiles to avoid processing 65K dense vectors.
 /// Sibling subtrees are processed in parallel via rayon.
 /// Port of R/LearnTaxa.R:.createTree (lines 267-319).
+///
+/// Returns `(merged_profile, raw_counts, raw_total, descendant_count, collected_nodes)`:
+/// - `merged_profile`: descendant-weighted average profile (sparse).
+/// - `raw_counts`: element-wise sum of leaf-sequence k-mer presence counts (sparse).
+/// - `raw_total`: total k-mer presence count summed over all leaf-sequences in
+///   this subtree (across all k-mers, not just `keep`).
+/// - `descendant_count`: number of leaf descendants under this node.
+/// - `collected_nodes`: decision nodes built for this subtree.
 fn create_tree(
     node: usize,
     children: &[Vec<usize>],
@@ -844,19 +902,33 @@ fn create_tree(
     kmers: &[Vec<i32>],
     n_kmers: usize,
     config: &TrainConfig,
-) -> (SparseProfile, usize, Vec<(usize, DecisionNode)>) {
+) -> (
+    SparseProfile,
+    SparseProfile,
+    f64,
+    usize,
+    Vec<(usize, DecisionNode)>,
+) {
     let child_nodes = &children[node];
     let n_children = child_nodes.len();
 
     if n_children > 0 && n_children <= config.max_children {
         let mut profiles: Vec<SparseProfile> = Vec::with_capacity(n_children);
+        let mut raw_counts_children: Vec<SparseProfile> = Vec::with_capacity(n_children);
+        let mut raw_totals_children: Vec<f64> = Vec::with_capacity(n_children);
         let mut descendants: Vec<usize> = Vec::with_capacity(n_children);
         let mut collected_nodes: Vec<(usize, DecisionNode)> = Vec::new();
 
         if config.processors > 1 {
             // Process sibling subtrees in parallel (they access disjoint
             // data and all shared params are immutable borrows).
-            type ChildBuildResult = (SparseProfile, usize, Vec<(usize, DecisionNode)>);
+            type ChildBuildResult = (
+                SparseProfile,
+                SparseProfile,
+                f64,
+                usize,
+                Vec<(usize, DecisionNode)>,
+            );
             let child_results: Vec<ChildBuildResult> = if n_children == 2 {
                 let (r0, r1) = rayon::join(
                     || create_tree(child_nodes[0], children, sequences, kmers, n_kmers, config),
@@ -879,17 +951,21 @@ fn create_tree(
                 results.into_iter().map(|r| r.unwrap()).collect()
             };
 
-            for (profile, desc, nodes) in child_results {
+            for (profile, raw_c, raw_t, desc, nodes) in child_results {
                 profiles.push(profile);
+                raw_counts_children.push(raw_c);
+                raw_totals_children.push(raw_t);
                 descendants.push(desc);
                 collected_nodes.extend(nodes);
             }
         } else {
             // Sequential path: no rayon overhead when processors == 1
             for &child in child_nodes {
-                let (profile, desc, nodes) =
+                let (profile, raw_c, raw_t, desc, nodes) =
                     create_tree(child, children, sequences, kmers, n_kmers, config);
                 profiles.push(profile);
+                raw_counts_children.push(raw_c);
+                raw_totals_children.push(raw_t);
                 descendants.push(desc);
                 collected_nodes.extend(nodes);
             }
@@ -907,6 +983,12 @@ fn create_tree(
         // Compute weighted average profile q (sparse merge)
         let total_weight: f64 = desc_weights.iter().sum();
         let q = merge_sparse_profiles(&profiles, &desc_weights, total_weight);
+
+        // Compute the parent's own raw count vector (element-wise sum of
+        // children's raw counts, ignoring descendant_weighting) and total.
+        // Used by leave-one-out at the next level up.
+        let own_raw_counts = sum_sparse_profiles(&raw_counts_children);
+        let own_raw_total: f64 = raw_totals_children.iter().sum();
 
         // Build a lookup from k-mer index to q value for fast cross-entropy computation
         let q_map: HashMap<usize, f64> = q.iter().map(|&(k, v)| (k, v)).collect();
@@ -1195,17 +1277,48 @@ fn create_tree(
             })
             .collect();
 
+        // Build raw count matrix aligned with keep_vec the same way.
+        // raw_counts[j][k] = number of leaf-sequences in child subtree j
+        // that contain keep[k]. raw_counts_children[j] is sparse and sorted
+        // by k-mer index.
+        let selected_raw_counts: Vec<Vec<f64>> = raw_counts_children
+            .iter()
+            .map(|p| {
+                let mut result = Vec::with_capacity(keep_vec.len());
+                let mut pi = 0usize;
+                for &k in &keep_vec {
+                    while pi < p.len() && p[pi].0 < k {
+                        pi += 1;
+                    }
+                    if pi < p.len() && p[pi].0 == k {
+                        result.push(p[pi].1);
+                    } else {
+                        result.push(0.0);
+                    }
+                }
+                result
+            })
+            .collect();
+
         collected_nodes.push((
             node,
             DecisionNode {
                 keep: keep_indices,
                 profiles: selected_profiles,
+                raw_counts: selected_raw_counts,
+                raw_totals: raw_totals_children.clone(),
             },
         ));
 
-        (q, total_desc, collected_nodes)
+        (
+            q,
+            own_raw_counts,
+            own_raw_total,
+            total_desc,
+            collected_nodes,
+        )
     } else {
-        // Leaf node: tabulate k-mers as sparse profile
+        // Leaf node: tabulate k-mers as sparse profile and keep raw counts.
         let mut counts: HashMap<usize, f64> = HashMap::new();
         if let Some(seq_indices) = &sequences[node] {
             for &si in seq_indices {
@@ -1217,12 +1330,16 @@ fn create_tree(
             }
         }
         let total: f64 = counts.values().sum();
-        let mut profile: SparseProfile = if total > 0.0 {
-            counts.into_iter().map(|(k, v)| (k, v / total)).collect()
+
+        let mut raw: SparseProfile = counts.into_iter().collect();
+        raw.sort_by_key(|&(k, _)| k);
+
+        let profile: SparseProfile = if total > 0.0 {
+            raw.iter().map(|&(k, c)| (k, c / total)).collect()
         } else {
             Vec::new()
         };
-        profile.sort_by_key(|&(k, _)| k);
-        (profile, 1, Vec::new())
+
+        (profile, raw, total, 1, Vec::new())
     }
 }

@@ -1,5 +1,5 @@
-/// Ordered integer membership test: result[i] = x[i] in y.
-/// Both x and y must be sorted in ascending order.
+/// Ordered integer membership test: `result[i] = x[i]` in `y`.
+/// Both `x` and `y` must be sorted in ascending order.
 /// Port of utils.c:intMatch (lines 19-48).
 pub fn int_match(x: &[i32], y: &[i32]) -> Vec<bool> {
     let mut result = vec![false; x.len()];
@@ -21,7 +21,7 @@ pub fn int_match(x: &[i32], y: &[i32]) -> Vec<bool> {
 /// Weighted vector summation across bootstrap replicates.
 /// Port of vector_sums.c:vectorSum (lines 22-55).
 ///
-/// `matches`: boolean vector of k-mer matches (query k-mer i matched training set)
+/// `matches`: boolean vector of k-mer matches (query k-mer `i` matched training set)
 /// `weights`: IDF weights per k-mer
 /// `sampling`: flat matrix of sampled indices (block_count * block_size), 0-indexed
 /// `block_count`: number of bootstrap replicates
@@ -71,8 +71,8 @@ pub fn vector_sum(
 /// `positions`: flat array — for each query k-mer index, the bootstrap positions it maps to
 /// `ranges`: cumulative range boundaries (length = query_kmers.len() + 1)
 ///
-/// Returns: (hits_flat: Vec<f64> [n_indices * block_count], col_sums: Vec<f64> [n_indices])
-/// Access hits_flat[seq_idx * block_count + rep] for sequence seq_idx, replicate rep.
+/// Returns: `(hits_flat: Vec<f64> [n_indices * block_count], col_sums: Vec<f64> [n_indices])`.
+/// Access `hits_flat[seq_idx * block_count + rep]` for sequence `seq_idx`, replicate `rep`.
 pub fn parallel_match(
     query_kmers: &[i32],
     train_kmers: &[Vec<i32>],

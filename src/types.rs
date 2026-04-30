@@ -8,6 +8,16 @@ pub struct DecisionNode {
     pub keep: Vec<i32>,
     /// Profile matrix: rows = child subtrees, cols = kept k-mers.
     pub profiles: Vec<Vec<f64>>,
+    /// Raw sequence counts per child subtree, aligned with `keep`.
+    /// `raw_counts[j][k]` = number of leaf-sequences in child subtree `j`
+    /// that contain `keep[k]`. Used by leave-one-out at fraction-learning
+    /// to subtract a held-out sequence's contribution from the matching
+    /// sibling's profile counts and renormalize.
+    pub raw_counts: Vec<Vec<f64>>,
+    /// Total k-mer presence count per child subtree (summed over all k-mers
+    /// across every leaf-sequence in the subtree, not just kept k-mers).
+    /// Used as the LOO denominator: `new_total = raw_totals[j] - |kmers[i]|`.
+    pub raw_totals: Vec<f64>,
 }
 
 /// A sequence that was misclassified during training.
@@ -267,9 +277,15 @@ pub struct TrainConfig {
     /// model so classify-time descent matches the algorithm used at train
     /// time. Default false.
     pub use_idf_in_descent: bool,
-    /// Exclude each sequence from its own node's profile during fraction
-    /// learning (leave-one-out). Reduces self-classification bias for small
-    /// groups. Default false (original behavior).
+    /// Exclude each sequence from its own subtree's profile during fraction
+    /// learning (per-kmer leave-one-out). Subtracts the held-out sequence's
+    /// contribution from the matching sibling's raw counts, then renormalizes.
+    /// Singleton k-mers (held-out sequence is the only contributor) go to zero;
+    /// conserved k-mers (every group member has them) stay unchanged.
+    /// Reduces self-classification bias by removing circular evidence at the
+    /// fraction-calibration step (does not affect classify-time scoring; the
+    /// stored `dk.profiles` retain full discriminative information).
+    /// Default false (legacy behavior).
     pub leave_one_out: bool,
     /// Use correlation-aware greedy feature selection instead of independent
     /// round-robin. Uses Bhattacharyya coefficient on L1-normalized sqrt
@@ -318,8 +334,8 @@ pub struct ClassifyConfig {
     /// Normalize scores by training sequence length. Corrects inflation from
     /// longer references having more k-mers. Default false.
     pub length_normalize: bool,
-    /// Per-rank confidence thresholds. When Some, rank_thresholds[i] is used for
-    /// depth i (0=Root). When None, uses single `threshold` for all ranks.
+    /// Per-rank confidence thresholds. When Some, `rank_thresholds[i]` is used for
+    /// depth `i` (0=Root). When None, uses single `threshold` for all ranks.
     pub rank_thresholds: Option<Vec<f64>>,
     /// Number of candidate paths to maintain during tree descent.
     /// 1 = greedy descent (original behavior). Higher values explore
