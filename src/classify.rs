@@ -4,7 +4,9 @@ use crate::kmer::{enumerate_sequences, parse_seed_pattern, SpacedSeed, NA_INTEGE
 use crate::matching::{int_match, parallel_match, parallel_match_inverted, vector_sum};
 use crate::rng::RRng;
 use crate::sequence::reverse_complement;
-use crate::types::{ClassificationResult, ClassifyConfig, OutputType, StrandMode, TrainingSet};
+use crate::types::{
+    ClassificationResult, ClassifyConfig, LeafAggregationMode, OutputType, StrandMode, TrainingSet,
+};
 
 /// Pre-computed per-sequence data shared across classification calls.
 struct PrecomputedData {
@@ -214,10 +216,14 @@ fn classify_one_pass(
     // Greedy tree descent (beam_width=1)
     let mut k_node = 0usize;
     let mut w_indices: Vec<usize>;
-    // Per-descent-step ratio `(top - runner_up) / b`, floored at 0.1, used
-    // later in `leaf_phase_score` to discount per-rank confidences. Only
-    // populated when `config.confidence_uses_descent_margin` is on.
-    let mut descent_margins: Vec<f64> = Vec::new();
+    // Phase 1b telemetry: count near-tied descent splits and track the max
+    // runner-up vote fraction. Always-on (no flag) — overhead is two scalars
+    // per split. `CLOSE_RUNNER_UP_RATIO` defines what counts as "close": a
+    // runner-up clearing 90% of the winner's votes. Used by Phase 1c E.0
+    // frequency probe to gauge whether beam widening (Phase 2) has substrate.
+    const CLOSE_RUNNER_UP_RATIO: f64 = 0.90;
+    let mut beam_close_runner_up_count: u32 = 0;
+    let mut beam_max_runner_up_fraction: f64 = 0.0;
     loop {
         let subtrees = &children[k_node];
         let dk = &decision_kmers[k_node];
@@ -284,17 +290,23 @@ fn classify_one_pass(
                 }
             }
 
-            if config.confidence_uses_descent_margin {
+            // Phase 1b telemetry: track runner-up closeness. `vote_counts`
+            // is votes per child; we need the top-2 to compute the ratio.
+            // When n_sub < 2 there's no runner-up, so the metric stays at 0.
+            if n_sub >= 2 {
                 let mut sorted = vote_counts.clone();
                 sorted.sort_unstable_by(|a, b_| b_.cmp(a));
-                let top = *sorted.first().unwrap_or(&0) as f64;
-                let runner_up = *sorted.get(1).unwrap_or(&0) as f64;
-                let margin = if top > 0.0 {
-                    ((top - runner_up) / (b as f64)).max(0.1)
-                } else {
-                    1.0
-                };
-                descent_margins.push(margin);
+                let top = sorted[0];
+                let runner_up = sorted[1];
+                if top > 0 {
+                    let frac = runner_up as f64 / top as f64;
+                    if frac > beam_max_runner_up_fraction {
+                        beam_max_runner_up_fraction = frac;
+                    }
+                    if frac >= CLOSE_RUNNER_UP_RATIO {
+                        beam_close_runner_up_count += 1;
+                    }
+                }
             }
 
             let w: Vec<usize> = vote_counts
@@ -304,29 +316,14 @@ fn classify_one_pass(
                 .map(|(i, _)| i)
                 .collect();
             if w.len() != 1 {
-                // Mech 1 — halt-in-the-middle fallback. Two filters:
-                //  - `w50`: did at least one child come close to winning?
-                //    Threshold is `sibling_aware_min_vote_frac * b` (default
-                //    0.5 = the previously hardcoded constant).
-                //  - inner filter: which children to hand to leaf-phase.
-                //    When `sibling_aware_leaf=false` (default), use the loose
-                //    `> 0 votes` filter — every candidate that was still in
-                //    the running survives. When `sibling_aware_leaf=true`,
-                //    tighten to the same strict frac threshold so Mech 1 and
-                //    Mech 2 use one knob to govern "what counts as a sibling
-                //    contender."
-                let min_votes = ((b as f64) * config.sibling_aware_min_vote_frac) as usize;
-                let w50: Vec<usize> = vote_counts
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, &c)| c >= min_votes)
-                    .map(|(i, _)| i)
-                    .collect();
-                if w50.is_empty() {
+                // Mech 1 — halt-in-the-middle fallback. If at least one child
+                // cleared the 0.5*b vote-fraction threshold, hand all children
+                // with > 0 votes to leaf-phase. Otherwise (scattered vote
+                // pattern) fall through to all children.
+                let min_votes = ((b as f64) * 0.5) as usize;
+                let any_strong = vote_counts.iter().any(|&c| c >= min_votes);
+                if !any_strong {
                     w_indices = (0..vote_counts.len()).collect();
-                } else if config.sibling_aware_leaf {
-                    // Strict filter — only siblings clearing the frac threshold.
-                    w_indices = w50;
                 } else {
                     w_indices = vote_counts
                         .iter()
@@ -342,21 +339,8 @@ fn classify_one_pass(
             }
             let winner = w[0];
             if children[subtrees[winner]].is_empty() {
-                // Mech 2 — terminal sibling widening. Optionally widen to
-                // include any sibling with `vote_counts[j] >=
-                // sibling_aware_min_vote_frac * b` (winner always retained).
-                // Gated on `config.sibling_aware_leaf`.
-                w_indices = if config.sibling_aware_leaf {
-                    let min_votes = ((b as f64) * config.sibling_aware_min_vote_frac) as usize;
-                    vote_counts
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, &c)| c >= min_votes || *i == winner)
-                        .map(|(i, _)| i)
-                        .collect()
-                } else {
-                    vec![winner]
-                };
+                // Mech 2 — terminal: only the winner enters leaf-phase.
+                w_indices = vec![winner];
                 break;
             }
             k_node = subtrees[winner];
@@ -369,24 +353,92 @@ fn classify_one_pass(
         }
     }
 
-    // `descent_margins` is shorter than `confidences` by exactly one entry
-    // per recorded margin: each split records one margin, picking one rank
-    // (rank `i+1` from the split at descent step `i`). At unary intermediate
-    // nodes (e.g. monotypic family with only one child), no vote happens and
-    // no margin is recorded — `descent_margins.get(i-1)` returns None at the
-    // discount site, and that rank stays undiscounted. Correct by design.
-    leaf_phase_score(
-        k_node,
-        &w_indices,
-        my_kmers,
-        s,
-        b,
-        ts,
-        config,
-        ls,
-        rng,
-        &descent_margins,
-    )
+    let scored = leaf_phase_score(k_node, &w_indices, my_kmers, s, b, ts, config, ls, rng);
+    // Attach descent telemetry to the result. Greedy is single-candidate by
+    // construction; `beam_widened_runner_ups` stays 0 (Phase 2 territory).
+    // Skip the overwrite on abstention paths — `unclassified()` and Path-C
+    // produce fully-zeroed diagnostic fields, and the abstention contract
+    // requires they stay 0.
+    scored.map(|(mut result, sim)| {
+        if result.reject_reason.is_none() {
+            result.beam_close_runner_up_count = beam_close_runner_up_count;
+            result.beam_max_runner_up_fraction = beam_max_runner_up_fraction;
+            result.beam_candidate_count = 1;
+            result.beam_widened_runner_ups = 0;
+        }
+        (result, sim)
+    })
+}
+
+/// True when a runner-up's vote count clears the relaxed-equality cutoff
+/// relative to the winner. With `descent_tie_margin = 0.0`, only exact ties
+/// pass this helper; the full beam admission rule also admits runner-ups that
+/// independently clear `min_descend`.
+///
+/// Used at beam descent to add below-threshold near-runner-ups beside the
+/// normal top-`beam_width` children that clear `min_descend`.
+#[inline]
+pub fn passes_descent_runner_up_gate(
+    votes: usize,
+    winner_votes: usize,
+    descent_tie_margin: f64,
+) -> bool {
+    (votes as f64) >= (winner_votes as f64) * (1.0 - descent_tie_margin)
+}
+
+/// Aggregate per-replicate scores across the top-M refs of a group.
+///
+/// `refs` are indices into `hits_flat` rows (each row has `b` per-replicate
+/// values). Caller is responsible for ensuring `refs` is non-empty. At
+/// `refs.len() == 1` every mode reduces to identity on the single value, so
+/// the leaf-phase M=1 path is bit-identical regardless of which mode is
+/// selected.
+///
+/// `TrimmedMean` falls back to `Mean` when `refs.len() < 3` — too few refs to
+/// drop both ends.
+#[inline]
+pub fn aggregate_top_m_at_rep(
+    refs: &[usize],
+    rep: usize,
+    b: usize,
+    hits_flat: &[f64],
+    mode: LeafAggregationMode,
+) -> f64 {
+    debug_assert!(!refs.is_empty(), "aggregate_top_m_at_rep on empty refs");
+    let n = refs.len();
+    match mode {
+        LeafAggregationMode::Mean => {
+            let mut sum = 0.0;
+            for &r in refs {
+                sum += hits_flat[r * b + rep];
+            }
+            sum / n as f64
+        }
+        LeafAggregationMode::PerRepBest => {
+            let mut best = f64::NEG_INFINITY;
+            for &r in refs {
+                let v = hits_flat[r * b + rep];
+                if v > best {
+                    best = v;
+                }
+            }
+            best
+        }
+        LeafAggregationMode::TrimmedMean => {
+            if n < 3 {
+                let mut sum = 0.0;
+                for &r in refs {
+                    sum += hits_flat[r * b + rep];
+                }
+                sum / n as f64
+            } else {
+                let mut vals: Vec<f64> = refs.iter().map(|&r| hits_flat[r * b + rep]).collect();
+                vals.sort_by(|a, b_| a.partial_cmp(b_).unwrap_or(std::cmp::Ordering::Equal));
+                let trimmed = &vals[1..n - 1];
+                trimmed.iter().sum::<f64>() / trimmed.len() as f64
+            }
+        }
+    }
 }
 
 /// Beam search variant: maintain multiple candidate paths during tree descent.
@@ -412,18 +464,35 @@ fn classify_one_pass_beam(
         node: usize,
         w_indices: Vec<usize>,
         score: f64,
-        /// Margin history from root to this candidate's current node. Mirrors
-        /// the greedy path's `descent_margins` so descent-margin discounting
-        /// works for beam_width > 1.
-        descent_margins: Vec<f64>,
+        /// Phase 1b telemetry — count of descent steps along this candidate's
+        /// path where the runner-up cleared `CLOSE_RUNNER_UP_RATIO` × winner.
+        beam_close_runner_up_count: u32,
+        /// Max `runner_up_votes / winner_votes` ratio seen along this path.
+        beam_max_runner_up_fraction: f64,
+        /// Number of runner-up admissions on this candidate's path that were
+        /// admitted by `descent_tie_margin` below the normal
+        /// integer-truncated `min_descend` floor. Stays 0 at default
+        /// `descent_tie_margin = 0.0`.
+        beam_widened_runner_ups: u32,
+        /// True when this candidate has reached a leaf-parent (its `node`
+        /// has no further children to descend into) or otherwise halted in
+        /// the middle. Terminal candidates pass through subsequent descent
+        /// iterations unchanged — without this flag they would re-enter the
+        /// vote loop at the same node, double-counting telemetry and
+        /// possibly clobbering `w_indices`.
+        terminal: bool,
     }
 
+    const CLOSE_RUNNER_UP_RATIO: f64 = 0.90;
     let beam_width = config.beam_width;
     let mut active = vec![BeamCandidate {
         node: 0,
         w_indices: Vec::new(),
         score: 1.0,
-        descent_margins: Vec::new(),
+        beam_close_runner_up_count: 0,
+        beam_max_runner_up_fraction: 0.0,
+        beam_widened_runner_ups: 0,
+        terminal: false,
     }];
 
     loop {
@@ -431,6 +500,22 @@ fn classify_one_pass_beam(
         let mut any_expanded = false;
 
         for candidate in &active {
+            // Terminal candidates have already halted at a leaf-parent or
+            // mid-tree dead-end; pass them through unchanged so we don't
+            // re-run vote computation and double-count widening telemetry.
+            if candidate.terminal {
+                next.push(BeamCandidate {
+                    node: candidate.node,
+                    w_indices: candidate.w_indices.clone(),
+                    score: candidate.score,
+                    beam_close_runner_up_count: candidate.beam_close_runner_up_count,
+                    beam_max_runner_up_fraction: candidate.beam_max_runner_up_fraction,
+                    beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                    terminal: true,
+                });
+                continue;
+            }
+
             let k_node = candidate.node;
             let subtrees = &children[k_node];
             let dk = &decision_kmers[k_node];
@@ -440,7 +525,10 @@ fn classify_one_pass_beam(
                     node: k_node,
                     w_indices: (0..subtrees.len()).collect(),
                     score: candidate.score,
-                    descent_margins: candidate.descent_margins.clone(),
+                    beam_close_runner_up_count: candidate.beam_close_runner_up_count,
+                    beam_max_runner_up_fraction: candidate.beam_max_runner_up_fraction,
+                    beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                    terminal: true,
                 });
                 continue;
             }
@@ -454,7 +542,10 @@ fn classify_one_pass_beam(
                         node: subtrees[0],
                         w_indices: Vec::new(),
                         score: candidate.score,
-                        descent_margins: candidate.descent_margins.clone(),
+                        beam_close_runner_up_count: candidate.beam_close_runner_up_count,
+                        beam_max_runner_up_fraction: candidate.beam_max_runner_up_fraction,
+                        beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                        terminal: false,
                     });
                     any_expanded = true;
                 } else {
@@ -466,7 +557,10 @@ fn classify_one_pass_beam(
                             (0..subtrees.len()).collect()
                         },
                         score: candidate.score,
-                        descent_margins: candidate.descent_margins.clone(),
+                        beam_close_runner_up_count: candidate.beam_close_runner_up_count,
+                        beam_max_runner_up_fraction: candidate.beam_max_runner_up_fraction,
+                        beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                        terminal: true,
                     });
                 }
                 continue;
@@ -524,26 +618,6 @@ fn classify_one_pass_beam(
                 }
             }
 
-            // Record the margin for this decision step (mirrors greedy at
-            // classify.rs:230-241). All children produced from this candidate
-            // inherit the parent's margin history plus this one.
-            let next_margins = if config.confidence_uses_descent_margin {
-                let mut sorted = vote_counts.clone();
-                sorted.sort_unstable_by(|a, b_| b_.cmp(a));
-                let top = *sorted.first().unwrap_or(&0) as f64;
-                let runner_up = *sorted.get(1).unwrap_or(&0) as f64;
-                let margin = if top > 0.0 {
-                    ((top - runner_up) / (b as f64)).max(0.1)
-                } else {
-                    1.0
-                };
-                let mut m = candidate.descent_margins.clone();
-                m.push(margin);
-                m
-            } else {
-                candidate.descent_margins.clone()
-            };
-
             // Collect children with votes, sorted by vote count descending
             let mut children_by_votes: Vec<(usize, usize)> = vote_counts
                 .iter()
@@ -553,13 +627,43 @@ fn classify_one_pass_beam(
                 .collect();
             children_by_votes.sort_by(|a, b_| b_.1.cmp(&a.1));
 
+            // Phase 1b telemetry: same close-runner-up logic as greedy. Use
+            // the full `vote_counts` (including 0-vote children) so the ratio
+            // matches the greedy form exactly when both fire.
+            let (next_close_count, next_max_fraction) = if n_sub >= 2 {
+                let mut sorted = vote_counts.clone();
+                sorted.sort_unstable_by(|a, b_| b_.cmp(a));
+                let top = sorted[0];
+                let runner_up = sorted[1];
+                if top > 0 {
+                    let frac = runner_up as f64 / top as f64;
+                    let new_max = candidate.beam_max_runner_up_fraction.max(frac);
+                    let new_close = candidate.beam_close_runner_up_count
+                        + if frac >= CLOSE_RUNNER_UP_RATIO { 1 } else { 0 };
+                    (new_close, new_max)
+                } else {
+                    (
+                        candidate.beam_close_runner_up_count,
+                        candidate.beam_max_runner_up_fraction,
+                    )
+                }
+            } else {
+                (
+                    candidate.beam_close_runner_up_count,
+                    candidate.beam_max_runner_up_fraction,
+                )
+            };
+
             if children_by_votes.is_empty() {
                 // No votes at all — terminal
                 next.push(BeamCandidate {
                     node: k_node,
                     w_indices: (0..n_sub).collect(),
                     score: candidate.score,
-                    descent_margins: next_margins,
+                    beam_close_runner_up_count: next_close_count,
+                    beam_max_runner_up_fraction: next_max_fraction,
+                    beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                    terminal: true,
                 });
                 continue;
             }
@@ -575,65 +679,89 @@ fn classify_one_pass_beam(
                         node: k_node,
                         w_indices: vec![winner_idx],
                         score: candidate.score * top_vote_frac,
-                        descent_margins: next_margins.clone(),
+                        beam_close_runner_up_count: next_close_count,
+                        beam_max_runner_up_fraction: next_max_fraction,
+                        beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                        terminal: true,
                     });
                 } else {
                     next.push(BeamCandidate {
                         node: winner_child,
                         w_indices: Vec::new(),
                         score: candidate.score * top_vote_frac,
-                        descent_margins: next_margins.clone(),
+                        beam_close_runner_up_count: next_close_count,
+                        beam_max_runner_up_fraction: next_max_fraction,
+                        beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                        terminal: false,
                     });
                     any_expanded = true;
                 }
 
-                // Keep runner-ups that ALSO pass min_descend. Sub-threshold
-                // runner-ups are dropped: they would otherwise let beam
-                // "rescue" candidates greedy would correctly abandon, which
-                // inflates off-target classification rate without
-                // algorithmic justification. `children_by_votes` is
-                // vote-sorted descending, so once one runner-up fails, the
-                // rest fail too — break is safe.
+                // Runner-ups enter the beam if they independently clear the
+                // same `min_descend` floor as the winner, or if the relaxed
+                // `descent_tie_margin` cutoff admits them as near-runner-ups.
+                // `beam_width` is the capacity; this gate decides which
+                // siblings are eligible for that capacity.
+                //
+                // `children_by_votes` is vote-sorted descending, so once one
+                // runner-up fails both gates, all subsequent runner-ups fail
+                // too — break is safe.
+                //
+                // `beam_widened_runner_ups` increments only for admissions
+                // supplied by `descent_tie_margin` below the normal
+                // integer-truncated `min_descend` floor.
+                let winner_votes = children_by_votes[0].1;
+                let min_descend_floor = (config.min_descend * b as f64) as usize;
                 for &(j, votes) in children_by_votes.iter().skip(1) {
-                    let vf = votes as f64 / b as f64;
-                    if vf < config.min_descend {
+                    let clears_min_descend = votes >= min_descend_floor;
+                    let clears_margin = passes_descent_runner_up_gate(
+                        votes,
+                        winner_votes,
+                        config.descent_tie_margin,
+                    );
+                    if !clears_min_descend && !clears_margin {
                         break;
                     }
+                    let vf = votes as f64 / b as f64;
+                    let widened_inc = if !clears_min_descend && clears_margin {
+                        1
+                    } else {
+                        0
+                    };
+                    let new_widened = candidate.beam_widened_runner_ups + widened_inc;
                     let child = subtrees[j];
                     if children[child].is_empty() {
                         next.push(BeamCandidate {
                             node: k_node,
                             w_indices: vec![j],
                             score: candidate.score * vf,
-                            descent_margins: next_margins.clone(),
+                            beam_close_runner_up_count: next_close_count,
+                            beam_max_runner_up_fraction: next_max_fraction,
+                            beam_widened_runner_ups: new_widened,
+                            terminal: true,
                         });
                     } else {
                         next.push(BeamCandidate {
                             node: child,
                             w_indices: Vec::new(),
                             score: candidate.score * vf,
-                            descent_margins: next_margins.clone(),
+                            beam_close_runner_up_count: next_close_count,
+                            beam_max_runner_up_fraction: next_max_fraction,
+                            beam_widened_runner_ups: new_widened,
+                            terminal: false,
                         });
                         any_expanded = true;
                     }
                 }
             } else {
                 // No confident winner — terminal (same fallback as greedy
-                // Mech 1). Mirrors the greedy path: under
-                // `sibling_aware_leaf=true`, the inner filter tightens to
-                // the strict frac threshold; otherwise uses the loose
-                // `> 0 votes` filter.
-                let min_votes = ((b as f64) * config.sibling_aware_min_vote_frac) as usize;
-                let w50: Vec<usize> = vote_counts
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, &c)| c >= min_votes)
-                    .map(|(i, _)| i)
-                    .collect();
-                let w_indices = if w50.is_empty() {
+                // Mech 1). If at least one child cleared the 0.5*b
+                // vote-fraction threshold, hand all children with > 0 votes
+                // to leaf-phase. Otherwise fall through to all children.
+                let min_votes = ((b as f64) * 0.5) as usize;
+                let any_strong = vote_counts.iter().any(|&c| c >= min_votes);
+                let w_indices: Vec<usize> = if !any_strong {
                     (0..vote_counts.len()).collect()
-                } else if config.sibling_aware_leaf {
-                    w50
                 } else {
                     let w_pos: Vec<usize> = vote_counts
                         .iter()
@@ -651,7 +779,10 @@ fn classify_one_pass_beam(
                     node: k_node,
                     w_indices,
                     score: candidate.score * top_vote_frac,
-                    descent_margins: next_margins,
+                    beam_close_runner_up_count: next_close_count,
+                    beam_max_runner_up_fraction: next_max_fraction,
+                    beam_widened_runner_ups: candidate.beam_widened_runner_ups,
+                    terminal: true,
                 });
             }
         }
@@ -670,8 +801,11 @@ fn classify_one_pass_beam(
         }
     }
 
-    // Score each candidate via leaf phase, pick best
-    let mut best: Option<(ClassificationResult, f64)> = None;
+    // Score each candidate via leaf phase, pick best. Telemetry comes from
+    // the winning candidate's path; `beam_candidate_count` is the number of
+    // candidates that survived to leaf-phase scoring (= `active.len()`).
+    let beam_candidate_count = active.len() as u32;
+    let mut best: Option<(ClassificationResult, f64, u32, f64, u32)> = None;
     for candidate in &active {
         if let Some((result, sim)) = leaf_phase_score(
             candidate.node,
@@ -683,16 +817,711 @@ fn classify_one_pass_beam(
             config,
             ls,
             rng,
-            &candidate.descent_margins,
         ) {
+            let entry = (
+                result,
+                sim,
+                candidate.beam_close_runner_up_count,
+                candidate.beam_max_runner_up_fraction,
+                candidate.beam_widened_runner_ups,
+            );
             match &best {
-                None => best = Some((result, sim)),
-                Some((_, best_sim)) if sim > *best_sim => best = Some((result, sim)),
+                None => best = Some(entry),
+                Some((_, best_sim, _, _, _)) if sim > *best_sim => best = Some(entry),
                 _ => {}
             }
         }
     }
-    best
+    best.map(|(mut result, sim, close, max_frac, widened)| {
+        // Skip the overwrite on abstention paths so descent telemetry doesn't
+        // leak through `unclassified()` and Path-C results that contracted
+        // for all-zero diagnostic fields.
+        if result.reject_reason.is_none() {
+            result.beam_close_runner_up_count = close;
+            result.beam_max_runner_up_fraction = max_frac;
+            result.beam_candidate_count = beam_candidate_count;
+            result.beam_widened_runner_ups = widened;
+        }
+        (result, sim)
+    })
+}
+
+const ZERO_CONF_EPSILON: f64 = 1e-12;
+const DEEPEST_MODE_THRESHOLD: &str = "threshold";
+const DEEPEST_MODE_MARGIN_RESCUE: &str = "margin_rescue";
+const DEEPEST_MODE_REJECTED: &str = "rejected";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RescueRejection {
+    RescueDisabled,
+    ShallowerRankFailed,
+    LcaCap,
+    ChallengeNoCandidatesAfterSuppression,
+    ChallengeScoringEmpty,
+    CandidateCountLt2,
+    ChallengeCandidateCapExceeded,
+    NonfiniteChallengeScore,
+    NegativeChallengeRunner,
+    NonpositiveChallengeTop,
+    SelectedNotChallengeTop,
+    SelectedMissingFromChallenge,
+    ChallengeExactTie,
+    ChallengeNearTie,
+    FloorFailed,
+    DeltaFailed,
+    RatioFailed,
+}
+
+impl RescueRejection {
+    fn as_str(self) -> &'static str {
+        match self {
+            RescueRejection::RescueDisabled => "rescue_disabled",
+            RescueRejection::ShallowerRankFailed => "shallower_rank_failed",
+            RescueRejection::LcaCap => "lca_cap",
+            RescueRejection::ChallengeNoCandidatesAfterSuppression => {
+                "challenge_no_candidates_after_suppression"
+            }
+            RescueRejection::ChallengeScoringEmpty => "challenge_scoring_empty",
+            RescueRejection::CandidateCountLt2 => "candidate_count_lt_2",
+            RescueRejection::ChallengeCandidateCapExceeded => "challenge_candidate_cap_exceeded",
+            RescueRejection::NonfiniteChallengeScore => "nonfinite_challenge_score",
+            RescueRejection::NegativeChallengeRunner => "negative_challenge_runner",
+            RescueRejection::NonpositiveChallengeTop => "nonpositive_challenge_top",
+            RescueRejection::SelectedNotChallengeTop => "selected_not_challenge_top",
+            RescueRejection::SelectedMissingFromChallenge => "selected_missing_from_challenge",
+            RescueRejection::ChallengeExactTie => "challenge_exact_tie",
+            RescueRejection::ChallengeNearTie => "challenge_near_tie",
+            RescueRejection::FloorFailed => "floor_failed",
+            RescueRejection::DeltaFailed => "delta_failed",
+            RescueRejection::RatioFailed => "ratio_failed",
+        }
+    }
+}
+
+pub struct DeepestRankRescueDecisionInput {
+    pub challenge_original_selection: f64,
+    pub challenge_runner: f64,
+    pub selected_is_unique_challenge_top: bool,
+    pub challenge_exact_tie: bool,
+    pub challenge_near_tie: bool,
+    pub candidate_cap_exceeded: bool,
+    pub floor: Option<f64>,
+    pub min_delta: f64,
+    pub min_ratio: f64,
+    pub candidate_count: u32,
+}
+
+pub fn passes_deepest_rank_margin_rescue(
+    input: &DeepestRankRescueDecisionInput,
+) -> Result<(), RescueRejection> {
+    let floor = input.floor.ok_or(RescueRejection::RescueDisabled)?;
+    if input.candidate_count < 2 {
+        return Err(RescueRejection::CandidateCountLt2);
+    }
+    if input.candidate_cap_exceeded {
+        return Err(RescueRejection::ChallengeCandidateCapExceeded);
+    }
+    let top = input.challenge_original_selection;
+    let runner = input.challenge_runner;
+    if !top.is_finite() || !runner.is_finite() {
+        return Err(RescueRejection::NonfiniteChallengeScore);
+    }
+    if runner < -ZERO_CONF_EPSILON {
+        return Err(RescueRejection::NegativeChallengeRunner);
+    }
+    if top <= ZERO_CONF_EPSILON {
+        return Err(RescueRejection::NonpositiveChallengeTop);
+    }
+    if !input.selected_is_unique_challenge_top {
+        return Err(RescueRejection::SelectedNotChallengeTop);
+    }
+    if input.challenge_exact_tie {
+        return Err(RescueRejection::ChallengeExactTie);
+    }
+    if input.challenge_near_tie {
+        return Err(RescueRejection::ChallengeNearTie);
+    }
+    if top < floor {
+        return Err(RescueRejection::FloorFailed);
+    }
+    let runner_for_math = if runner.abs() <= ZERO_CONF_EPSILON {
+        0.0
+    } else {
+        runner
+    };
+    let delta = top - runner_for_math;
+    if delta < input.min_delta {
+        return Err(RescueRejection::DeltaFailed);
+    }
+    if runner_for_math > 0.0 {
+        let ratio = top / runner_for_math;
+        if ratio < input.min_ratio {
+            return Err(RescueRejection::RatioFailed);
+        }
+    }
+    Ok(())
+}
+
+struct LeafBootstrapContext<'a> {
+    u_sampling: &'a [i32],
+    positions: &'a [usize],
+    ranges: &'a [usize],
+    u_weights: &'a [f64],
+    b: usize,
+    davg: f64,
+    avg_unique_for_stop_node: f64,
+}
+
+struct LeafCandidateScores {
+    lookup: Vec<usize>,
+    unique_groups: Vec<usize>,
+    top_hits_idx: Vec<usize>,
+    top_m_refs_per_group: Vec<Vec<usize>>,
+    hits_flat: Vec<f64>,
+    sum_hits: Vec<f64>,
+    tot_hits: Vec<f64>,
+    winners: Vec<usize>,
+    leaf_widened_winners: u32,
+    top_confidence: Option<f64>,
+    runner_up_confidence: Option<f64>,
+    margin_delta: Option<f64>,
+    margin_ratio: Option<f64>,
+    candidate_count: u32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn score_leaf_candidate_set(
+    keep_seq_indices: &[usize],
+    context: &LeafBootstrapContext<'_>,
+    ts: &TrainingSet,
+    config: &ClassifyConfig,
+    ls: &[usize],
+) -> Option<LeafCandidateScores> {
+    let train_kmers = &ts.kmers;
+    let cross_index = &ts.cross_index;
+    let (mut hits_flat, mut sum_hits) = if let Some(ref inv_idx) = ts.inverted_index {
+        parallel_match_inverted(
+            context.u_sampling,
+            inv_idx,
+            keep_seq_indices,
+            context.u_weights,
+            context.b,
+            context.positions,
+            context.ranges,
+        )
+    } else {
+        parallel_match(
+            context.u_sampling,
+            train_kmers,
+            keep_seq_indices,
+            context.u_weights,
+            context.b,
+            context.positions,
+            context.ranges,
+        )
+    };
+    let b = context.b;
+    if hits_flat.is_empty() || b == 0 {
+        return None;
+    }
+
+    if config.length_normalize {
+        let avg_unique = context.avg_unique_for_stop_node;
+        for (k_idx, &seq_idx) in keep_seq_indices.iter().enumerate() {
+            let n_unique = ls[seq_idx] as f64;
+            if n_unique > 0.0 && avg_unique > 0.0 {
+                let norm_factor = (n_unique / avg_unique).sqrt();
+                let base = k_idx * b;
+                for rep in 0..b {
+                    hits_flat[base + rep] /= norm_factor;
+                }
+                sum_hits[k_idx] /= norm_factor;
+            }
+        }
+    }
+
+    let lookup: Vec<usize> = keep_seq_indices
+        .iter()
+        .map(|&idx| cross_index[idx])
+        .collect();
+    let mut order: Vec<usize> = (0..lookup.len()).collect();
+    order.sort_unstable_by_key(|&i| lookup[i]);
+
+    let mut unique_groups: Vec<usize> = Vec::new();
+    let mut top_hits_idx: Vec<usize> = Vec::new();
+    let mut top_m_refs_per_group: Vec<Vec<usize>> = Vec::new();
+    let leaf_top_m = config.leaf_top_m.max(1);
+    let mut i = 0;
+    while i < order.len() {
+        let group = lookup[order[i]];
+        unique_groups.push(group);
+        let mut best_idx = order[i];
+        let mut best_val = sum_hits[order[i]];
+        let mut group_refs: Vec<usize> = if leaf_top_m > 1 {
+            vec![order[i]]
+        } else {
+            Vec::new()
+        };
+        i += 1;
+        while i < order.len() && lookup[order[i]] == group {
+            if sum_hits[order[i]] > best_val {
+                best_val = sum_hits[order[i]];
+                best_idx = order[i];
+            }
+            if leaf_top_m > 1 {
+                group_refs.push(order[i]);
+            }
+            i += 1;
+        }
+        top_hits_idx.push(best_idx);
+        if leaf_top_m > 1 {
+            group_refs.sort_by(|&a, &b_| {
+                sum_hits[b_]
+                    .partial_cmp(&sum_hits[a])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            group_refs.truncate(leaf_top_m.min(group_refs.len()));
+            top_m_refs_per_group.push(group_refs);
+        }
+    }
+
+    let n_top = top_hits_idx.len();
+    if n_top == 0 {
+        return None;
+    }
+
+    let descendants_of: Vec<Vec<u32>> = if config.suppress_ancestor_only_groups {
+        let group_paths: Vec<&str> = unique_groups
+            .iter()
+            .map(|&g| ts.taxonomy[g].as_str())
+            .collect();
+        (0..n_top)
+            .map(|j| {
+                let j_path = group_paths[j];
+                (0..n_top)
+                    .filter(|&k| k != j && group_paths[k].starts_with(j_path))
+                    .map(|k| k as u32)
+                    .collect()
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let m_active = leaf_top_m > 1;
+    let leaf_mode = config.leaf_aggregation_mode;
+    let mut tot_hits = vec![0.0f64; n_top];
+    let mut is_tied = vec![false; n_top];
+    let mut drop_mask = vec![false; n_top];
+    let mut group_vals_at_rep = vec![0.0_f64; n_top];
+
+    for rep in 0..b {
+        for j in 0..n_top {
+            group_vals_at_rep[j] = if m_active {
+                aggregate_top_m_at_rep(&top_m_refs_per_group[j], rep, b, &hits_flat, leaf_mode)
+            } else {
+                hits_flat[top_hits_idx[j] * b + rep]
+            };
+        }
+        let mut max_val = f64::NEG_INFINITY;
+        for &v in &group_vals_at_rep {
+            if v > max_val {
+                max_val = v;
+            }
+        }
+        if context.davg == 0.0 {
+            continue;
+        }
+        let tie_cutoff = if config.leaf_tie_margin > 0.0 {
+            max_val - max_val.abs() * config.leaf_tie_margin
+        } else {
+            max_val
+        };
+        is_tied.iter_mut().for_each(|x| *x = false);
+        let mut n_tied: usize = 0;
+        for j in 0..n_top {
+            if group_vals_at_rep[j] >= tie_cutoff {
+                is_tied[j] = true;
+                n_tied += 1;
+            }
+        }
+        if config.suppress_ancestor_only_groups && n_tied > 1 {
+            drop_mask.iter_mut().for_each(|x| *x = false);
+            let mut to_drop_count = 0usize;
+            for j in 0..n_top {
+                if !is_tied[j] {
+                    continue;
+                }
+                for &k in &descendants_of[j] {
+                    if is_tied[k as usize] {
+                        drop_mask[j] = true;
+                        to_drop_count += 1;
+                        break;
+                    }
+                }
+            }
+            if to_drop_count > 0 && to_drop_count < n_tied {
+                for j in 0..n_top {
+                    if drop_mask[j] {
+                        is_tied[j] = false;
+                        n_tied -= 1;
+                    }
+                }
+            }
+        }
+        if n_tied == 0 {
+            continue;
+        }
+        let share = 1.0 / n_tied as f64;
+        for j in 0..n_top {
+            if is_tied[j] {
+                tot_hits[j] += group_vals_at_rep[j] / context.davg * share;
+            }
+        }
+    }
+
+    let max_tot = tot_hits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let mut leaf_widened_winners: u32 = 0;
+    let mut winners: Vec<usize> = if config.leaf_tie_margin > 0.0 {
+        let cutoff = max_tot - max_tot.abs() * config.leaf_tie_margin;
+        let mut out = Vec::new();
+        for (idx, &v) in tot_hits.iter().enumerate() {
+            if v >= cutoff {
+                out.push(idx);
+                if v != max_tot {
+                    leaf_widened_winners += 1;
+                }
+            }
+        }
+        out
+    } else {
+        tot_hits
+            .iter()
+            .enumerate()
+            .filter(|(_, &v)| v == max_tot)
+            .map(|(idx, _)| idx)
+            .collect()
+    };
+
+    if config.suppress_ancestor_only_groups && winners.len() > 1 {
+        let winner_paths: Vec<&str> = winners
+            .iter()
+            .map(|&w| ts.taxonomy[unique_groups[w]].as_str())
+            .collect();
+        let mut keep_winner = vec![true; winners.len()];
+        for i in 0..winners.len() {
+            let i_path = winner_paths[i];
+            for (j, j_path) in winner_paths.iter().enumerate() {
+                if i != j && j_path.starts_with(i_path) {
+                    keep_winner[i] = false;
+                    break;
+                }
+            }
+        }
+        let filtered: Vec<usize> = winners
+            .iter()
+            .zip(keep_winner.iter())
+            .filter_map(|(&w, &k)| k.then_some(w))
+            .collect();
+        if !filtered.is_empty() {
+            winners = filtered;
+        }
+    }
+
+    let (top_confidence, runner_up_confidence, margin_delta, margin_ratio) =
+        confidence_margin_from_tot_hits(&tot_hits, b);
+
+    Some(LeafCandidateScores {
+        lookup,
+        unique_groups,
+        top_hits_idx,
+        top_m_refs_per_group,
+        hits_flat,
+        sum_hits,
+        tot_hits,
+        winners,
+        leaf_widened_winners,
+        top_confidence,
+        runner_up_confidence,
+        margin_delta,
+        margin_ratio,
+        candidate_count: n_top as u32,
+    })
+}
+
+fn confidence_margin_from_tot_hits(
+    tot_hits: &[f64],
+    b: usize,
+) -> (Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
+    if tot_hits.is_empty() || b == 0 {
+        return (None, None, None, None);
+    }
+    let mut vals: Vec<f64> = tot_hits.iter().map(|v| *v / b as f64 * 100.0).collect();
+    vals.sort_by(|a, b_| b_.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    let top = vals[0];
+    let runner = vals.get(1).copied().unwrap_or(0.0);
+    if !top.is_finite() || !runner.is_finite() {
+        return (Some(top), Some(runner), None, None);
+    }
+    let normalized_runner = if runner.abs() <= ZERO_CONF_EPSILON {
+        0.0
+    } else {
+        runner
+    };
+    let delta = top - normalized_runner;
+    let ratio = if normalized_runner > 0.0 {
+        Some(top / normalized_runner)
+    } else {
+        None
+    };
+    (Some(top), Some(normalized_runner), Some(delta), ratio)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ThresholdStopReason {
+    FullPass,
+    FailedThreshold {
+        rank_index: usize,
+        threshold: f64,
+        confidence: f64,
+    },
+    LcaCapped {
+        cap_index: usize,
+    },
+}
+
+fn threshold_for_rank(config: &ClassifyConfig, rank_index: usize) -> f64 {
+    match &config.rank_thresholds {
+        Some(rt) if rank_index < rt.len() => rt[rank_index],
+        Some(rt) if !rt.is_empty() => *rt.last().unwrap(),
+        _ => config.threshold,
+    }
+}
+
+fn is_deepest_rank_margin_eligible(
+    predicted_group: usize,
+    ts: &TrainingSet,
+    max_level: i32,
+) -> bool {
+    ts.children
+        .get(predicted_group)
+        .map(|c| c.is_empty())
+        .unwrap_or(false)
+        && ts
+            .sequences
+            .get(predicted_group)
+            .and_then(|s| s.as_ref())
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        && ts.levels.get(predicted_group).copied() == Some(max_level)
+}
+
+fn terminal_sibling_endpoint_groups(
+    predicted_group: usize,
+    ts: &TrainingSet,
+    max_level: i32,
+    suppress_ancestor_only_groups: bool,
+) -> Vec<usize> {
+    let parent = ts
+        .parents
+        .get(predicted_group)
+        .copied()
+        .unwrap_or(predicted_group);
+    let mut groups: Vec<usize> = ts
+        .children
+        .get(parent)
+        .into_iter()
+        .flat_map(|children| children.iter().copied())
+        .filter(|&g| is_deepest_rank_margin_eligible(g, ts, max_level))
+        .collect();
+    groups.sort_unstable();
+    groups.dedup();
+    if !groups.contains(&predicted_group)
+        && is_deepest_rank_margin_eligible(predicted_group, ts, max_level)
+    {
+        groups.push(predicted_group);
+        groups.sort_unstable();
+    }
+    if suppress_ancestor_only_groups && groups.len() > 1 {
+        groups = groups
+            .iter()
+            .copied()
+            .filter(|&g| {
+                let gp = ts.taxonomy[g].as_str();
+                !groups
+                    .iter()
+                    .any(|&other| other != g && ts.taxonomy[other].starts_with(gp))
+            })
+            .collect();
+    }
+    groups
+}
+
+fn finite_opt(v: Option<f64>) -> Option<f64> {
+    v.filter(|x| x.is_finite())
+}
+
+struct ChallengeDecision {
+    original_selection_confidence: Option<f64>,
+    runner_up_confidence: Option<f64>,
+    margin_delta: Option<f64>,
+    margin_ratio: Option<f64>,
+    candidate_count: Option<u32>,
+    decision: Result<(), RescueRejection>,
+}
+
+fn evaluate_deepest_rank_challenge(
+    predicted_group: usize,
+    context: &LeafBootstrapContext<'_>,
+    ts: &TrainingSet,
+    config: &ClassifyConfig,
+    ls: &[usize],
+    max_level: i32,
+) -> ChallengeDecision {
+    let groups = terminal_sibling_endpoint_groups(
+        predicted_group,
+        ts,
+        max_level,
+        config.suppress_ancestor_only_groups,
+    );
+    if groups.is_empty() {
+        return ChallengeDecision {
+            original_selection_confidence: None,
+            runner_up_confidence: None,
+            margin_delta: None,
+            margin_ratio: None,
+            candidate_count: Some(0),
+            decision: Err(RescueRejection::ChallengeNoCandidatesAfterSuppression),
+        };
+    }
+    let candidate_count = groups.len() as u32;
+    if candidate_count < 2 {
+        return ChallengeDecision {
+            original_selection_confidence: None,
+            runner_up_confidence: None,
+            margin_delta: None,
+            margin_ratio: None,
+            candidate_count: Some(candidate_count),
+            decision: Err(RescueRejection::CandidateCountLt2),
+        };
+    }
+    if let Some(cap) = config.max_deepest_rank_challenge_candidates {
+        if groups.len() > cap {
+            return ChallengeDecision {
+                original_selection_confidence: None,
+                runner_up_confidence: None,
+                margin_delta: None,
+                margin_ratio: None,
+                candidate_count: Some(candidate_count),
+                decision: Err(RescueRejection::ChallengeCandidateCapExceeded),
+            };
+        }
+    }
+
+    let mut keep = Vec::new();
+    for &group in &groups {
+        if let Some(seq_indices) = ts.sequences[group].as_ref() {
+            keep.extend(seq_indices);
+        }
+    }
+    let Some(challenge_scores) = score_leaf_candidate_set(&keep, context, ts, config, ls) else {
+        return ChallengeDecision {
+            original_selection_confidence: None,
+            runner_up_confidence: None,
+            margin_delta: None,
+            margin_ratio: None,
+            candidate_count: Some(candidate_count),
+            decision: Err(RescueRejection::ChallengeScoringEmpty),
+        };
+    };
+    let Some(selected_idx) = challenge_scores
+        .unique_groups
+        .iter()
+        .position(|&g| g == predicted_group)
+    else {
+        return ChallengeDecision {
+            original_selection_confidence: None,
+            runner_up_confidence: None,
+            margin_delta: None,
+            margin_ratio: None,
+            candidate_count: Some(candidate_count),
+            decision: Err(RescueRejection::SelectedMissingFromChallenge),
+        };
+    };
+
+    let selected_conf = challenge_scores.tot_hits[selected_idx] / context.b as f64 * 100.0;
+    let mut runner = f64::NEG_INFINITY;
+    let mut top = f64::NEG_INFINITY;
+    for (idx, &th) in challenge_scores.tot_hits.iter().enumerate() {
+        let conf = th / context.b as f64 * 100.0;
+        if conf > top {
+            top = conf;
+        }
+        if idx != selected_idx && conf > runner {
+            runner = conf;
+        }
+    }
+    if runner == f64::NEG_INFINITY {
+        runner = 0.0;
+    }
+    let normalized_runner = if runner.abs() <= ZERO_CONF_EPSILON {
+        0.0
+    } else {
+        runner
+    };
+    let delta = if selected_conf.is_finite() && normalized_runner.is_finite() {
+        Some(selected_conf - normalized_runner)
+    } else {
+        None
+    };
+    let ratio = if selected_conf.is_finite() && normalized_runner > 0.0 {
+        Some(selected_conf / normalized_runner)
+    } else {
+        None
+    };
+
+    let selected_is_top = selected_conf == top;
+    let exact_tie = selected_is_top
+        && challenge_scores
+            .tot_hits
+            .iter()
+            .enumerate()
+            .any(|(idx, &th)| idx != selected_idx && th / context.b as f64 * 100.0 == top);
+    let near_tie = selected_is_top
+        && config.leaf_tie_margin > 0.0
+        && challenge_scores
+            .tot_hits
+            .iter()
+            .enumerate()
+            .any(|(idx, &th)| {
+                if idx == selected_idx {
+                    return false;
+                }
+                let conf = th / context.b as f64 * 100.0;
+                conf != top && conf >= top - top.abs() * config.leaf_tie_margin
+            });
+
+    let decision_input = DeepestRankRescueDecisionInput {
+        challenge_original_selection: selected_conf,
+        challenge_runner: normalized_runner,
+        selected_is_unique_challenge_top: selected_is_top && !exact_tie,
+        challenge_exact_tie: exact_tie,
+        challenge_near_tie: near_tie,
+        candidate_cap_exceeded: false,
+        floor: config.deepest_rank_margin_floor,
+        min_delta: config.deepest_rank_margin_min_delta,
+        min_ratio: config.deepest_rank_margin_min_ratio,
+        candidate_count,
+    };
+    let decision = passes_deepest_rank_margin_rescue(&decision_input);
+    ChallengeDecision {
+        original_selection_confidence: finite_opt(Some(selected_conf)),
+        runner_up_confidence: finite_opt(Some(normalized_runner)),
+        margin_delta: finite_opt(delta),
+        margin_ratio: finite_opt(ratio),
+        candidate_count: Some(candidate_count),
+        decision,
+    }
 }
 
 /// Leaf-phase scoring: gather training sequences, bootstrap match, compute confidence.
@@ -708,13 +1537,10 @@ fn leaf_phase_score(
     config: &ClassifyConfig,
     ls: &[usize],
     rng: &mut RRng,
-    descent_margins: &[f64],
 ) -> Option<(ClassificationResult, f64)> {
     let children = &ts.children;
     let parents = &ts.parents;
     let sequences = &ts.sequences;
-    let train_kmers = &ts.kmers;
-    let cross_index = &ts.cross_index;
     let taxa = &ts.taxa;
 
     // Per-rank IDF: pick the row at the descent node's depth.
@@ -805,98 +1631,9 @@ fn leaf_phase_score(
         })
         .collect();
 
-    let (mut hits_flat, mut sum_hits) = if let Some(ref inv_idx) = ts.inverted_index {
-        parallel_match_inverted(
-            &u_sampling,
-            inv_idx,
-            &keep,
-            &u_weights,
-            b,
-            &positions,
-            &ranges,
-        )
-    } else {
-        parallel_match(
-            &u_sampling,
-            train_kmers,
-            &keep,
-            &u_weights,
-            b,
-            &positions,
-            &ranges,
-        )
-    };
-    if hits_flat.is_empty() {
-        return Some((ClassificationResult::unclassified("no_training_match"), 0.0));
-    }
-
-    // Length normalization: scale each training sequence's scores by
-    // sqrt(n_unique / avg). The sqrt exponent is heuristic — a compromise
-    // between no correction (long refs accumulate too many incidental hits
-    // and dominate match scoring on raw count alone) and linear scaling
-    // (over-corrects, since the expected-hit count under random sampling
-    // grows sub-linearly in unique-k-mer count). Not derivable from a
-    // standard sampling model; pinned here as a known design choice rather
-    // than a derived constant.
-    //
-    // `avg` is the train-time fixed mean unique-k-mer count of all training
-    // sequences in the stop-node's subtree, cached on the model at training
-    // time. Cross-query stable: the same training sequence sees the same
-    // divisor regardless of which other refs landed in `keep` at this
-    // query. Closes the single-keep no-op (the previous keep-local mean had
-    // `avg == n_unique` at single-keep so `norm_factor = 1.0` always). The
-    // global root-level average serves as a backstop for opaque nodes
-    // (those exceeding `max_children`) and legacy models without the cache.
-    if config.length_normalize {
-        let cached = ts.avg_n_unique_per_node[k_node];
-        let avg_unique = if cached > 0.0 {
-            cached
-        } else {
-            ts.avg_n_unique_global
-        };
-        for (k_idx, &seq_idx) in keep.iter().enumerate() {
-            let n_unique = ls[seq_idx] as f64;
-            if n_unique > 0.0 && avg_unique > 0.0 {
-                let norm_factor = (n_unique / avg_unique).sqrt();
-                let base = k_idx * b;
-                for rep in 0..b {
-                    hits_flat[base + rep] /= norm_factor;
-                }
-                sum_hits[k_idx] /= norm_factor;
-            }
-        }
-    }
-
-    // Find top hit per group — O(n_keep) single-pass matching C's groupMax approach
-    let lookup: Vec<usize> = keep.iter().map(|&idx| cross_index[idx]).collect();
-
-    // Sort indices by group for single-pass groupMax
-    let mut order: Vec<usize> = (0..lookup.len()).collect();
-    order.sort_unstable_by_key(|&i| lookup[i]);
-
-    let mut unique_groups: Vec<usize> = Vec::new();
-    let mut top_hits_idx: Vec<usize> = Vec::new();
-    {
-        let mut i = 0;
-        while i < order.len() {
-            let group = lookup[order[i]];
-            unique_groups.push(group);
-            let mut best_idx = order[i];
-            let mut best_val = sum_hits[order[i]];
-            i += 1;
-            while i < order.len() && lookup[order[i]] == group {
-                if sum_hits[order[i]] > best_val {
-                    best_val = sum_hits[order[i]];
-                    best_idx = order[i];
-                }
-                i += 1;
-            }
-            top_hits_idx.push(best_idx);
-        }
-    }
-
-    // Compute confidence using flat hits matrix
-    // Compute davg without allocating sampling_weights Vec
+    // Compute davg without allocating sampling_weights Vec. The candidate-set
+    // scorer reuses this exact sampled-query denominator for both the original
+    // pruned contest and any expanded terminal-sibling challenge.
     let davg = {
         let mut row_sums = vec![0.0f64; b];
         for (idx, &sk) in sampling.iter().enumerate() {
@@ -909,251 +1646,59 @@ fn leaf_phase_score(
         }
         row_sums.iter().sum::<f64>() / b as f64
     };
-
-    let n_top = top_hits_idx.len();
-    let mut tot_hits = vec![0.0f64; n_top];
-
-    // Pre-compute "j has descendants among top_hits_idx positions" lookup:
-    // for each j, the list of positions k whose taxonomy path strictly starts
-    // with j's path. Used inside the bootstrap loop to drop ancestor-prefix
-    // groups from each replicate's tied set BEFORE `share` is computed, so
-    // descendant tot_hits is not halved by parasitic ancestor-only training
-    // entries (e.g. "Oncorhynchus sp." after canonical NA-trim) that tie with
-    // their species-resolved descendants on byte-identical replicates.
-    //
-    // Empty when the flag is off — skips O(n_top^2) prefix work on the legacy
-    // path. ts.taxonomy[node] always carries a trailing ';' (built in
-    // training.rs:202-213), so `starts_with` is safe against false-prefix
-    // matches like "Salmo;" being treated as a prefix of "Salmoninae;".
-    let descendants_of: Vec<Vec<u32>> = if config.suppress_ancestor_only_groups {
-        let group_paths: Vec<&str> = unique_groups
-            .iter()
-            .map(|&g| ts.taxonomy[g].as_str())
-            .collect();
-        debug_assert!(
-            group_paths.iter().all(|p| p.ends_with(';')),
-            "ts.taxonomy invariant violated: paths must end with ';' for \
-             starts_with prefix-check correctness"
-        );
-        (0..n_top)
-            .map(|j| {
-                let j_path = group_paths[j];
-                (0..n_top)
-                    .filter(|&k| k != j && group_paths[k].starts_with(j_path))
-                    .map(|k| k as u32)
-                    .collect()
-            })
-            .collect()
+    let cached = ts.avg_n_unique_per_node[k_node];
+    let avg_unique_for_stop_node = if cached > 0.0 {
+        cached
     } else {
-        Vec::new()
+        ts.avg_n_unique_global
+    };
+    let context = LeafBootstrapContext {
+        u_sampling: &u_sampling,
+        positions: &positions,
+        ranges: &ranges,
+        u_weights: &u_weights,
+        b,
+        davg,
+        avg_unique_for_stop_node,
+    };
+    let scores = match score_leaf_candidate_set(&keep, &context, ts, config, ls) {
+        Some(scores) => scores,
+        None => return Some((ClassificationResult::unclassified("no_training_match"), 0.0)),
     };
 
-    // Scratch buffers reused across replicates. `is_tied[j]` flags whether
-    // group j is at the per-replicate max; `drop_mask[j]` flags whether j is
-    // an ancestor-prefix that should be dropped from the tied set.
-    let mut is_tied = vec![false; n_top];
-    let mut drop_mask = vec![false; n_top];
-
-    for rep in 0..b {
-        let mut max_val = f64::NEG_INFINITY;
-        for &ti in top_hits_idx.iter() {
-            let v = hits_flat[ti * b + rep];
-            if v > max_val {
-                max_val = v;
-            }
-        }
-        if davg == 0.0 {
-            continue;
-        }
-        // Per-replicate winner-take-all with tie splitting. R's IdTaxa uses
-        // `max.col(..., ties.method = "random")` which randomly picks one of the
-        // tied columns per replicate; in expectation each tied column receives
-        // credit proportional to its share of ties. We deterministically split
-        // credit equally among tied max columns, which matches that expected
-        // value and ensures groups with bit-identical training sequences
-        // surface as ties in the downstream `winners` filter.
-        //
-        // When `suppress_ancestor_only_groups` is on, we additionally drop
-        // ancestor-prefix groups from the tied set BEFORE computing `share`.
-        // A group whose path is a strict prefix of another tied group's path
-        // is a database-curation artifact (e.g. an unlabeled-species GenBank
-        // entry sitting at genus rank), not competing evidence. Dropping it
-        // here — in addition to the complementary post-bootstrap filter at
-        // the winner stage — ensures the descendant gets full per-replicate
-        // credit instead of being halved by parasitic prefix ties. The
-        // ancestor's outright-win replicates (where it is the sole max) are
-        // unaffected because the filter only fires when n_tied > 1.
-        //
-        // Note: `hits_flat` values can be negative when the IDF weights
-        // (`counts`) contain negative entries, so we do not guard on
-        // `max_val > 0` — doing so would drop real per-replicate contributions
-        // whenever every group's score is negative (the non-tied branch here
-        // matches the legacy accumulator bit-for-bit in that case).
-        //
-        // Tie definition: with `tie_margin = 0.0` (default), only byte-exact
-        // ties count (`hit == max_val`). With `tie_margin > 0`, near-ties
-        // join — same negative-safe formula as the post-bootstrap winner
-        // stage (`cutoff = max_val - |max_val| * tie_margin`). Extending
-        // tie_margin to the per-replicate test is the design intent: relax
-        // exact equality everywhere ties are tested, not just at the winner
-        // stage. Canonical IDTAXA's `ties.method = "random"` already gives
-        // each exact-tied column expected credit `share`; deterministic
-        // share-split is mathematically equivalent. Relaxing to near-ties
-        // is the same logic with a relaxed test, not a new semantic.
-        let tie_cutoff = if config.tie_margin > 0.0 {
-            max_val - max_val.abs() * config.tie_margin
-        } else {
-            max_val
-        };
-        is_tied.iter_mut().for_each(|x| *x = false);
-        let mut n_tied: usize = 0;
-        for (j, &ti) in top_hits_idx.iter().enumerate() {
-            if hits_flat[ti * b + rep] >= tie_cutoff {
-                is_tied[j] = true;
-                n_tied += 1;
-            }
-        }
-        if config.suppress_ancestor_only_groups && n_tied > 1 {
-            drop_mask.iter_mut().for_each(|x| *x = false);
-            let mut to_drop_count = 0usize;
-            for j in 0..n_top {
-                if !is_tied[j] {
-                    continue;
-                }
-                for &k in &descendants_of[j] {
-                    if is_tied[k as usize] {
-                        drop_mask[j] = true;
-                        to_drop_count += 1;
-                        break;
-                    }
-                }
-            }
-            // Defensive guard. The deepest descendant in any prefix chain in
-            // the tied set is structurally guaranteed to survive (no other
-            // tied group is its descendant), so `to_drop_count < n_tied`
-            // always holds in practice. Skip the suppression rather than
-            // produce share=1/0 if that invariant were ever violated.
-            if to_drop_count > 0 && to_drop_count < n_tied {
-                for j in 0..n_top {
-                    if drop_mask[j] {
-                        is_tied[j] = false;
-                        n_tied -= 1;
-                    }
-                }
-            }
-        }
-        if n_tied == 0 {
-            continue;
-        }
-        let share = 1.0 / n_tied as f64;
-        for (j, &ti) in top_hits_idx.iter().enumerate() {
-            if is_tied[j] {
-                tot_hits[j] += hits_flat[ti * b + rep] / davg * share;
-            }
-        }
-    }
-
-    // Choose best group
-    let max_tot = tot_hits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    // With `tie_margin > 0`, any group scoring within `tie_margin` of
-    // `max_tot` (additive in `|max_tot|` units) joins the tied set, feeding
-    // LCA-cap and `alternatives`. Default `tie_margin = 0.0` preserves
-    // exact-equality semantics.
-    //
-    // Formula: `cutoff = max_tot - |max_tot| * tie_margin`. This is
-    // equivalent to `max_tot * (1 - tie_margin)` for `max_tot > 0`, but
-    // remains correct for negative `max_tot` (which can arise when IDF
-    // weights produce negative `hits_flat` values, e.g. universal-at-rank
-    // k-mers with `c ≈ N_r`). The plain multiplicative form would compute
-    // a *higher* cutoff than `max_tot` in that case (`-10 * 0.95 = -9.5`,
-    // but `-10 < -9.5`), leaving the tied set empty and panicking at
-    // `winners[0]` below.
-    let mut winners: Vec<usize> = if config.tie_margin > 0.0 {
-        let cutoff = max_tot - max_tot.abs() * config.tie_margin;
-        tot_hits
-            .iter()
-            .enumerate()
-            .filter(|(_, &v)| v >= cutoff)
-            .map(|(i, _)| i)
-            .collect()
+    let selected = if scores.winners.len() > 1 {
+        let idx = rng.sample_int_replace(scores.winners.len(), 1)[0];
+        scores.winners[idx]
     } else {
-        tot_hits
-            .iter()
-            .enumerate()
-            .filter(|(_, &v)| v == max_tot)
-            .map(|(i, _)| i)
-            .collect()
+        scores.winners[0]
     };
 
-    // When enabled, drop any winner whose full taxonomic path is a strict
-    // prefix of another winner's path. This prevents ancestor-only training
-    // entries (e.g. "Oncorhynchus sp." after canonical NA-trim) from
-    // triggering LCA-cap collapse to the ancestor's rank when a species-
-    // resolved descendant ties with them in the bootstrap. The ancestor's
-    // kmer evidence is unaffected: `tot_hits[ancestor]` is unchanged and
-    // still flows up to ancestor-rank confidences via the cross-rank
-    // accumulator below (which iterates `tot_hits`, not `winners`, and
-    // starts each walk at the group's own node so the ancestor's own
-    // rank is credited even when the ancestor is dropped from `winners`).
-    //
-    // ts.taxonomy[node] is stored with a trailing ';' (built in
-    // training.rs:202-213 as taxa = format!("Root;{}", t) where t was built
-    // with format!("{};", s).collect()). The trailing ';' makes starts_with
-    // safe against false-prefix matches like "Salmo;" being treated as a
-    // prefix of "Salmoninae;" — without it, "Salmo" would falsely match the
-    // start of "Salmoninae".
-    if config.suppress_ancestor_only_groups && winners.len() > 1 {
-        let winner_paths: Vec<&str> = winners
-            .iter()
-            .map(|&w| ts.taxonomy[unique_groups[w]].as_str())
-            .collect();
-        debug_assert!(
-            winner_paths.iter().all(|p| p.ends_with(';')),
-            "ts.taxonomy invariant violated: paths must end with ';' for \
-             starts_with prefix-check correctness"
-        );
-
-        let mut keep_winner = vec![true; winners.len()];
-        for i in 0..winners.len() {
-            let i_path = winner_paths[i];
-            for (j, j_path) in winner_paths.iter().enumerate() {
-                if i != j && j_path.starts_with(i_path) {
-                    // i's full path is a strict prefix of j's.
-                    keep_winner[i] = false;
-                    break;
-                }
-            }
-        }
-
-        // Borrow-don't-move so `winners` stays valid if we skip the
-        // reassignment. `filtered` is non-empty in practice because the
-        // deepest descendant in each prefix-chain always survives.
-        let filtered: Vec<usize> = winners
-            .iter()
-            .zip(keep_winner.iter())
-            .filter_map(|(&w, &k)| k.then_some(w))
-            .collect();
-        if !filtered.is_empty() {
-            winners = filtered;
-        }
-    }
-
-    let selected = if winners.len() > 1 {
-        let idx = rng.sample_int_replace(winners.len(), 1)[0];
-        winners[idx]
-    } else {
-        winners[0]
-    };
-
+    // At M=1, similarity is the single-best ref's per-rep sum normalized by
+    // davg — bit-identical to the pre-Phase-3 path. At M>1, sum the
+    // aggregated per-rep values for the selected group's top M_eff refs.
     let similarity = if davg != 0.0 {
-        let base = top_hits_idx[selected] * b;
-        hits_flat[base..base + b].iter().sum::<f64>() / davg
+        if config.leaf_top_m.max(1) > 1 {
+            let mut s = 0.0;
+            for rep in 0..b {
+                s += aggregate_top_m_at_rep(
+                    &scores.top_m_refs_per_group[selected],
+                    rep,
+                    b,
+                    &scores.hits_flat,
+                    config.leaf_aggregation_mode,
+                );
+            }
+            s / davg
+        } else {
+            let base = scores.top_hits_idx[selected] * b;
+            scores.hits_flat[base..base + b].iter().sum::<f64>() / davg
+        }
     } else {
         0.0
     };
 
     // Build prediction
-    let predicted_group = unique_groups[selected];
+    let predicted_group = scores.unique_groups[selected];
     let mut predicteds: Vec<usize> = Vec::new();
     let mut p = predicted_group;
     loop {
@@ -1165,9 +1710,9 @@ fn leaf_phase_score(
     }
     predicteds.reverse();
 
-    let base_confidence = tot_hits[selected] / b as f64 * 100.0;
+    let base_confidence = scores.tot_hits[selected] / b as f64 * 100.0;
     let mut confidences = vec![base_confidence; predicteds.len()];
-    for (j, &th) in tot_hits.iter().enumerate() {
+    for (j, &th) in scores.tot_hits.iter().enumerate() {
         if th > 0.0 && j != selected {
             // Start at the group's own node (not its parent) so a group whose
             // own node lies on `predicteds` — the case for an ancestor-only
@@ -1175,7 +1720,7 @@ fn leaf_phase_score(
             // tot_hits at its OWN rank instead of skipping past it. For
             // sibling/descendant groups, `unique_groups[j]` is not in
             // `predicteds` and the first iteration is a harmless no-match.
-            let mut p = unique_groups[j];
+            let mut p = scores.unique_groups[j];
             loop {
                 if let Some(m) = predicteds.iter().position(|&x| x == p) {
                     confidences[m] += th / b as f64 * 100.0;
@@ -1184,32 +1729,6 @@ fn leaf_phase_score(
                     break;
                 }
                 p = parents[p];
-            }
-        }
-    }
-
-    // Discount each rank's confidence by the margin of the single decision
-    // that selected it — no compounding across ranks.
-    // `descent_margins[i]` is the decisiveness of the split at node i, which
-    // picks rank i+1, so it discounts `confidences[i+1]` only. Root stays
-    // untouched. Non-cumulative on purpose: margin is a decisiveness score,
-    // not a probability, and raw per-rank confidence already encodes path
-    // dependence via the bootstrap vote fraction — compounding margins on
-    // top double-counts uncertainty and collapses deep ranks to zero.
-    //
-    // Scale note: `confidences[i]` is on a 0-100 percentage scale and is
-    // compared against `threshold` (default 60). Raw `margin ∈ [0.1, 1.0]`
-    // used as a direct multiplier would slash an 80-confidence rank to 8
-    // on a floor-margin split, truncating the reported lineage and
-    // collapsing species_f1. Apply an affine remap `[0, 1] → [FLOOR, 1]`
-    // so a barely-decisive split costs ~`1-FLOOR` of confidence and a
-    // fully decisive split leaves it untouched.
-    const MARGIN_FLOOR: f64 = 0.8;
-    if config.confidence_uses_descent_margin && !descent_margins.is_empty() {
-        for (i, conf) in confidences.iter_mut().enumerate().skip(1) {
-            if let Some(&m) = descent_margins.get(i - 1) {
-                let effective = MARGIN_FLOOR + (1.0 - MARGIN_FLOOR) * m;
-                *conf *= effective;
             }
         }
     }
@@ -1224,9 +1743,9 @@ fn leaf_phase_score(
     // LCAs, since it must be an ancestor of every winner. The walk below
     // starts at `unique_groups[j]` itself so an ancestor-only winner's own
     // node is accepted as the cap (rather than its parent's position).
-    let (lca_cap, alternatives): (Option<usize>, Vec<String>) = if winners.len() > 1 {
+    let (lca_cap, alternatives): (Option<usize>, Vec<String>) = if scores.winners.len() > 1 {
         let mut deepest_allowed = predicteds.len() - 1;
-        for &j in &winners {
+        for &j in &scores.winners {
             if j == selected {
                 continue;
             }
@@ -1235,7 +1754,7 @@ fn leaf_phase_score(
             // strict ancestor of `selected` (i.e., the LCA is the winner's
             // own node). The pre-fix start at parents[X] capped one rank
             // too shallow in that case.
-            let mut p = unique_groups[j];
+            let mut p = scores.unique_groups[j];
             loop {
                 if let Some(pos) = predicteds.iter().position(|&x| x == p) {
                     if pos < deepest_allowed {
@@ -1249,9 +1768,10 @@ fn leaf_phase_score(
                 p = parents[p];
             }
         }
-        let mut alts: Vec<String> = winners
+        let mut alts: Vec<String> = scores
+            .winners
             .iter()
-            .map(|&w| taxa[unique_groups[w]].clone())
+            .map(|&w| taxa[scores.unique_groups[w]].clone())
             .collect();
         alts.sort();
         (Some(deepest_allowed), alts)
@@ -1259,31 +1779,190 @@ fn leaf_phase_score(
         (None, Vec::new())
     };
 
-    // Build `above` as a contiguous prefix by breaking at the first rank that
-    // fails its threshold. This guarantees the reported lineage is always a
-    // valid rooted path (e.g., K;P;C), never skipping an intermediate rank when
-    // `rank_thresholds` uses different values per depth. Confidences are
-    // monotonically non-decreasing toward Root, so the default (global
-    // threshold) case already produces a prefix — the loop form just makes the
-    // contiguity invariant explicit.
+    // Build `above` as a contiguous prefix, carrying an explicit stop reason
+    // so deepest-rank rescue does not have to infer threshold vs LCA failure
+    // from prefix length alone.
     let mut above: Vec<usize> = Vec::with_capacity(confidences.len());
+    let mut stop_reason = ThresholdStopReason::FullPass;
     for (i, &c) in confidences.iter().enumerate() {
         if let Some(cap) = lca_cap {
             if i > cap {
+                stop_reason = ThresholdStopReason::LcaCapped { cap_index: cap };
                 break;
             }
         }
-        let thresh = match &config.rank_thresholds {
-            Some(rt) if i < rt.len() => rt[i],
-            Some(rt) if !rt.is_empty() => *rt.last().unwrap(),
-            _ => config.threshold,
-        };
+        let thresh = threshold_for_rank(config, i);
         if c >= thresh {
             above.push(i);
         } else {
+            stop_reason = ThresholdStopReason::FailedThreshold {
+                rank_index: i,
+                threshold: thresh,
+                confidence: c,
+            };
             break;
         }
     }
+
+    let deepest_idx = predicteds.len() - 1;
+    let max_level = ts.levels.iter().copied().max().unwrap_or(0);
+    let deepest_eligible = is_deepest_rank_margin_eligible(predicted_group, ts, max_level);
+    let deepest_threshold = threshold_for_rank(config, deepest_idx);
+    let mut deepest_rank_acceptance_mode: Option<String> = None;
+    let mut deepest_rank_effective_confidence: Option<f64> = None;
+    let mut deepest_rank_effective_threshold: Option<f64> = None;
+    let mut deepest_rank_margin_rejection_reason: Option<String> = None;
+    let mut challenge_original_selection_confidence: Option<f64> = None;
+    let mut challenge_runner_up_confidence: Option<f64> = None;
+    let mut challenge_margin_delta: Option<f64> = None;
+    let mut challenge_margin_ratio: Option<f64> = None;
+    let mut challenge_candidate_count: Option<u32> = None;
+
+    let rescue_diagnostics_enabled = config.deepest_rank_margin_floor.is_some();
+    if deepest_eligible && rescue_diagnostics_enabled {
+        deepest_rank_effective_confidence = finite_opt(confidences.get(deepest_idx).copied());
+        deepest_rank_effective_threshold = finite_opt(Some(deepest_threshold));
+        match stop_reason {
+            ThresholdStopReason::FullPass => {
+                deepest_rank_acceptance_mode = Some(DEEPEST_MODE_THRESHOLD.to_string());
+            }
+            ThresholdStopReason::LcaCapped { cap_index } => {
+                if cap_index < deepest_idx {
+                    deepest_rank_acceptance_mode = Some(DEEPEST_MODE_REJECTED.to_string());
+                    deepest_rank_margin_rejection_reason =
+                        Some(RescueRejection::LcaCap.as_str().to_string());
+                }
+            }
+            ThresholdStopReason::FailedThreshold {
+                rank_index,
+                threshold,
+                confidence,
+            } => {
+                if rank_index < deepest_idx {
+                    deepest_rank_acceptance_mode = Some(DEEPEST_MODE_REJECTED.to_string());
+                    deepest_rank_margin_rejection_reason =
+                        Some(RescueRejection::ShallowerRankFailed.as_str().to_string());
+                } else if rank_index == deepest_idx {
+                    deepest_rank_effective_confidence = finite_opt(Some(confidence));
+                    deepest_rank_effective_threshold = finite_opt(Some(threshold));
+                    deepest_rank_acceptance_mode = Some(DEEPEST_MODE_REJECTED.to_string());
+                    let challenge = evaluate_deepest_rank_challenge(
+                        predicted_group,
+                        &context,
+                        ts,
+                        config,
+                        ls,
+                        max_level,
+                    );
+                    challenge_original_selection_confidence =
+                        challenge.original_selection_confidence;
+                    challenge_runner_up_confidence = challenge.runner_up_confidence;
+                    challenge_margin_delta = challenge.margin_delta;
+                    challenge_margin_ratio = challenge.margin_ratio;
+                    challenge_candidate_count = challenge.candidate_count;
+                    match challenge.decision {
+                        Ok(()) => {
+                            above.push(deepest_idx);
+                            deepest_rank_acceptance_mode =
+                                Some(DEEPEST_MODE_MARGIN_RESCUE.to_string());
+                            deepest_rank_margin_rejection_reason = None;
+                        }
+                        Err(reason) => {
+                            deepest_rank_margin_rejection_reason =
+                                Some(reason.as_str().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // After `winners` and `selected` are settled but before the LCA-cap is
+    // applied, compute leaf-phase telemetry for the F.0 frequency probe and
+    // F-stratification analysis. Telemetry is keyed off the
+    // **pre-LCA-cap selected leaf group**: the group whose
+    // `unique_groups[selected]` won the post-bootstrap winners cutoff in
+    // `leaf_phase_score`. The reported `taxon` Vec may be collapsed to a
+    // higher rank by LCA-cap (when winners.len() > 1) or by the per-rank
+    // threshold walk; `reference_depth_of_predicted` and the other group-
+    // level diagnostics still report the leaf-level values. Use
+    // `taxon.len()` to detect that the lineage has been truncated.
+    //
+    // We compute here (before the threshold-walk truncation builds
+    // `result.taxon`) so values are available for both classified and
+    // partial-truncation branches; Path-C abstention zeroes them downstream.
+    //
+    // `lookup` was set above as `keep[i] -> cross_index[keep[i]]`, so refs
+    // belonging to the selected group are exactly those `keep[i]` with
+    // `lookup[i] == predicted_group`. We pull their `sum_hits` values to
+    // compute n_refs, n_close_representatives, dispersion, and the
+    // within-vs-between margin against the rest of `keep`.
+    let reference_depth_of_predicted: u32 = sequences
+        .get(predicted_group)
+        .and_then(|s| s.as_ref().map(|v| v.len() as u32))
+        .unwrap_or(0);
+
+    let (
+        leaf_winning_group_n_refs,
+        leaf_n_close_representatives,
+        leaf_top_m_score_dispersion,
+        leaf_within_vs_between_margin,
+    ) = {
+        let mut in_group: Vec<f64> = Vec::new();
+        let mut out_group_max = f64::NEG_INFINITY;
+        for (i, &lk) in scores.lookup.iter().enumerate() {
+            let v = scores.sum_hits[i];
+            if lk == predicted_group {
+                in_group.push(v);
+            } else if v > out_group_max {
+                out_group_max = v;
+            }
+        }
+        let n_refs = in_group.len() as u32;
+        let mut n_close: u32 = 0;
+        let mut dispersion: f64 = 0.0;
+        let mut margin: f64 = 0.0;
+        if !in_group.is_empty() {
+            let in_max = in_group.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            const LEAF_CLOSE_REP_RATIO: f64 = 0.95;
+            // Negative-safe form matching the post-bootstrap winner cutoff
+            // above (`max - |max| * margin`). Equivalent to `0.95 * max` for
+            // positive max; correct under negative IDF-induced sums.
+            let cutoff = in_max - in_max.abs() * (1.0 - LEAF_CLOSE_REP_RATIO);
+            n_close = in_group.iter().filter(|&&v| v >= cutoff).count() as u32;
+
+            if in_group.len() >= 5 {
+                let mut sorted = in_group.clone();
+                sorted.sort_by(|a, b_| b_.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+                let top5 = &sorted[..5];
+                let mean = top5.iter().sum::<f64>() / 5.0;
+                if mean > 0.0 {
+                    // Sample variance (n-1 denominator) for an unbiased
+                    // estimator on the small top-5 sample.
+                    let var = top5.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / 4.0;
+                    dispersion = var.sqrt() / mean;
+                }
+                if out_group_max > f64::NEG_INFINITY && in_max > 0.0 {
+                    margin = (in_max - out_group_max) / in_max;
+                }
+            }
+        }
+        (n_refs, n_close, dispersion, margin)
+    };
+    let common_leaf_top_confidence = rescue_diagnostics_enabled
+        .then(|| finite_opt(scores.top_confidence))
+        .flatten();
+    let common_leaf_runner_up_confidence = rescue_diagnostics_enabled
+        .then(|| finite_opt(scores.runner_up_confidence))
+        .flatten();
+    let common_leaf_margin_delta = rescue_diagnostics_enabled
+        .then(|| finite_opt(scores.margin_delta))
+        .flatten();
+    let common_leaf_margin_ratio = rescue_diagnostics_enabled
+        .then(|| finite_opt(scores.margin_ratio))
+        .flatten();
+    let common_leaf_margin_candidate_count =
+        rescue_diagnostics_enabled.then_some(scores.candidate_count);
 
     let result = if above.len() == predicteds.len() {
         ClassificationResult {
@@ -1292,17 +1971,93 @@ fn leaf_phase_score(
             alternatives: alternatives.clone(),
             reject_reason: None,
             similarity,
+            beam_candidate_count: 1,
+            leaf_widened_winners: scores.leaf_widened_winners,
+            leaf_winning_group_n_refs,
+            leaf_n_close_representatives,
+            leaf_top_m_score_dispersion,
+            leaf_within_vs_between_margin,
+            reference_depth_of_predicted,
+            deepest_rank_acceptance_mode: deepest_rank_acceptance_mode.clone(),
+            deepest_rank_effective_confidence,
+            deepest_rank_effective_threshold,
+            deepest_rank_margin_rejection_reason: deepest_rank_margin_rejection_reason.clone(),
+            leaf_top_confidence: common_leaf_top_confidence,
+            leaf_runner_up_confidence: common_leaf_runner_up_confidence,
+            leaf_margin_delta: common_leaf_margin_delta,
+            leaf_margin_ratio: common_leaf_margin_ratio,
+            leaf_margin_candidate_count: common_leaf_margin_candidate_count,
+            deepest_rank_challenge_original_selection_confidence:
+                challenge_original_selection_confidence,
+            deepest_rank_challenge_runner_up_confidence: challenge_runner_up_confidence,
+            deepest_rank_challenge_margin_delta: challenge_margin_delta,
+            deepest_rank_challenge_margin_ratio: challenge_margin_ratio,
+            deepest_rank_challenge_candidate_count: challenge_candidate_count,
+            ..Default::default()
+        }
+    } else if above.is_empty() {
+        // Path C — abstention: every rank (including Root) fell below its
+        // threshold. Collapse to ["Root"], but keep new deepest-rank rescue
+        // audit diagnostics from the pre-truncation selected group.
+        ClassificationResult {
+            taxon: vec![taxa[predicteds[0]].clone()],
+            confidence: vec![confidences[0]],
+            alternatives: Vec::new(),
+            reject_reason: Some("below_threshold".to_string()),
+            similarity,
+            deepest_rank_acceptance_mode: deepest_rank_acceptance_mode.clone(),
+            deepest_rank_effective_confidence,
+            deepest_rank_effective_threshold,
+            deepest_rank_margin_rejection_reason: deepest_rank_margin_rejection_reason.clone(),
+            leaf_top_confidence: common_leaf_top_confidence,
+            leaf_runner_up_confidence: common_leaf_runner_up_confidence,
+            leaf_margin_delta: common_leaf_margin_delta,
+            leaf_margin_ratio: common_leaf_margin_ratio,
+            leaf_margin_candidate_count: common_leaf_margin_candidate_count,
+            deepest_rank_challenge_original_selection_confidence:
+                challenge_original_selection_confidence,
+            deepest_rank_challenge_runner_up_confidence: challenge_runner_up_confidence,
+            deepest_rank_challenge_margin_delta: challenge_margin_delta,
+            deepest_rank_challenge_margin_ratio: challenge_margin_ratio,
+            deepest_rank_challenge_candidate_count: challenge_candidate_count,
+            ..Default::default()
         }
     } else {
-        let w = if above.is_empty() { vec![0] } else { above };
-        let taxon: Vec<String> = w.iter().map(|&i| taxa[predicteds[i]].clone()).collect();
-        let conf: Vec<f64> = w.iter().map(|&i| confidences[i]).collect();
+        // Partial truncation — some ranks classified, some fell below
+        // threshold. Diagnostics remain valid (they describe the leaf-phase
+        // selected group, which still exists), but the reportable lineage
+        // is the contiguous prefix in `above`.
+        let taxon: Vec<String> = above.iter().map(|&i| taxa[predicteds[i]].clone()).collect();
+        let conf: Vec<f64> = above.iter().map(|&i| confidences[i]).collect();
         ClassificationResult {
             taxon,
             confidence: conf,
             alternatives,
             reject_reason: Some("below_threshold".to_string()),
             similarity,
+            beam_candidate_count: 1,
+            leaf_widened_winners: scores.leaf_widened_winners,
+            leaf_winning_group_n_refs,
+            leaf_n_close_representatives,
+            leaf_top_m_score_dispersion,
+            leaf_within_vs_between_margin,
+            reference_depth_of_predicted,
+            deepest_rank_acceptance_mode,
+            deepest_rank_effective_confidence,
+            deepest_rank_effective_threshold,
+            deepest_rank_margin_rejection_reason,
+            leaf_top_confidence: common_leaf_top_confidence,
+            leaf_runner_up_confidence: common_leaf_runner_up_confidence,
+            leaf_margin_delta: common_leaf_margin_delta,
+            leaf_margin_ratio: common_leaf_margin_ratio,
+            leaf_margin_candidate_count: common_leaf_margin_candidate_count,
+            deepest_rank_challenge_original_selection_confidence:
+                challenge_original_selection_confidence,
+            deepest_rank_challenge_runner_up_confidence: challenge_runner_up_confidence,
+            deepest_rank_challenge_margin_delta: challenge_margin_delta,
+            deepest_rank_challenge_margin_ratio: challenge_margin_ratio,
+            deepest_rank_challenge_candidate_count: challenge_candidate_count,
+            ..Default::default()
         }
     };
 
@@ -1412,15 +2167,7 @@ fn classify_parallel(
         let b = pre.b_values[i];
 
         // Forward pass
-        let fwd = classify_one_pass(
-            &pre.test_kmers[i],
-            s,
-            b,
-            ts,
-            config,
-            &pre.ls,
-            &mut rng,
-        );
+        let fwd = classify_one_pass(&pre.test_kmers[i], s, b, ts, config, &pre.ls, &mut rng);
 
         // Reverse pass (if "both" strand)
         if let Some(&both_pos) = pre.boths_map.get(&i) {

@@ -224,6 +224,139 @@ pub struct ClassificationResult {
     /// k-mer sum. Zero on abstention paths.
     #[serde(default)]
     pub similarity: f64,
+    /// Number of descent steps where the runner-up child cleared
+    /// `CLOSE_RUNNER_UP_RATIO` (0.90) × winner-votes — i.e. greedy/beam descent
+    /// was operationally indecisive. Used by Phase 1c E.0 frequency probe to
+    /// gauge whether beam widening (Phase 2) has substrate to act on. 0 on
+    /// abstention paths.
+    #[serde(default)]
+    pub beam_close_runner_up_count: u32,
+    /// Maximum `runner_up_votes / winner_votes` ratio observed across all
+    /// descent splits for this query. 0.0 on abstention or unary paths.
+    #[serde(default)]
+    pub beam_max_runner_up_fraction: f64,
+    /// Number of beam candidates that survived to the leaf-phase scoring
+    /// stage. Always 1 for greedy descent (`beam_width = 1`). Always >= 1
+    /// when classified; 0 on abstention.
+    #[serde(default)]
+    pub beam_candidate_count: u32,
+    /// Number of below-threshold runner-up children admitted by
+    /// `descent_tie_margin` at tree descent (only fires when `beam_width > 1`).
+    /// Stays 0 at default `descent_tie_margin = 0.0`. Mirror of
+    /// `leaf_widened_winners`, which counts the analogous leaf-stage
+    /// admissions.
+    #[serde(default)]
+    pub beam_widened_runner_ups: u32,
+    /// Number of post-bootstrap winners admitted by `leaf_tie_margin > 0`
+    /// at the leaf-phase winners cutoff (`tot_hits[j] >= max_tot -
+    /// |max_tot| * leaf_tie_margin && tot_hits[j] != max_tot`). Stays 0 at
+    /// default `leaf_tie_margin = 0.0` (only exact-equality winners enter
+    /// the tied set). Mirror of `beam_widened_runner_ups`; together the two
+    /// fields let sweep harnesses attribute downstream LCA-cap / alternatives
+    /// effects to the right stage-specific knob.
+    #[serde(default)]
+    pub leaf_widened_winners: u32,
+    /// Number of refs in the selected leaf-phase group. "Selected group" is
+    /// pinned to the **pre-LCA-cap** post-bootstrap winner — i.e., the group
+    /// whose `unique_groups[selected]` won the winners cutoff inside
+    /// `leaf_phase_score`. The final reported `taxon` Vec may be truncated
+    /// to a higher rank by LCA-cap or threshold-walk; this field reports
+    /// the leaf-level group's ref count regardless. 0 on abstention paths.
+    #[serde(default)]
+    pub leaf_winning_group_n_refs: u32,
+    /// Number of refs in the selected group with `sum_hits` within
+    /// `LEAF_CLOSE_REP_RATIO` (0.95) of the group's best sum_hits. Indicates
+    /// how many close representatives competed at the leaf phase. 0 on
+    /// abstention or single-ref groups.
+    #[serde(default)]
+    pub leaf_n_close_representatives: u32,
+    /// Sample coefficient of variation (sample-std / mean, n-1 denominator)
+    /// of the top-5 `sum_hits` values within the selected group. 0.0 when
+    /// fewer than 5 refs in group, when the mean is non-positive, or on
+    /// abstention paths. The "5" cap is hardcoded and independent of
+    /// `config.leaf_top_m`.
+    #[serde(default)]
+    pub leaf_top_m_score_dispersion: f64,
+    /// Margin between the selected group's best `sum_hits` and the best
+    /// `sum_hits` outside that group, normalized by the within-group best:
+    /// `(within_best - between_best) / within_best`. Higher = more decisive
+    /// winner. 0.0 when fewer than 5 refs in selected group, when no other
+    /// group exists, or on abstention paths.
+    #[serde(default)]
+    pub leaf_within_vs_between_margin: f64,
+    /// Number of training sequences attached to the **pre-LCA-cap** selected
+    /// leaf taxonomic node, i.e. `ts.sequences[predicted_leaf_node].len()`.
+    /// "Predicted leaf node" is the deepest node of the leaf-phase selected
+    /// group; LCA-cap and threshold-walk truncation in the reported `taxon`
+    /// Vec do not affect this count. Used for reference-depth stratification
+    /// at analysis time and as a feature for the calibration sidecar
+    /// (Phase 6). 0 on abstention paths.
+    #[serde(default)]
+    pub reference_depth_of_predicted: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_acceptance_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_effective_confidence: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_effective_threshold: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_margin_rejection_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaf_top_confidence: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaf_runner_up_confidence: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaf_margin_delta: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaf_margin_ratio: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaf_margin_candidate_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_challenge_original_selection_confidence: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_challenge_runner_up_confidence: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_challenge_margin_delta: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_challenge_margin_ratio: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_challenge_candidate_count: Option<u32>,
+}
+
+impl Default for ClassificationResult {
+    fn default() -> Self {
+        Self {
+            taxon: Vec::new(),
+            confidence: Vec::new(),
+            alternatives: Vec::new(),
+            reject_reason: None,
+            similarity: 0.0,
+            beam_close_runner_up_count: 0,
+            beam_max_runner_up_fraction: 0.0,
+            beam_candidate_count: 0,
+            beam_widened_runner_ups: 0,
+            leaf_widened_winners: 0,
+            leaf_winning_group_n_refs: 0,
+            leaf_n_close_representatives: 0,
+            leaf_top_m_score_dispersion: 0.0,
+            leaf_within_vs_between_margin: 0.0,
+            reference_depth_of_predicted: 0,
+            deepest_rank_acceptance_mode: None,
+            deepest_rank_effective_confidence: None,
+            deepest_rank_effective_threshold: None,
+            deepest_rank_margin_rejection_reason: None,
+            leaf_top_confidence: None,
+            leaf_runner_up_confidence: None,
+            leaf_margin_delta: None,
+            leaf_margin_ratio: None,
+            leaf_margin_candidate_count: None,
+            deepest_rank_challenge_original_selection_confidence: None,
+            deepest_rank_challenge_runner_up_confidence: None,
+            deepest_rank_challenge_margin_delta: None,
+            deepest_rank_challenge_margin_ratio: None,
+            deepest_rank_challenge_candidate_count: None,
+        }
+    }
 }
 
 impl ClassificationResult {
@@ -231,9 +364,8 @@ impl ClassificationResult {
         Self {
             taxon: vec!["Root".to_string()],
             confidence: vec![0.0],
-            alternatives: Vec::new(),
             reject_reason: Some(reason.to_string()),
-            similarity: 0.0,
+            ..Default::default()
         }
     }
 }
@@ -265,7 +397,12 @@ pub struct TsvRow {
 }
 
 /// Strategy for weighting child profiles during feature selection.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+///
+/// JSON serialization uses lowercase variant names (`"count"`, `"equal"`,
+/// `"log"`) to match the Python boundary. Bincode uses variant indices and
+/// is unaffected by the rename — saved models load unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DescendantWeighting {
     /// Weight by raw descendant count (original IDTAXA behavior).
     Count,
@@ -273,6 +410,56 @@ pub enum DescendantWeighting {
     Equal,
     /// Weight by log(1 + descendants).
     Log,
+}
+
+/// How to aggregate per-replicate scores across the top-M refs of a group at
+/// leaf phase. Only consulted when `ClassifyConfig::leaf_top_m > 1`. At M=1
+/// every mode is identity on the single ref and the existing single-best
+/// path runs unchanged.
+///
+/// JSON serialization uses snake_case (`"mean"`, `"trimmed_mean"`,
+/// `"per_rep_best"`) to match the `parse_leaf_aggregation_mode` Python
+/// boundary. Bincode uses variant indices and is unaffected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeafAggregationMode {
+    /// Mean of the M_eff per-rep values.
+    Mean,
+    /// Mean of {top_2 .. top_(M_eff-1)} after sorting per-rep values
+    /// ascending (drop the smallest and largest). Falls back to `Mean` when
+    /// M_eff < 3 — too few to drop both ends.
+    TrimmedMean,
+    /// Max of the M_eff per-rep values. Per-replicate selection across the
+    /// top-M refs; the chosen ref can differ across replicates, which is
+    /// what distinguishes this from the single-best M=1 path.
+    PerRepBest,
+}
+
+/// Per-node training-time diagnostics emitted to the optional JSON sidecar
+/// next to the saved model. Computed inside `_build_tree_inner` and returned
+/// alongside the `BuiltTree` so the caller (lib.rs) owns the file path.
+///
+/// Used by Phase 1c (initial diagnostic run) to inform the Phase 5 G gate:
+/// a marker whose tree has many highly imbalanced internal nodes is a
+/// candidate for adaptive-weighting wins; a marker with mostly balanced
+/// nodes is not.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeDiagnostic {
+    pub node_id: usize,
+    pub n_children: usize,
+    pub descendants_per_child: Vec<usize>,
+    /// std/mean of `descendants_per_child`. 0.0 when n_children <= 1 or
+    /// mean is non-positive.
+    pub imbalance_score: f64,
+    /// `effective_weighting` mode used at this node. For Count/Equal/Log,
+    /// always equals the global `descendant_weighting` config. Phase 5's
+    /// `Adaptive` variant overrides per-node (zero-populated in Phase 1b).
+    pub effective_weighting: DescendantWeighting,
+    /// Sum of `profiles[child_j]` values for retained k-mers, per child.
+    /// Phase 1b ships this empty (cheap to compute later if needed). Hooked
+    /// for Phase 5 G.0 to detect sparse-child representation in selected
+    /// k-mers.
+    pub retained_kmer_support_per_child: Vec<f64>,
 }
 
 /// Configuration for training (LearnTaxa).
@@ -328,7 +515,7 @@ pub struct TrainConfig {
     /// Reduces self-classification bias by removing circular evidence at the
     /// fraction-calibration step (does not affect classify-time scoring; the
     /// stored `dk.profiles` retain full discriminative information).
-    /// Default false (legacy behavior).
+    /// Default false.
     pub leave_one_out: bool,
     /// Use correlation-aware greedy feature selection instead of independent
     /// round-robin. Uses Bhattacharyya coefficient on L1-normalized sqrt
@@ -365,6 +552,7 @@ impl Default for TrainConfig {
 }
 
 /// Configuration for classification (IdTaxa).
+#[derive(Debug, Clone)]
 pub struct ClassifyConfig {
     pub threshold: f64,
     /// Number of bootstrap replicates (ceiling; short sequences may get fewer).
@@ -409,53 +597,65 @@ pub struct ClassifyConfig {
     ///   `threshold`. Out-of-range values are rejected at the Python binding.
     pub rank_thresholds: Option<Vec<f64>>,
     /// Number of candidate paths to maintain during tree descent.
-    /// 1 = greedy descent (original behavior). Higher values explore
-    /// alternative paths at ambiguous nodes. Default 1.
+    /// 1 = greedy descent. Higher values explore alternative paths at
+    /// ambiguous nodes. Default 1.
     ///
-    /// **When to flip.** Beam diverges from greedy *only* when ≥2 children
-    /// clear `min_descend` at the same split — typically requires either
-    /// tied bootstraps (deterministic, common with byte-identical training
-    /// references) or a relaxed `min_descend`. Under the default `min_descend
-    /// = 0.98`, the divergence is rare. Sub-threshold runner-ups are not
-    /// rescued by beam — see the explicit drop at `classify::classify_one_pass_beam`
-    /// (gated runner-up retention).
+    /// **When to flip.** Beam diverges from greedy when ≥2 children are
+    /// eligible at the same split. Eligibility means the child clears
+    /// `min_descend`, or it is admitted by `descent_tie_margin` as a
+    /// below-threshold near-runner-up.
     pub beam_width: usize,
-    /// Relative margin below the max `tot_hits` within which sibling leaves are
-    /// treated as tied winners for LCA-cap and `alternatives` reporting. At 0.0
-    /// (default) only exact equalities fire, matching legacy behavior. At e.g.
-    /// 0.05, any group scoring within 95% of the winner joins the tied set.
-    pub tie_margin: f64,
-    /// When true, each rank's confidence is discounted by the *per-rank*
-    /// margin of the single descent step that selected it — non-cumulative.
-    /// At each descent split, the raw margin `m = (top - runner_up) / b` is
-    /// recorded (floored at 0.1 so a zero-runner-up doesn't zero out a rank).
-    /// At leaf-phase, each rank's confidence is multiplied by the affine
-    /// remap `MARGIN_FLOOR + (1 - MARGIN_FLOOR) * m` with `MARGIN_FLOOR = 0.8`,
-    /// giving an effective per-rank multiplier in `[0.82, 1.0]`. Root is
-    /// never discounted. Default false (legacy behavior).
-    pub confidence_uses_descent_margin: bool,
-    /// When true, widen `w_indices` to include siblings with
-    /// `vote_counts[j] >= sibling_aware_min_vote_frac * b` at descent
-    /// stopping points. Two sites apply this:
+    /// Relative relaxation used at **tree descent** (Stage 1) when
+    /// `beam_width > 1`. Runner-up subtrees that clear `min_descend` enter
+    /// the beam normally; this margin additionally admits below-threshold
+    /// runner-ups within `(1 - descent_tie_margin)` of the winner's vote
+    /// count.
     ///
-    /// 1. **Mech 2 — terminal sibling widening:** when greedy descent
-    ///    succeeds at a leaf-parent (single child cleared `min_descend`),
-    ///    keep that winner plus any sibling clearing the strict frac threshold.
-    /// 2. **Mech 1 — halt-in-the-middle fallback:** when descent halts
-    ///    because `|w| ≠ 1`, replace the loose `> 0 votes` filter with the
-    ///    same strict frac threshold, preserving the empty-`w50` fallback to
-    ///    ALL children for scattered cases.
+    /// **Higher-risk knob.** Widens the search space *before* final scoring,
+    /// so loose values can grow runtime and surface false-positive subtrees.
+    /// Default 0.0 means the margin adds no below-threshold runner-ups.
     ///
-    /// Both sites use the same `sibling_aware_min_vote_frac` knob. Default
-    /// false (legacy: only the single winner contributes at Mech 2; Mech 1
-    /// uses the loose `> 0` filter when `w50` non-empty).
-    pub sibling_aware_leaf: bool,
-    /// Strict vote-fraction threshold used by `sibling_aware_leaf` at both
-    /// mid-tree halt (Mech 1) and terminal-sibling-widening (Mech 2) sites.
-    /// A sibling whose `vote_counts[j] >= sibling_aware_min_vote_frac * b`
-    /// joins the candidate set. Default 0.5 (matches the previously
-    /// hardcoded constant).
-    pub sibling_aware_min_vote_frac: f64,
+    /// At `beam_width = 1`, this field has no effect (greedy never enters
+    /// the beam runner-up loop).
+    ///
+    /// Telemetry: each runner-up admission below the integer-truncated
+    /// `min_descend` floor but admitted by this knob increments
+    /// `ClassificationResult::beam_widened_runner_ups`.
+    pub descent_tie_margin: f64,
+    /// Relative-equality margin used at **leaf phase** (Stage 2). Two
+    /// internal sub-stages share this knob:
+    ///
+    /// 1. **Per-replicate share-split** (inside the bootstrap loop): the
+    ///    relaxed cutoff `max_val - |max_val| * leaf_tie_margin` decides
+    ///    which groups are tied at a per-replicate maximum and split
+    ///    `share = 1/n_tied` accordingly. Composes with
+    ///    `suppress_ancestor_only_groups` — the prefix-suppression filter
+    ///    operates on this widened tied set.
+    /// 2. **Post-bootstrap winners selection**: any group with
+    ///    `tot_hits[j] >= max_tot - |max_tot| * leaf_tie_margin` joins the
+    ///    `winners` set, feeding LCA-cap and `alternatives` reporting.
+    ///
+    /// **Lower-risk knob.** Only widens uncertainty reporting among
+    /// candidates Stage 1 already retained — it never adds new subtrees
+    /// to the search.
+    ///
+    /// Default 0.0 reproduces exact-equality semantics at both sub-stages.
+    ///
+    /// Telemetry: each post-bootstrap winner admitted by the relaxed cutoff
+    /// (`tot_hits[j] >= max_tot - |max_tot| * leaf_tie_margin && tot_hits[j]
+    /// != max_tot`) increments `ClassificationResult::leaf_widened_winners`.
+    pub leaf_tie_margin: f64,
+    /// Number of top-scoring refs per group aggregated during leaf-phase
+    /// scoring. Default 1 = current best-only behavior (single-ref per group).
+    /// At M > 1, the per-replicate value used by the bootstrap accumulator is
+    /// `aggregate_top_m_at_rep(top_m_refs, rep, mode)`, where `top_m_refs` is
+    /// the indices of the top `M_eff = min(M, n_refs(group))` refs sorted
+    /// descending by `sum_hits`. Sparse groups degrade gracefully via the
+    /// `M_eff` cap.
+    pub leaf_top_m: usize,
+    /// How to aggregate per-replicate scores across the top-M refs.
+    /// Only consulted when `leaf_top_m > 1`. Default `Mean`.
+    pub leaf_aggregation_mode: LeafAggregationMode,
     /// When true, dual-stage prefix suppression for ancestor-only training
     /// entries (e.g. "Oncorhynchus sp." after canonical NA-trim):
     ///
@@ -474,13 +674,28 @@ pub struct ClassifyConfig {
     /// filter only fires when `n_tied > 1`. Ancestor-rank confidence is
     /// conserved relative to flag=off because the cross-rank accumulator
     /// climbs the descendant's full credit through `parents[]`. Default
-    /// false (legacy behavior).
+    /// false.
     ///
-    /// Stage 1's tie definition tracks `tie_margin`: with `tie_margin = 0.0`
-    /// (default), ties must be byte-exact equalities (`==`). With
-    /// `tie_margin > 0`, the share-split stage fires on near-ties using the
-    /// same relaxed cutoff as the post-bootstrap winner stage.
+    /// Stage 1's tie definition tracks `leaf_tie_margin`: with
+    /// `leaf_tie_margin = 0.0` (default), ties must be byte-exact equalities
+    /// (`==`). With `leaf_tie_margin > 0`, the share-split stage fires on
+    /// near-ties using the same relaxed cutoff as the post-bootstrap winner
+    /// stage.
     pub suppress_ancestor_only_groups: bool,
+    /// Experimental deepest-rank margin rescue floor on the 0-100 confidence
+    /// scale. `None` disables rescue.
+    pub deepest_rank_margin_floor: Option<f64>,
+    /// Minimum expanded-contest top-minus-runner confidence margin required
+    /// for deepest-rank margin rescue, on the 0-100 confidence scale.
+    pub deepest_rank_margin_min_delta: f64,
+    /// Minimum expanded-contest top/runner confidence ratio required for
+    /// deepest-rank margin rescue. Runner-up zero bypasses this ratio gate
+    /// only when the top is positive and at least two candidates were scored.
+    pub deepest_rank_margin_min_ratio: f64,
+    /// Optional safety valve for broad terminal-sibling challenges. `None`
+    /// means no cap. When set, candidate sets above the cap reject rescue
+    /// instead of partially scoring an arbitrary subset.
+    pub max_deepest_rank_challenge_candidates: Option<usize>,
 }
 
 impl Default for ClassifyConfig {
@@ -494,12 +709,54 @@ impl Default for ClassifyConfig {
             length_normalize: false,
             rank_thresholds: None,
             beam_width: 1,
-            tie_margin: 0.0,
-            confidence_uses_descent_margin: false,
-            sibling_aware_leaf: false,
-            sibling_aware_min_vote_frac: 0.5,
+            descent_tie_margin: 0.0,
+            leaf_tie_margin: 0.0,
+            leaf_top_m: 1,
+            leaf_aggregation_mode: LeafAggregationMode::Mean,
             suppress_ancestor_only_groups: false,
+            deepest_rank_margin_floor: None,
+            deepest_rank_margin_min_delta: 15.0,
+            deepest_rank_margin_min_ratio: 2.0,
+            max_deepest_rank_challenge_candidates: None,
         }
+    }
+}
+
+impl ClassifyConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(v) = self.deepest_rank_margin_floor {
+            if !v.is_finite() || !(0.0..=100.0).contains(&v) {
+                return Err(format!(
+                    "deepest_rank_margin_floor must be finite and in [0, 100], got {}",
+                    v
+                ));
+            }
+        }
+        if !self.deepest_rank_margin_min_delta.is_finite()
+            || !(0.0..=100.0).contains(&self.deepest_rank_margin_min_delta)
+        {
+            return Err(format!(
+                "deepest_rank_margin_min_delta must be finite and in [0, 100], got {}",
+                self.deepest_rank_margin_min_delta
+            ));
+        }
+        if !self.deepest_rank_margin_min_ratio.is_finite()
+            || self.deepest_rank_margin_min_ratio < 1.0
+        {
+            return Err(format!(
+                "deepest_rank_margin_min_ratio must be finite and >= 1.0, got {}",
+                self.deepest_rank_margin_min_ratio
+            ));
+        }
+        if let Some(v) = self.max_deepest_rank_challenge_candidates {
+            if v < 2 {
+                return Err(format!(
+                    "max_deepest_rank_challenge_candidates must be >= 2 when set, got {}",
+                    v
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

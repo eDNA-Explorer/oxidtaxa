@@ -546,11 +546,12 @@ fn test_beam_width_1_matches_greedy() {
 
 #[test]
 fn test_beam_runner_ups_must_pass_min_descend() {
-    // Fix A: runner-ups whose vote_frac < min_descend must be dropped,
-    // so beam can only "rescue" the genuine multi-child-passing case
-    // (where greedy halts) — never the sub-threshold-runner-up case.
+    // With default `descent_tie_margin = 0.0`, runner-ups whose vote_frac is
+    // below `min_descend` must be dropped unless they exactly tie the winner.
+    // Beam can therefore rescue the genuine multi-child-passing case
+    // (where greedy halts), while weak runner-ups require an explicit margin.
     // On the default test set most queries have a single confident path
-    // at each node, so post-fix beam-3 predictions should largely match
+    // at each node, so default beam-3 predictions should largely match
     // beam-1 (greedy) predictions. Any divergence must come from the
     // legitimate beam speciality (multiple children passing min_descend),
     // not from spuriously-rescued weak runner-ups.

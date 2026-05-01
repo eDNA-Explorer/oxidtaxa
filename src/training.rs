@@ -10,7 +10,7 @@ use crate::matching::{int_match, vector_sum};
 use crate::rng::{mix_seed, RRng};
 use crate::types::{
     BuildTreeConfig, BuiltTree, DecisionNode, DescendantWeighting, LearnFractionsConfig,
-    PreparedData, ProblemSequence, TrainConfig, TrainingSet,
+    NodeDiagnostic, PreparedData, ProblemSequence, TrainConfig, TrainingSet,
 };
 
 /// Train an IDTAXA classifier.
@@ -42,6 +42,52 @@ pub fn learn_taxa(
     pool.install(|| _learn_taxa_inner(sequences, taxonomy_strings, config, seed))
 }
 
+/// Train an IDTAXA classifier and emit per-node diagnostics from the SAME
+/// prepared dataset. Avoids the `prepare_data` double-run that callers
+/// otherwise pay when they want both a model and its sidecar.
+#[allow(clippy::too_many_arguments)]
+pub fn learn_taxa_with_diagnostics(
+    sequences: &[String],
+    taxonomy_strings: &[String],
+    config: &TrainConfig,
+    seed: u32,
+    _verbose: bool,
+) -> Result<(TrainingSet, Vec<NodeDiagnostic>), String> {
+    let l = sequences.len();
+    if l < 2 {
+        return Err("At least two training sequences are required.".to_string());
+    }
+    if taxonomy_strings.len() != l {
+        return Err("taxonomy must be the same length as train.".to_string());
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(config.processors)
+        .build()
+        .map_err(|e| format!("failed to create rayon thread pool: {e}"))?;
+
+    pool.install(|| {
+        let prepared = _prepare_data_inner(
+            sequences,
+            taxonomy_strings,
+            config.k,
+            config.n,
+            config.seed_pattern.clone(),
+        )?;
+        let built_tree = _build_tree_inner(&prepared, &BuildTreeConfig::from(config))?;
+        // Compute diagnostics from the same prepared instance — no second
+        // _prepare_data_inner call.
+        let diagnostics = compute_node_diagnostics(&prepared, config.descendant_weighting);
+        let model = _learn_fractions_inner(
+            &prepared,
+            &built_tree,
+            &LearnFractionsConfig::from(config),
+            seed,
+        )?;
+        Ok((model, diagnostics))
+    })
+}
+
 /// Phase 1: Enumerate k-mers, build taxonomy tree, compute IDF weights.
 ///
 /// Depends only on (sequences, taxonomy, k, n, seed_pattern).
@@ -69,6 +115,59 @@ pub fn build_tree(prepared: &PreparedData, config: &BuildTreeConfig) -> Result<B
         .build()
         .map_err(|e| format!("failed to create rayon thread pool: {e}"))?;
     pool.install(|| _build_tree_inner(prepared, config))
+}
+
+/// Compute per-internal-node topology diagnostics from a prepared dataset.
+///
+/// Cheap topology-only computation:
+/// - n_children, descendants_per_child (from `prepared.n_seqs`)
+/// - imbalance_score = std/mean of `descendants_per_child` (0.0 when n_children
+///   <= 1 or mean is non-positive)
+/// - effective_weighting = the global mode (Phase 5's Adaptive variant
+///   overrides per-node; Phase 1b ships the global mode at every node)
+/// - retained_kmer_support_per_child = empty (cheap to populate later from
+///   `_build_tree_inner`'s output if needed)
+///
+/// Skips leaf nodes (no children) — diagnostics describe internal decision
+/// points only. Output preserves node-id ordering for stable JSON.
+pub fn compute_node_diagnostics(
+    prepared: &PreparedData,
+    descendant_weighting: DescendantWeighting,
+) -> Vec<NodeDiagnostic> {
+    let mut out = Vec::new();
+    for node_id in 0..prepared.children.len() {
+        let child_nodes = &prepared.children[node_id];
+        let n_children = child_nodes.len();
+        if n_children == 0 {
+            continue;
+        }
+        let descendants_per_child: Vec<usize> =
+            child_nodes.iter().map(|&c| prepared.n_seqs[c]).collect();
+        let imbalance_score = if n_children >= 2 {
+            let mean = descendants_per_child.iter().sum::<usize>() as f64 / n_children as f64;
+            if mean > 0.0 {
+                let var = descendants_per_child
+                    .iter()
+                    .map(|&d| (d as f64 - mean).powi(2))
+                    .sum::<f64>()
+                    / n_children as f64;
+                var.sqrt() / mean
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        out.push(NodeDiagnostic {
+            node_id,
+            n_children,
+            descendants_per_child,
+            imbalance_score,
+            effective_weighting: descendant_weighting,
+            retained_kmer_support_per_child: Vec::new(),
+        });
+    }
+    out
 }
 
 /// Phase 3: Iterative fraction-learning loop + model assembly.

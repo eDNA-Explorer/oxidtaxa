@@ -384,15 +384,15 @@
 <!-- =========== §1 WHAT OXIDTAXA DOES =========== -->
 <h2>1. What oxidtaxa does</h2>
 <div class="panel">
-  <p style="font-size: 1.05em;"><strong>Bootstrapping on sub-sampled k-mers converts raw k-mer scoring into a voting system</strong>, and the vote share becomes a natural per-rank confidence measurement. That's the whole idea in one sentence: if independent replicates of a noisy classifier still agree on a label, you can treat the agreement rate as an honest confidence. The sibling/tie knobs (<code class="inline">tie_margin</code>, <code class="inline">sibling_aware_leaf</code>) sharpen the system's ability to be honest about <em>uncertainty</em> — they don't change what the classifier knows, only how generously it reports when the evidence is close. Per-rank IDF (<code class="inline">per_rank_idf</code>) complements them by making sure k-mer weights are appropriate for <em>which rank is being split</em>, rather than being identical at every level.</p>
+  <p style="font-size: 1.05em;"><strong>Bootstrapping on sub-sampled k-mers converts raw k-mer scoring into a voting system</strong>, and the vote share becomes a natural per-rank confidence measurement. That's the whole idea in one sentence: if independent replicates of a noisy classifier still agree on a label, you can treat the agreement rate as an honest confidence. <code class="inline">beam_width</code> controls how many confident Stage-1 paths can stay alive, <code class="inline">descent_tie_margin</code> relaxes Stage-1 beam admission for below-threshold near-runner-ups, and <code class="inline">leaf_tie_margin</code> widens Stage-2 tied-winner reporting. Per-rank IDF makes k-mer weights appropriate for <em>which rank is being split</em>, rather than being identical at every level.</p>
 
   <p>Oxidtaxa has two phases. <strong>Training</strong> is a one-shot process that builds a model; <strong>classification</strong> runs per query and uses the model to assign a taxonomic path with per-rank confidences. The classification phase is best understood as <strong>three filters in series</strong> — a descent gate (<em>how deep do we walk?</em>), a leaf-phase LCA clamp (<em>do we commit to one leaf or report a group?</em>), and a rank-wise threshold filter (<em>how much of the resulting path is evidence-supported enough to report?</em>). §4 unpacks that scaffold; §7–§9 walk through each filter with worked numbers.</p>
 </div>
 
-<!-- =========== §2 BASELINE IDTAXA =========== -->
-<h2>2. Baseline: canonical IDTAXA</h2>
+<!-- =========== §2 CORE ALGORITHM =========== -->
+<h2>2. Core algorithm</h2>
 <div class="panel">
-  <p>Oxidtaxa is a Rust reimplementation of IDTAXA (Murali, Bhargava &amp; Wright 2018). Before listing what's different, here's what the <em>original</em> algorithm does — the baseline every oxidtaxa feature compares against.</p>
+  <p>Oxidtaxa trains a compact k-mer decision model from reference sequences, then classifies each query by combining tree descent, leaf-level matching, and rank-wise confidence filtering.</p>
 
   <h3>Training (one-shot)</h3>
   <ol>
@@ -407,7 +407,7 @@
     <li><strong>Bootstrap × 100.</strong> Each bootstrap subsamples <code class="inline">S = L<sup>0.47</sup></code> k-mers without replacement.</li>
     <li><strong>Greedy tree descent.</strong> At each node, every child is scored by the fraction of its <em>stored descendant profile</em> that the bootstrap's sampled k-mers cover (profile = k-mer frequencies among the child's training sequences, built at training time). Descend into the single winning child iff <code class="inline">winner / total ≥ fraction</code>; else stop. IDF is <em>not</em> applied at this step — profiles are the voting weights here.</li>
     <li><strong>Per-rank confidence.</strong> Across bootstraps, <code class="inline">confidence[rank] = (bootstraps reaching this rank's winner) / B</code>. That vote share <em>is</em> the confidence — no other corrections.</li>
-    <li><strong>Leaf-phase match.</strong> Run an <em>IDF-weighted</em> k-mer match against the reference sequences behind the stopping-node's candidates. Single highest-scoring group wins. Report one taxon; exact-score ties are rare and silently broken. This is the only point where IDF weights enter classification.</li>
+    <li><strong>Leaf-phase match.</strong> Run an <em>IDF-weighted</em> k-mer match against the reference sequences behind the stopping-node's candidates. A single highest-scoring group reports that lineage. Multiple tied winners clamp the reported lineage to their lowest common ancestor and are exposed in <code class="inline">alternatives</code>. This is the only point where IDF weights enter classification.</li>
     <li><strong>Threshold.</strong> Truncate the reported path at the first rank whose confidence falls below a single global threshold.</li>
   </ol>
 
@@ -423,10 +423,10 @@
   </div>
 </div>
 
-<!-- =========== §3 DIFFERENCES =========== -->
-<h2>3. How oxidtaxa differs from IDTAXA</h2>
+<!-- =========== §3 FEATURE MAP =========== -->
+<h2>3. Current feature map</h2>
 <div class="panel">
-  <p>Every deviation from §2 is listed below, grouped by category. Defaults are chosen so that turning every opt-in feature off recovers (close to) strict IDTAXA semantics — the opt-in knobs widen reporting or sharpen confidence; they don't fundamentally change what gets classified.</p>
+  <p>The table below maps each current behavior or parameter to the section where it is explained. Defaults are listed so the control surface is visible at a glance.</p>
 
   <table>
     <thead>
@@ -436,28 +436,28 @@
       <tr>
         <td><strong>A</strong></td>
         <td><code class="inline">per_rank_idf</code> — IDF is a <em>matrix</em> (one row per rank depth), not a single vector</td>
-        <td>Algorithm</td>
+        <td>Training artifact</td>
         <td><strong>always on</strong></td>
         <td>§6b</td>
       </tr>
       <tr>
         <td><strong>B</strong></td>
         <td>Per-query independent PRNG (seed XOR query-index) — bootstraps are reproducible per-query and parallelizable</td>
-        <td>Implementation</td>
+        <td>Execution</td>
         <td>always on</td>
         <td>—</td>
       </tr>
       <tr>
         <td><strong>C</strong></td>
         <td>Batch fraction updates during training (all sequences per iteration, update once) instead of Gauss-Seidel</td>
-        <td>Implementation</td>
+        <td>Training loop</td>
         <td>always on</td>
         <td>—</td>
       </tr>
       <tr>
         <td><strong>D</strong></td>
         <td>Inverted k-mer index — O(query_kmers · avg_posting) leaf-phase scoring; ~3–1000× faster at large DB size</td>
-        <td>Acceleration</td>
+        <td>Leaf-phase scoring</td>
         <td>always on</td>
         <td>§11</td>
       </tr>
@@ -465,28 +465,21 @@
         <td><strong>E</strong></td>
         <td><code class="inline">beam_width</code> — maintain top-<em>K</em> descent paths in parallel; leaf-phase picks the winner</td>
         <td>Feature</td>
-        <td>1 (greedy = IDTAXA)</td>
+        <td>1 (greedy)</td>
         <td>§7c</td>
       </tr>
       <tr>
-        <td><strong>F</strong></td>
-        <td><code class="inline">sibling_aware_leaf</code> — at the terminal descent step, include any sibling with ≥ 0.5B votes in leaf-phase scoring</td>
-        <td>Feature</td>
-        <td>off</td>
-        <td>§8a</td>
-      </tr>
-      <tr>
         <td><strong>G</strong></td>
-        <td><code class="inline">tie_margin</code> — groups within (1 − tie_margin) of max_tot are co-winners; reported as <code class="inline">alternatives</code> with LCA clamp on the taxon</td>
+        <td><code class="inline">descent_tie_margin</code> / <code class="inline">leaf_tie_margin</code> — stage-specific near-tie handling for beam descent and leaf reporting</td>
         <td>Feature</td>
         <td>0 (exact ties only)</td>
-        <td>§8c</td>
+        <td>§7c / §8c</td>
       </tr>
       <tr>
         <td><strong>H</strong></td>
         <td><code class="inline">descendant_weighting</code> — choice of Count / Equal / Log weighting when building per-child profiles for feature selection</td>
         <td>Feature</td>
-        <td>Count (= IDTAXA)</td>
+        <td>Count</td>
         <td>§6d</td>
       </tr>
       <tr>
@@ -515,14 +508,7 @@
         <td><code class="inline">suppress_ancestor_only_groups</code> — drop ancestor-only training entries that parasitically tie with species-resolved descendants (dual-stage: per-replicate share-split + post-bootstrap winner stage)</td>
         <td>Feature</td>
         <td>off</td>
-        <td>§8d</td>
-      </tr>
-      <tr>
-        <td><strong>M</strong></td>
-        <td><code class="inline">confidence_uses_descent_margin</code> — discount each rank's confidence by the per-rank decisiveness of its descent split (affine-remapped to <code class="inline">[0.82, 1.0]</code>); non-cumulative</td>
-        <td>Feature</td>
-        <td>off</td>
-        <td>§7d</td>
+        <td>§8e</td>
       </tr>
       <tr>
         <td><strong>N</strong></td>
@@ -530,6 +516,20 @@
         <td>Feature</td>
         <td>off</td>
         <td>§8b</td>
+      </tr>
+      <tr>
+        <td><strong>N2</strong></td>
+        <td><code class="inline">leaf_top_m</code> + <code class="inline">leaf_aggregation_mode</code> — score each taxonomic group from its top M references instead of only the single best reference</td>
+        <td>Feature</td>
+        <td>1 / mean</td>
+        <td>§8d</td>
+      </tr>
+      <tr>
+        <td><strong>N3</strong></td>
+        <td><code class="inline">deepest_rank_margin_floor</code> and challenge gates — optional rescue for a deepest-rank call that misses the normal threshold but beats terminal siblings decisively</td>
+        <td>Feature</td>
+        <td>off</td>
+        <td>§9b</td>
       </tr>
       <tr>
         <td><strong>O</strong></td>
@@ -540,17 +540,15 @@
       </tr>
       <tr>
         <td><strong>P</strong></td>
-        <td>No-sentinel output — truncated paths carry depth via list length + <code class="inline">reject_reason</code>, not an <code class="inline">unclassified_*</code> placeholder</td>
+        <td>Truncated-path output — reported depth is represented by list length plus <code class="inline">reject_reason</code></td>
         <td>Reporting</td>
         <td>always on</td>
-        <td>§9b</td>
+        <td>§9c</td>
       </tr>
     </tbody>
   </table>
 
-  <p style="margin-top: 14px;"><strong>Two groupings.</strong> <em>Always-on</em> changes (A–D, P) are foundational — they're part of what "oxidtaxa" <em>is</em>: per-rank IDF, per-query PRNG, parallel training, inverted-index leaf phase, and clean truncation output. <em>Opt-in</em> features (E–O) are the tunable layer; with every opt-in at its default, classification runs the strict IDTAXA decision flow on top of the faster per-rank-IDF'd core.</p>
-
-  <div class="note" style="font-size: 0.9em;"><strong>Why this matters for reproducibility.</strong> When comparing an oxidtaxa run to a published IDTAXA result, start by checking the <em>opt-in</em> rows (E–O): those are where behavior diverges in ways a user controls. The always-on rows (A–D, P) change implementation but not classification <em>outcomes</em> in a meaningful way — per-rank IDF is a sharper signal, but the tree shape, descent rule, and leaf-phase logic are unchanged.</div>
+  <p style="margin-top: 14px;"><strong>Two groupings.</strong> Always-on rows describe the model structure and execution strategy. Opt-in rows are tunable knobs that control search breadth, tie handling, confidence filtering, and training-time feature construction.</p>
 </div>
 
 <!-- =========== §4 MENTAL MODEL =========== -->
@@ -559,7 +557,9 @@
   <p>Before diving into mechanics, carry this scaffold with you. A query passes through three independent pruning stages at classification time, each applied at a different moment and consulting a different piece of evidence:</p>
 
   <pre class="ascii">  ┌──────────────────────────────────────────────────────────────┐
-  │ STAGE 1 — DESCENT GATE                          knob: min_descend
+  │ STAGE 1 — DESCENT GATE                          knobs: min_descend,
+  │                                                        beam_width,
+  │                                                        descent_tie_margin
   │   consulted: aggregated bootstrap votes at each node
   │   asks:      "did one child get ≥ min_descend · B votes?"
   │   effect:    decides HOW DEEP we walk before stopping
@@ -568,7 +568,9 @@
                             │
                             ▼
   ┌──────────────────────────────────────────────────────────────┐
-  │ STAGE 2 — LEAF-PHASE + LCA CLAMP                knob: tie_margin
+  │ STAGE 2 — LEAF-PHASE + LCA CLAMP                knobs: leaf_tie_margin,
+  │                                                        leaf_top_m,
+  │                                                        leaf_aggregation_mode
   │   consulted: per-bootstrap best-reference hits (tot_hits)
   │   asks:      "which group wins, and are there tied winners?"
   │   effect:    may CLAMP the reported lineage at the LCA of tied
@@ -579,8 +581,9 @@
                             │
                             ▼
   ┌──────────────────────────────────────────────────────────────┐
-  │ STAGE 3 — RANK-WISE THRESHOLD FILTER            knob: threshold
-  │                                                 or rank_thresholds
+  │ STAGE 3 — RANK-WISE THRESHOLD FILTER            knobs: threshold,
+  │                                                        rank_thresholds,
+  │                                                        deepest-rank rescue
   │   consulted: rolled-up per-rank confidences
   │   asks:      "does confidence[i] ≥ threshold[i] at every rank?"
   │   effect:    truncates the reported lineage at the first rank
@@ -593,8 +596,10 @@
   <p>One-sentence summaries you can use to navigate the rest of this document:</p>
   <ul style="margin: 6px 0 0; font-size: 0.92em;">
     <li><code class="inline">min_descend</code> (§7b) decides <em>how deep we attempt</em>.</li>
-    <li><code class="inline">tie_margin</code> (§8c) decides <em>whether the winner's lineage must be clamped at an LCA</em>.</li>
+    <li><code class="inline">descent_tie_margin</code> (§7c) decides <em>whether near-runner-up child paths can enter a beam search</em>.</li>
+    <li><code class="inline">leaf_tie_margin</code> (§8c) decides <em>whether the winner's lineage must be clamped at an LCA</em>.</li>
     <li><code class="inline">threshold</code> / <code class="inline">rank_thresholds</code> (§9a) decide <em>how much of that lineage is evidence-supported enough to report</em>.</li>
+    <li><code class="inline">deepest_rank_margin_floor</code> (§9b) can rescue only the deepest rank when a terminal-sibling challenge shows a decisive margin.</li>
   </ul>
 </div>
 
@@ -697,7 +702,7 @@ spaced  "11011":   ACGTA → encode bases 1,2,4,5     → ID = f(A,C,T,A)  ← p
 → A point mutation at position 3 (ACGTA → ACATA) is invisible:
    contiguous: f(A,C,G,T,A) ≠ f(A,C,A,T,A)        → SNP creates a new k-mer
    spaced:     f(A,C,T,A)   == f(A,C,T,A)         → SNP collapses</pre>
-    <p style="margin:4px 0 0; font-size: 0.9em;">Implementation: validation rules — empty pattern, all-zeros, non-binary characters, or <code class="inline">weight &gt; 15</code> — fire at the first <code class="inline">train()</code>/<code class="inline">prepare_data()</code> call. The pattern is stored on the model; classify always reads it from the saved model. Passing both <code class="inline">k</code> and <code class="inline">seed_pattern</code> requires <code class="inline">k == pattern.weight</code>; mismatches are rejected. Source: <code class="inline">src/kmer.rs:19–45</code> (parse), <code class="inline">src/training.rs:115–132</code> (k consistency check).</p>
+    <p style="margin:4px 0 0; font-size: 0.9em;">Validation rules — empty pattern, all-zeros, non-binary characters, or <code class="inline">weight &gt; 15</code> — fire at the first <code class="inline">train()</code>/<code class="inline">prepare_data()</code> call. The pattern is stored on the model; classify always reads it from the saved model. Passing both <code class="inline">k</code> and <code class="inline">seed_pattern</code> requires <code class="inline">k == pattern.weight</code>; mismatches are rejected.</p>
   </div>
 
   <div class="note" style="font-size: 0.9em;"><strong>When to use spaced seeds.</strong> The most common motivation is reference databases dominated by single-base sequencing/SNP noise: spaced seeds collapse 1-base mutations at don't-care positions to the same integer ID, so a query that differs by one base from a reference still matches the same k-mers. Trade-off: per-window enumeration is O(weight) for spaced vs O(1) rolling for contiguous (~6–9× slowdown for typical patterns).</div>
@@ -711,7 +716,7 @@ spaced  "11011":   ACGTA → encode bases 1,2,4,5     → ID = f(A,C,T,A)  ← p
   group training sequences by their taxonomic prefix up to depth r
   assign each sequence weight w_i = 1 / (sequences in its prefix group)
   c = Σ w_i  over sequences that contain the k-mer
-  IDF_r(kmer) = ln( N_r / (1 + c) )                  # src/training.rs:741</pre>
+  IDF_r(kmer) = ln( N_r / (1 + c) )</pre>
 
   <p>The weighting means each prefix group contributes <strong>at most 1</strong> to <code class="inline">c</code> — and <em>less</em> when only a fraction of its sequences have the k-mer. That's important when a clade is unevenly represented.</p>
 
@@ -738,7 +743,7 @@ spaced  "11011":   ACGTA → encode bases 1,2,4,5     → ID = f(A,C,T,A)  ← p
 idf_weights_by_rank[1]  →  used at Family  split  (e.g. ACG weight = 0.41)
 idf_weights_by_rank[2]  →  used at Genus   split  (e.g. ACG weight = 0.41)
 idf_weights_by_rank[3]  →  used at Species split  (e.g. ACG weight = 0.29)</pre>
-    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/training.rs:306</code> (compute), <code class="inline">src/classify.rs:689–693</code> (per-rank row lookup at descent depth).</p>
+    <p style="margin:6px 0 0; font-size: 0.9em;">IDF is computed during training and selected at classify time through the row matching the current descent depth.</p>
   </div>
 </div>
 
@@ -842,7 +847,7 @@ idf_weights_by_rank[3]  →  used at Species split  (e.g. ACG weight = 0.29)</pr
 
   <p>With round-robin: keep <code class="inline">{CGT, GTA, CGA, GAT, ATC}</code> — five features, but only two distinct presence patterns (CGT≡GTA carry the same vote; CGA≡GAT≡ATC carry the same vote). With correlation-aware: keep <code class="inline">{CGT, CGA, ...}</code> — frees the budget for additional signals (e.g. <code class="inline">TTA</code> as a Plantae-discriminator at a higher rank).</p>
 
-  <p style="font-size: 0.9em; color: var(--muted);">Implementation: <code class="inline">src/training.rs:836–844</code> (Bhattacharyya rationale comment), <code class="inline">src/training.rs:1119</code> (max_corr cache initialization). Per-candidate cost O(R · C) where R = <code class="inline">record_kmers</code> and C = candidate pool size; parallelized when <code class="inline">n_cand &gt;= 2048</code>.</p>
+  <p style="font-size: 0.9em; color: var(--muted);">The feature-selection loop keeps a per-candidate <code class="inline">max_corr</code> cache. Per-candidate cost is O(R · C), where R = <code class="inline">record_kmers</code> and C = candidate pool size; parallelized when <code class="inline">n_cand &gt;= 2048</code>.</p>
 </div>
 
 <h3><span class="step-badge">6e</span>Fraction learning (iterative calibration)</h3>
@@ -864,7 +869,7 @@ check: did ≥ training_threshold of seqs reach their correct leaf?
 
   <p><strong>Why lowering <code class="inline">fraction</code> helps at misclassifying nodes.</strong> Smaller <code class="inline">fraction</code> → fewer k-mers sampled per bootstrap at that node → noisier per-replicate votes → bootstraps disagree more often → fewer replicates converge on any single winner → the aggregated top-vote share is less likely to clear <code class="inline">min_descend</code> → descent stops there instead of committing to the wrong child. Training is therefore tuning classification-time behavior <em>indirectly</em>, by making the node's evidence harder to overcommit on, without ever touching the global <code class="inline">min_descend</code>.</p>
 
-  <p style="font-size: 0.9em; color: var(--muted);">Other knobs that live here: <code class="inline">leave_one_out</code> (per-kmer self-bias correction — subtract the held-out sequence's contribution and renormalize), <code class="inline">use_idf_in_descent</code> (IDF-weighted training descent, using the per-rank IDF row matching the node's depth, persisted so classify-time descent matches). Source: <code class="inline">src/classify.rs:233–270</code> (how fraction feeds s_dk and votes feed min_descend), <code class="inline">src/training.rs:575–595</code> (the nudge-down rule).</p>
+  <p style="font-size: 0.9em; color: var(--muted);">Other knobs that live here: <code class="inline">leave_one_out</code> (per-kmer self-bias correction — subtract the held-out sequence's contribution and renormalize), <code class="inline">use_idf_in_descent</code> (IDF-weighted training descent, using the per-rank IDF row matching the node's depth, persisted so classify-time descent matches).</p>
 </div>
 
 <!-- =========== §7 STAGE 1 — DESCENT GATE =========== -->
@@ -875,7 +880,7 @@ check: did ≥ training_threshold of seqs reach their correct leaf?
 
 <h3><span class="step-badge">7a</span>Query, k-mers, and bootstrap sub-sampling</h3>
 <div class="panel">
-  <pre class="ascii">query  ACGTACGTTC       ← differs from seq1 by one base in the middle
+  <pre class="ascii">query  ACGTACGTTC       ← one-base mismatch against seq1 in the middle
 unique 3-mers = {ACG(6), CGT(27), GTA(44), TAC(49), GTT(47), TTC(55)}
 L = 6 unique k-mers</pre>
 
@@ -898,7 +903,7 @@ Bootstrap #100: ...</pre>
 <div class="panel">
   <p>The whole ensemble walks the tree together, not 100 independent walks. At each node, each of the B=100 bootstraps draws s_dk k-mers from the node's <strong>decision-kit features</strong> (§6d), scores each child against that sample using the child's stored <strong>descendant profile</strong>, and casts one vote for the max-scoring child. After all 100 votes are tallied, <code class="inline">min_descend</code> decides whether the ensemble descends or halts.</p>
 
-  <p>The per-child score within one bootstrap (implemented as <code class="inline">vector_sum</code> in <code class="inline">src/matching.rs:31–57</code>):</p>
+  <p>The per-child score within one bootstrap (implemented by <code class="inline">vector_sum</code>):</p>
 
   <pre class="ascii">score(child_j) =  Σ profile_j[i]  for sampled i where query matched
                   ──────────────────────────────────────────────────
@@ -927,7 +932,7 @@ where profile_j[i] = frequency of decision-kit kmer i among child j's
   vote_counts[Canis]   =  92
   vote_counts[Vulpes]  =   8
   # (sums can exceed 100: if two children tie within a bootstrap,
-  #  BOTH receive a vote — src/classify.rs:273–284)
+  #  BOTH receive a vote)
 
   min_descend · B  =  0.98 · 100  =  98
       Canis:   92  <  98   ✗   (does NOT clear)
@@ -940,8 +945,8 @@ where profile_j[i] = frequency of decision-kit kmer i among child j's
     <strong>Descent votes ≠ reported confidence.</strong> These per-node vote counts are used <em>only</em> by the <code class="inline">min_descend</code> gate — they're consumed at each node and then discarded. They are <em>not</em> what appears as "confidence" in the output. Reported confidence comes from a <em>different</em> bootstrap tally, <code class="inline">tot_hits</code>, generated at leaf-phase (§8b) and then rolled up the tree.
   </div>
 
-  <h4>What happens when no child clears <code class="inline">min_descend</code></h4>
-  <p>The 92/8 case above is the common one: <strong>nobody clears</strong>. The code's contract is "descend only when exactly one child is decisively ahead." So both the 0-winner case (scattered votes) and the ≥2-winner case (tied siblings each clearing via intra-bootstrap ties) trigger the <em>same</em> fallback:</p>
+  <h4>What happens when greedy descent cannot pick one child</h4>
+  <p>The 92/8 case above is the common one: <strong>nobody clears</strong>. Greedy descent has a stricter contract: it descends only when exactly one child clears <code class="inline">min_descend</code>. If zero children clear, there is no confident child. If two or more children clear, there is confidence but not uniqueness. Greedy treats both cases as "cannot commit" and uses the same fallback:</p>
 
   <pre class="ascii">w = [children with vote_counts ≥ min_descend · B]
 
@@ -955,7 +960,9 @@ else:
       against every reference sequence beneath
       every child in w_indices.</pre>
 
-  <p>Greedy path: <code class="inline">src/classify.rs:273–284</code>. Beam path: <code class="inline">src/classify.rs:489–501</code> — same behavior.</p>
+  <p class="hist-caption">The <code class="inline">w.len() &gt;= 2</code> case can happen because a bootstrap replicate gives a vote to every child tied for that replicate's maximum score, so per-child vote counts can sum above <code class="inline">B</code>. With <code class="inline">beam_width &gt; 1</code>, §7c handles this differently: multiple eligible children can continue as separate beam paths instead of forcing the greedy fallback.</p>
+
+  <p>Greedy and beam use the same halt fallback only when the current path cannot produce any eligible child to continue. Beam differs from greedy when multiple children are eligible and there is capacity to keep them.</p>
 
   <p>So a 58/40 Root-level split with <code class="inline">min_descend = 0.98</code> doesn't pick the 58 — it halts descent at Root, widens <code class="inline">w_indices</code> to <code class="inline">{Animalia, Plantae}</code>, and hands the entire database to leaf-phase scoring. That's not a bug; it's the designed-for conservative behavior. Leaf-phase k-mer matching is the safety net when tree descent refuses to commit.</p>
 </div>
@@ -965,14 +972,14 @@ else:
   <p>So far every walk through the tree has committed to a single winner at every split. That's the <em>greedy</em> path, and it's what you get when <code class="inline">beam_width = 1</code> (the default). Beam descent lets the classifier keep the top-<em>K</em> candidate paths alive through the tree and only resolve the tie at leaf-phase scoring in Stage 2.</p>
 
   <h4>Greedy vs. beam, visually</h4>
-  <p>Beam diverges from greedy only when <em>multiple children pass <code class="inline">min_descend</code></em> at the same split. The realistic case under default <code class="inline">min_descend=0.98</code>, <code class="inline">B=100</code> is <strong>tied bootstraps</strong>: every rep where two children's hits are equal awards a vote to <em>both</em> (<code class="inline">src/classify.rs:489–501</code>), so per-child counts can exceed B and two children can both clear 98. Imagine the Animalia→{Canidae, Felidae} decision producing <code class="inline">Canidae 100, Felidae 98, miss 2</code>. Both pass. Greedy halts at Animalia (its halt condition is "<code class="inline">w.len() != 1</code>" — too many children passed); beam keeps both descents alive.</p>
+  <p>Beam diverges from greedy when the top child passes <code class="inline">min_descend</code> and at least one runner-up is also eligible. A runner-up is eligible if it clears the same <code class="inline">min_descend</code> floor as the winner, or if <code class="inline">descent_tie_margin</code> relaxes the gate enough to admit it as a near-runner-up. <code class="inline">beam_width</code> is the capacity; these gates decide which sibling paths can compete for that capacity.</p>
 
   <pre class="ascii">greedy (beam_width = 1)                 beam (beam_width = 2)
 
   Root                                     Root
    └── <span style="color:#a6e3a1;">Animalia</span>  (98/2)                    └── <span style="color:#a6e3a1;">Animalia</span>  (98/2)
         ├── <span style="color:#a6e3a1;">Canidae</span>  (100, ≥98)                ├── <span style="color:#a6e3a1;">Canidae</span>  (100, ≥98)  ← kept
-        └── <span style="color:#a6e3a1;">Felidae</span>  (98,  ≥98)                └── <span style="color:#a6e3a1;">Felidae</span>  (98,  ≥98)  ← also kept
+        └── <span style="color:#a6e3a1;">Felidae</span>  (100, ≥98)                └── <span style="color:#a6e3a1;">Felidae</span>  (100, ≥98)  ← also kept
         ↳ |w| = 2 ≠ 1 → HALT                          │    └── Canis  ↘
           w_indices = {Canidae, Felidae}              │         └── C. lupus
           one leaf phase over the lumped pool         └── Felis
@@ -993,75 +1000,51 @@ else:
       continue
     descend into the top child                    # always
     for each runner-up:
-      if vote-frac &gt;= min_descend:                 # gate again
-        descend into it too                       # only confident runner-ups
+      if runner_votes ≥ min_descend · B
+         or runner_votes ≥ winner_votes · (1 − descent_tie_margin):
+        descend into it too                       # normal pass or relaxed near-runner
       else:
         break                                      # vote-sorted, so done
   sort next by score (descending)
   active = next[:beam_width]                      # prune to top K</pre>
-  <p>So beam expansion is doubly gated by <code class="inline">min_descend</code>: the top child must pass (else the candidate halts), <em>and</em> any runner-up must pass independently to be kept. This is by design — beam deliberately does <strong>not</strong> rescue sub-threshold runner-ups, because doing so would inflate off-target classification rate (see in-source comment, <code class="inline">src/classify.rs:566–572</code>). Beam therefore widens the search only when the data itself produces ≥ 2 confident children at one node — most often via tied bootstrap reps, occasionally via a relaxed <code class="inline">min_descend</code>. The greedy path (K=1) is the degenerate case where, even if multiple children would have qualified, only one survives the prune.</p>
+  <p>The top child is still gated by <code class="inline">min_descend</code>: if the winner itself does not pass, the candidate halts and hands its non-zero-vote siblings to leaf phase. Once the winner passes, runner-ups continue when they clear <code class="inline">min_descend</code> themselves; <code class="inline">descent_tie_margin</code> additionally admits below-threshold runner-ups that are close enough to the winner. The greedy path (<code class="inline">beam_width=1</code>) never keeps alternate paths, so <code class="inline">descent_tie_margin</code> has no effect unless <code class="inline">beam_width &gt; 1</code>.</p>
 
   <h4>Final selection: no vote merge</h4>
   <p>When descent terminates (every active candidate sits at a leaf-parent or has nowhere to go), each surviving candidate runs <code class="inline">leaf_phase_score</code> independently. The single highest-scoring leaf wins. There is no vote-pooling or union across beam candidates — they compete directly on their leaf-phase similarity.</p>
 
   <div class="param-box">
     <h4>beam_width <span class="tag">default: 1</span></h4>
-    <p style="margin:0 0 6px;">Number of candidate descent paths kept alive at each rank. <code class="inline">1</code> is exactly the original greedy descent. Higher values explore alternatives through ambiguous splits; the final leaf is still a single pick, but the search space is wider.</p>
+    <p style="margin:0 0 6px;">Number of candidate descent paths kept alive at each rank. <code class="inline">1</code> is greedy descent. Higher values explore alternatives through ambiguous splits; the final leaf is still a single pick, but the search space is wider.</p>
     <table style="margin:10px 0; font-size:0.85em;">
-      <thead><tr><th>Setting</th><th>Behavior when ≥ 2 children pass <code class="inline">min_descend</code> at a split (e.g. 100/98 from tied reps)</th></tr></thead>
+      <thead><tr><th>Setting</th><th>Behavior when ≥ 2 children qualify at a split</th></tr></thead>
       <tbody>
         <tr><td>beam_width = 1</td><td>Greedy halts (<code class="inline">|w| ≠ 1</code>); single leaf-phase over the lumped candidate pool</td></tr>
         <tr><td>beam_width = 2</td><td>Both qualifying children stay active; each gets its own leaf-phase; best leaf wins overall</td></tr>
         <tr><td>beam_width = 4</td><td>Up to four qualifying children survive each cut, pruned back to 4 at every rank</td></tr>
       </tbody>
     </table>
-    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>What beam does NOT do.</strong> A 58/40 split under default <code class="inline">min_descend=0.98</code> halts identically for greedy and beam — the runner-up is sub-threshold, and beam is explicitly coded to drop sub-threshold runner-ups (<code class="inline">src/classify.rs:566–572</code>). Beam helps only when the data itself produces multiple confident children at the same node.</p>
-    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Interaction note.</strong> <code class="inline">beam_width</code> widens the search <em>mid-tree</em>; <code class="inline">sibling_aware_leaf</code> (§8a) widens the candidate set at the <em>terminal</em> descent step only. They're orthogonal — you can enable either, both, or neither.</p>
-    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/types.rs:339–342</code> (parameter), <code class="inline">src/classify.rs:202</code> (beam entry), <code class="inline">src/classify.rs:388–396</code> (<code class="inline">BeamCandidate</code>), <code class="inline">src/classify.rs:545</code> (top-must-pass), <code class="inline">src/classify.rs:573–577</code> (runner-up-must-also-pass), <code class="inline">src/classify.rs:628–634</code> (sort &amp; prune), <code class="inline">src/classify.rs:642–664</code> (leaf-phase selection across beam).</p>
+    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>What beam does NOT do by default.</strong> A 58/40 split under default <code class="inline">min_descend=0.98</code>, <code class="inline">beam_width=2</code>, and <code class="inline">descent_tie_margin=0.0</code> halts identically for greedy and beam: the winner fails the top gate, so no runner-up expansion is considered. A 99/98 split with the same settings keeps both paths, because both children clear <code class="inline">min_descend</code>. A 99/90 split needs a positive <code class="inline">descent_tie_margin</code> because the runner-up is below the normal descent floor.</p>
+    <p style="margin:6px 0 0; font-size: 0.9em;">The active beam state tracks the current node, the selected sibling indices for leaf phase, the cumulative path score, and beam-widening telemetry.</p>
   </div>
-</div>
-
-<h3><span class="step-badge">7d</span>Per-rank descent-margin discount: <code class="inline">confidence_uses_descent_margin</code></h3>
-<div class="panel">
-  <p>Stage 1 records the decisiveness of each descent split as it walks. The data is collected during descent (Stage 1) but applied as a confidence multiplier at the leaf-phase rollup (Stage 2 §8b) — it lives logically with descent because the margin is a Stage-1 signal.</p>
-
-  <pre class="ascii">at every internal split that descent commits to:
-  margin = (top_votes − runner_up_votes) / B          # ∈ [0, 1]
-  margin = max(margin, 0.1)                            # avoid zeroing
-  descent_margins.push(margin)
-
-at leaf-phase rollup, after raw confidences are computed:
-  for i in 1..confidences.len():                       # Root (i=0) untouched
-    m = descent_margins[i − 1]                         # margin at split selecting rank i
-    multiplier = MARGIN_FLOOR + (1 − MARGIN_FLOOR) · m # MARGIN_FLOOR = 0.8
-    confidences[i] *= multiplier                       # in [0.82, 1.0]</pre>
 
   <div class="param-box">
-    <h4>confidence_uses_descent_margin <span class="tag">default: off</span></h4>
-    <p style="margin:0 0 6px;">Discounts each rank's reported confidence by the per-rank decisiveness of the descent split that selected it. Affine-remapped: a maximally decisive split (m=1) leaves the rank untouched; a barely-decisive split (m≈0) costs <code class="inline">1 − MARGIN_FLOOR = 20%</code> of the rank's confidence. Per-rank, not cumulative — a low-margin split at one rank does not propagate downward.</p>
-    <table style="margin:10px 0; font-size: 0.85em;">
-      <thead><tr><th>Rank</th><th>Split (top/runner)</th><th>m</th><th>Multiplier</th><th>Raw conf</th><th>Reported conf</th></tr></thead>
-      <tbody>
-        <tr><td>Root</td><td>—</td><td>—</td><td>1.000</td><td>100</td><td>100</td></tr>
-        <tr><td>Animalia</td><td>98/2</td><td>0.96</td><td>0.992</td><td>98</td><td>97.2</td></tr>
-        <tr><td>Canidae</td><td>100/0</td><td>1.00</td><td>1.000</td><td>100</td><td>100.0</td></tr>
-        <tr><td>Canis</td><td>60/40</td><td>0.20</td><td>0.840</td><td>90</td><td><strong>75.6</strong></td></tr>
-        <tr><td>C. lupus</td><td>55/45</td><td>0.10</td><td>0.820</td><td>85</td><td>69.7</td></tr>
-      </tbody>
-    </table>
-    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Why affine, not raw multiplier.</strong> Raw <code class="inline">m ∈ [0.1, 1.0]</code> as a direct multiplier would slash an 80-confidence rank to 8 on a floor-margin split, truncating reported lineages and collapsing species-rank F1. The affine remap keeps discounted confidence in a usable range while still surfacing decisiveness as a meaningful signal.</p>
-    <p style="margin:6px 0 0; font-size: 0.9em;"><strong>Implementation.</strong> Greedy and beam paths both record margins per descent step (greedy: <code class="inline">src/classify.rs:286–297</code>; beam: <code class="inline">src/classify.rs:503–521</code>). The discount is applied at the leaf-phase rollup after rank confidences are built (<code class="inline">src/classify.rs:1129–1137</code>). At a unary node (single child, no vote), no margin is recorded → that rank stays undiscounted.</p>
-  </div>
+    <h4>descent_tie_margin <span class="tag">default: 0.0</span></h4>
+    <p style="margin:0 0 6px;">Relative relaxation for runner-up children during beam descent. It only matters after the winner clears <code class="inline">min_descend</code>; runner-ups that clear <code class="inline">min_descend</code> themselves are already eligible.</p>
+    <pre class="ascii" style="font-size:0.8em;">B = 100, min_descend = 0.98, winner_votes = 100, beam_width = 3
 
-  <div class="note" style="font-size: 0.9em;">
-    <strong>When to use.</strong> Helpful when you want reported confidences to <em>track</em> how cleanly the classifier descended, not just how many votes the leaf received. A confidence of 90 from a 98/2 split means something different from a 90 from a 51/49 split, and this flag lets the output reflect that. Pairs naturally with <code class="inline">rank_thresholds</code> (§9a) — when leaf-rank confidence already encodes per-split certainty, a single global threshold becomes a more honest cut.
+runner = 99, descent_tie_margin = 0.00  → kept: clears min_descend
+runner = 98, descent_tie_margin = 0.00  → kept: clears min_descend
+runner = 95, descent_tie_margin = 0.00  → dropped: below min_descend, not an exact tie
+runner = 95, descent_tie_margin = 0.05  → kept: 95 ≥ 100 · 0.95
+runner = 90, descent_tie_margin = 0.10  → kept: 90 ≥ 100 · 0.90</pre>
+    <p style="margin:6px 0 0; font-size:0.9em;">Telemetry: <code class="inline">ClassificationResult.beam_widened_runner_ups</code> counts runner-ups admitted by this gate. Use it separately from <code class="inline">leaf_widened_winners</code> to tell Stage-1 widening apart from Stage-2 reporting.</p>
   </div>
 </div>
 
 <!-- =========== §8 STAGE 2 — LEAF-PHASE + LCA =========== -->
 <h2>8. Classification — Stage 2: leaf-phase scoring &amp; LCA clamp</h2>
 <div class="panel">
-  <p>Stage 2 takes whatever Stage 1 hands over — a stopping node and a candidate-set <code class="inline">w_indices</code> of child leaves to consider — and runs the <em>real</em> k-mer match against the reference sequences beneath those candidates. The output is a candidate lineage with per-rank confidences. Two knobs shape this stage: <code class="inline">sibling_aware_leaf</code> (what Stage 1 is allowed to hand over) and <code class="inline">tie_margin</code> (how close counts as a co-winner).</p>
+  <p>Stage 2 takes whatever Stage 1 hands over — a stopping node and a candidate-set <code class="inline">w_indices</code> of child leaves to consider — and runs the <em>real</em> k-mer match against the reference sequences beneath those candidates. The output is a candidate lineage with per-rank confidences. <code class="inline">leaf_tie_margin</code> shapes this stage by setting how close counts as a co-winner.</p>
 </div>
 
 <h3><span class="step-badge">8a</span>The Stage-1→Stage-2 hand-off: two widening mechanisms</h3>
@@ -1078,46 +1061,25 @@ if w50 is empty:                                 # very scattered, no majority s
 else:                                            # at least one child nearly won
     w_indices = [children with &gt; 0 votes]</pre>
 
-  <p><strong>Applied to the Canidae 92/8 halt:</strong> Canis=92 ≥ 50 → <code class="inline">w50</code> non-empty → <code class="inline">w_indices</code> = all children with &gt; 0 votes = <code class="inline">{Canis, Vulpes}</code>. Note that Vulpes is included <em>not</em> because 8 clears some sibling threshold — it's included because it simply got &gt; 0 votes in a halt scenario. The philosophy: when Stage 1 can't commit, let leaf-phase's evidence-based scoring sort through every candidate that was still in the running. Source: <code class="inline">src/classify.rs:305–326</code>.</p>
+  <p><strong>Applied to the Canidae 92/8 halt:</strong> Canis=92 ≥ 50 → <code class="inline">w50</code> non-empty → <code class="inline">w_indices</code> = all children with &gt; 0 votes = <code class="inline">{Canis, Vulpes}</code>. Note that Vulpes is included <em>not</em> because 8 clears some sibling threshold — it is included because it has non-zero support in a halt scenario. The philosophy: when Stage 1 cannot commit, let leaf-phase's evidence-based scoring sort through every candidate with non-zero support.</p>
 
-  <h4>Mechanism 2 — terminal sibling widening (<code class="inline">sibling_aware_leaf</code>)</h4>
-  <p>Fires only at the <em>last</em> descent step when Stage 1 <em>succeeds</em> — a single child cleared <code class="inline">min_descend</code> <em>and</em> that child's subtree is leaves. The baseline picks just the winner; the flag optionally widens with a strict 0.5·B threshold:</p>
-
-  <pre class="ascii" style="font-size: 0.8em;">baseline:                           sibling_aware_leaf on:
-  w_indices = [winner]                w_indices = {j : vote_counts[j] ≥ 0.5·B or j == winner}</pre>
-
-  <p><strong>Applied to a Canis terminal step that clears</strong> (hypothetical B=100, votes: C. lupus=62, C. latrans=55, C. familiaris=12):</p>
-  <table style="margin:10px 0 0; font-size: 0.85em;">
-    <thead><tr><th>Child</th><th>votes</th><th>flag off</th><th>flag on</th></tr></thead>
-    <tbody>
-      <tr><td>C. lupus</td><td>62</td><td><span class="kept">kept (winner)</span></td><td><span class="kept">kept (winner)</span></td></tr>
-      <tr><td>C. latrans</td><td>55</td><td>dropped</td><td><span class="kept">kept (≥ 50)</span></td></tr>
-      <tr><td>C. familiaris</td><td>12</td><td>dropped</td><td>dropped</td></tr>
-    </tbody>
-  </table>
-  <p style="margin:8px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:328–344</code>.</p>
-
-  <div class="note" style="font-size: 0.9em;">
-    <strong>Why the asymmetry.</strong> Mechanism 1 fires precisely when there's no strong signal — the ensemble couldn't commit, so the code widens aggressively on the principle that leaf-phase needs the broadest possible candidate set to still produce an honest answer. Mechanism 2 fires when there <em>is</em> a strong signal (a winner cleared min_descend) but the user opts into also keeping close runners-up; a strict 0.5·B threshold makes sense there because we only want genuine contenders in the mix, not any sibling that happened to get a vote. The two thresholds (0 vs 0.5·B) encode different philosophies: "cast a wide net when blind" vs "include only strong runners-up when sighted."
-  </div>
+  <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Terminal step:</strong> when descent succeeds (a single child clears <code class="inline">min_descend</code>) and that child is a leaf, only the winner is handed to leaf-phase (<code class="inline">w_indices = [winner]</code>).</p>
 </div>
 
 <h3><span class="step-badge">8b</span>Leaf-phase scoring and confidence rollup</h3>
 <div class="panel">
   <p>For every candidate in <code class="inline">w_indices</code>, the classifier runs a k-mer match against each individual reference sequence behind that leaf. Scores are grouped by taxonomic leaf; the best group wins.</p>
 
-  <pre class="ascii">Per-reference hits (our example, with sibling_aware_leaf on):
+  <pre class="ascii">Per-reference hits (our example):
   seq1 (C. lupus)     tot_hits = 18.4   ← global max
   seq2 (C. lupus)     tot_hits = 18.1
-  seq3 (C. latrans)   tot_hits = 18.3   ← very close runner-up
 
 Group totals:
-  C. lupus group      max over members = 18.4
-  C. latrans group    max over members = 18.3</pre>
+  C. lupus group      max over members = 18.4</pre>
 
   <div class="param-box">
     <h4>length_normalize <span class="tag">default: off</span></h4>
-    <p style="margin:0 0 6px;">Divides each reference's leaf-phase hit row by <code class="inline">sqrt(n_unique / avg)</code>, where <code class="inline">n_unique</code> is the reference's unique-k-mer count after seed/dedup and <code class="inline">avg</code> is the keep-local mean of the candidate pool. Symmetric: long references are demoted (divisor &gt; 1) and short references are promoted (divisor &lt; 1).</p>
+    <p style="margin:0 0 6px;">Divides each reference's leaf-phase hit row by <code class="inline">sqrt(n_unique / avg)</code>, where <code class="inline">n_unique</code> is the reference's unique-k-mer count after seed/dedup and <code class="inline">avg</code> is the train-time average unique-kmer count for the Stage-1 stopping node. Symmetric: long references are demoted (divisor &gt; 1) and short references are promoted (divisor &lt; 1).</p>
     <pre class="ascii" style="font-size: 0.78em;">candidate pool (single Canis genus, 5 reference seqs):
   seq1 (lupus)   n_unique = 12   ── divisor = √(12/8) = 1.22 → demoted
   seq2 (lupus)   n_unique =  8   ── divisor = √( 8/8) = 1.00 → unchanged
@@ -1126,8 +1088,7 @@ Group totals:
   seq5 (familr)  n_unique =  4   ── divisor = √( 4/8) = 0.71 → promoted
                    avg = 8                                        </pre>
     <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Why sqrt and not linear.</strong> Linear normalization (<code class="inline">divisor = n_unique / avg</code>) over-corrects — long refs would carry 0.4× of their raw signal at typical length spreads. The expected-hit count under random sub-sampling grows sub-linearly in unique-k-mer count, so a sqrt compromise sits between "no correction" (long refs dominate) and "linear" (long refs are silenced). Heuristic, not derived from a sampling model.</p>
-    <p style="margin:6px 0 0; font-size: 0.9em;"><strong>Single-keep gotcha.</strong> When the leaf-phase candidate pool collapses to a single reference (e.g. after Stage 1 commits to a singleton-leaf species — see the singleton-leaf gotcha below), <code class="inline">avg = n_unique</code> for that one ref, the divisor is 1.0, and the flag is structurally inert. Train-time fixed-per-node averaging would close that gap.</p>
-    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/classify.rs:801–816</code>.</p>
+    <p style="margin:6px 0 0; font-size: 0.9em;"><strong>Average source.</strong> <code class="inline">avg</code> is the train-time average unique-k-mer count stored for the Stage-1 stopping node (<code class="inline">avg_n_unique_per_node[k_node]</code>), with a global average backstop.</p>
   </div>
 
   <h4>How per-rank confidences are built from <code class="inline">tot_hits</code></h4>
@@ -1142,7 +1103,7 @@ Group totals:
                    ──
                   110     (can exceed B when intra-bootstrap ties tot_hits up)
 
-roll-up  (src/classify.rs:1090–1111):
+roll-up:
   confidence[rank i]  =  Σ  tot_hits[group]  /  B  · 100
                       over all groups whose lineage passes through rank i
 
@@ -1161,46 +1122,78 @@ roll-up  (src/classify.rs:1090–1111):
   </ul>
 
   <div class="note" style="font-size: 0.9em;">
-    <strong>Singleton-leaf gotcha.</strong> When <code class="inline">w_indices</code> at the stopping node points at a single leaf that has only <em>one</em> training reference, every bootstrap trivially "picks" that ref — it's the only option. <code class="inline">tot_hits</code> at that group therefore ≈ (fraction of bootstraps that sampled any k-mer overlapping the one ref). Species-level confidence collapses from the meaningful <em>"how decisively did my winner beat its siblings?"</em> signal to a much weaker <em>"did any sampled k-mer touch this ref at all?"</em> signal — and a query that shares a single diagnostic k-mer with an unrelated species can come back with 60% species confidence that means almost nothing. Mitigations: <code class="inline">sibling_aware_leaf</code> (§8a, widens <code class="inline">w_indices</code>), <code class="inline">tie_margin</code> (§8c), trust parent ranks (which aggregate across multiple leaves), or raise <code class="inline">rank_thresholds</code> at the species tier specifically (§9a).
+    <strong>Singleton-leaf gotcha.</strong> When <code class="inline">w_indices</code> at the stopping node points at a single leaf that has only <em>one</em> training reference, every bootstrap trivially "picks" that ref — it's the only option. <code class="inline">tot_hits</code> at that group therefore ≈ (fraction of bootstraps that sampled any k-mer overlapping the one ref). Species-level confidence collapses from the meaningful <em>"how decisively did my winner beat its siblings?"</em> signal to a much weaker <em>"did any sampled k-mer touch this ref at all?"</em> signal — and a query that shares a single diagnostic k-mer with an unrelated species can come back with 60% species confidence that means almost nothing. Mitigations: <code class="inline">leaf_tie_margin</code> (§8c), <code class="inline">deepest_rank_margin_floor</code> (§9b), trust parent ranks, or raise <code class="inline">rank_thresholds</code> at the species tier specifically (§9a).
   </div>
 </div>
 
-<h3><span class="step-badge">8c</span>Co-winners and LCA clamp: <code class="inline">tie_margin</code></h3>
+<h3><span class="step-badge">8c</span>Co-winners and LCA clamp: <code class="inline">leaf_tie_margin</code></h3>
 <div class="panel">
   <div class="param-box">
-    <h4>tie_margin</h4>
-    <p style="margin:0 0 6px;">Baseline keeps only groups with <em>exactly</em> max score. With <code class="inline">tie_margin &gt; 0</code>, near-tied groups also qualify:</p>
-    <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">winners = {g : tot_hits[g] == max_tot}                   if tie_margin == 0
-        = {g : tot_hits[g] ≥ max_tot · (1 − tie_margin)} if tie_margin  > 0</pre>
+    <h4>leaf_tie_margin <span class="tag">default: 0.0</span></h4>
+    <p style="margin:0 0 6px;">Baseline keeps only groups with <em>exactly</em> max score. With <code class="inline">leaf_tie_margin &gt; 0</code>, near-tied groups also qualify at two places: first inside each bootstrap replicate's share-split, then again after bootstraps when final winners are selected.</p>
+    <pre class="ascii" style="margin:4px 0; font-size: 0.78em;">per replicate:
+  tied_rep = {g : hit[g] ≥ max_hit - |max_hit| · leaf_tie_margin}
+  each tied group receives share = 1 / |tied_rep|
+
+post bootstrap:
+  winners = {g : tot_hits[g] == max_tot}                         if leaf_tie_margin == 0
+          = {g : tot_hits[g] ≥ max_tot - |max_tot|·leaf_tie_margin} if leaf_tie_margin  > 0</pre>
 
     <table style="margin:10px 0 0; font-size: 0.85em;">
       <thead><tr><th>Setting</th><th>cutoff</th><th>winners</th></tr></thead>
       <tbody>
-        <tr><td>tie_margin = 0</td><td>18.40 exactly</td><td>{C. lupus}</td></tr>
-        <tr><td>tie_margin = 0.02</td><td>≥ 18.03</td><td><span class="kept">{C. lupus, C. latrans}</span></td></tr>
+        <tr><td>leaf_tie_margin = 0</td><td>18.40 exactly</td><td>{C. lupus}</td></tr>
+        <tr><td>leaf_tie_margin = 0.02</td><td>≥ 18.03</td><td><span class="kept">{C. lupus, C. latrans}</span></td></tr>
       </tbody>
     </table>
-    <p style="margin:8px 0 0; font-size: 0.9em;">When <code class="inline">|winners| &gt; 1</code>, the classifier caps the reported <code class="inline">taxon</code> at the winners' LCA and lists every winner in <code class="inline">alternatives</code>. Source: <code class="inline">src/classify.rs:989–1008</code>.</p>
+    <p style="margin:8px 0 0; font-size: 0.9em;">When <code class="inline">|winners| &gt; 1</code>, the classifier caps the reported <code class="inline">taxon</code> at the winners' LCA and lists every winner in <code class="inline">alternatives</code>. <code class="inline">ClassificationResult.leaf_widened_winners</code> counts post-bootstrap winners admitted by the relaxed cutoff.</p>
   </div>
 
-  <p><strong><code class="inline">sibling_aware_leaf</code> and <code class="inline">tie_margin</code> together:</strong> <code class="inline">sibling_aware_leaf</code> (§8a) <em>brings C. latrans into the match</em>; <code class="inline">tie_margin</code> <em>lets the close score actually count</em>. One without the other usually changes nothing — the typical configuration enables both.</p>
+  <div class="note" style="font-size: 0.9em;">
+    <strong>Do not confuse the two tie margins.</strong> <code class="inline">descent_tie_margin</code> is Stage 1 and only matters when <code class="inline">beam_width &gt; 1</code>; it can add near-runner-up subtrees to the beam. <code class="inline">leaf_tie_margin</code> is Stage 2 and never adds new subtrees; it only widens uncertainty reporting among the candidates Stage 1 already handed over.
+  </div>
 </div>
 
-<h3><span class="step-badge">8d</span>Ancestor-prefix suppression: <code class="inline">suppress_ancestor_only_groups</code></h3>
+<h3><span class="step-badge">8d</span>Top-M leaf aggregation: <code class="inline">leaf_top_m</code></h3>
+<div class="panel">
+  <p>Leaf scoring can represent each taxonomic group by its single best reference sequence or by the top <em>M</em> references in that group. Top-M aggregation is useful when a species has several good representatives and one reference should not dominate every bootstrap.</p>
+
+  <div class="param-box">
+    <h4>leaf_top_m + leaf_aggregation_mode <span class="tag">defaults: 1, mean</span></h4>
+    <pre class="ascii" style="margin:4px 0; font-size: 0.8em;">For each group:
+  sort references by total sum_hits descending
+  top_m_refs = first min(leaf_top_m, n_refs_in_group)
+
+For each bootstrap replicate:
+  mean          → average hit across top_m_refs
+  trimmed_mean  → drop lowest + highest, then average (falls back to mean when M_eff &lt; 3)
+  per_rep_best  → max hit among top_m_refs for this replicate</pre>
+    <table style="margin:10px 0; font-size:0.85em;">
+      <thead><tr><th>Replicate</th><th>ref A</th><th>ref B</th><th>ref C</th><th>mean</th><th>trimmed_mean</th><th>per_rep_best</th></tr></thead>
+      <tbody>
+        <tr><td>#17</td><td>0.80</td><td>0.55</td><td>0.10</td><td>0.48</td><td>0.55</td><td>0.80</td></tr>
+        <tr><td>#18</td><td>0.20</td><td>0.65</td><td>0.70</td><td>0.52</td><td>0.65</td><td>0.70</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:6px 0 0; font-size:0.9em;">At <code class="inline">leaf_top_m=1</code>, each group uses one best-scoring reference. At <code class="inline">leaf_top_m &gt; 1</code>, <code class="inline">M_eff</code> caps at the number of references in the group, so sparse groups do not error.</p>
+  </div>
+</div>
+
+<h3><span class="step-badge">8e</span>Ancestor-prefix suppression: <code class="inline">suppress_ancestor_only_groups</code></h3>
 <div class="panel">
   <p>When a reference database contains an <em>ancestor-only</em> training entry (e.g. <code class="inline">"Oncorhynchus sp."</code> after canonical NA-trim) and a species-resolved descendant under the same ancestor, the two groups tie in every replicate where their training sequences match the query equivalently. Each tied group then receives <code class="inline">share = 1/n_tied = 0.5</code> of the per-replicate credit — the descendant's <code class="inline">tot_hits</code> is depressed by ~50% relative to a curated database that lacks the ancestor entry.</p>
 
   <p>The flag fires <strong>two filters in series</strong>:</p>
 
   <pre class="ascii">  per replicate (share-split stage):
-     tied = { groups with hit == max_val }
+     tied = { groups within leaf_tie_margin of max_val }
      if |tied| &gt; 1 and suppress_ancestor_only_groups:
         drop any j ∈ tied whose path is a strict prefix of
         another tied group's path                   ← stage 1
      share = 1 / |surviving tied|
 
   post-bootstrap (winner stage):
-     winners = argmax(tot_hits)  (with optional tie_margin)
+     winners = argmax(tot_hits)  (with optional leaf_tie_margin)
      if |winners| &gt; 1 and suppress_ancestor_only_groups:
         drop any winner whose path is a strict prefix of
         another winner's path                       ← stage 2
@@ -1213,13 +1206,12 @@ roll-up  (src/classify.rs:1090–1111):
       <thead><tr><th>Tied set in this replicate</th><th>Action</th><th>Result</th></tr></thead>
       <tbody>
         <tr><td>{ancestor} alone</td><td>filter not entered (singleton)</td><td>ancestor gets 1.0 — unchanged</td></tr>
-        <tr><td>{ancestor, descendant} byte-identical</td><td>drop ancestor</td><td>descendant gets 1.0 (was 0.5)</td></tr>
+        <tr><td>{ancestor, descendant} byte-identical</td><td>drop ancestor</td><td>descendant gets 1.0</td></tr>
         <tr><td>{C_lupus, C_latrans} true sister tie</td><td>no prefix relation; no drops</td><td>each 0.5 — unchanged</td></tr>
         <tr><td>{Family, Genus, Species} chain</td><td>drop Family + Genus</td><td>Species gets 1.0</td></tr>
       </tbody>
     </table>
-    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Conservation property.</strong> Cross-rank confidence at-or-above the dropped node's rank is conserved relative to flag=off — the descendant's now-full <code class="inline">tot_hits</code> climbs through <code class="inline">parents[]</code> and lands the same total at the ancestor's rank. Species-rank confidence rises (was halved, now full); higher ranks are unchanged.</p>
-    <p style="margin:6px 0 0; font-size: 0.9em;">Source: <code class="inline">src/types.rs:359–378</code> (flag doc), <code class="inline">src/classify.rs</code> share-split filter (per-replicate) and winner-stage filter (post-bootstrap).</p>
+    <p style="margin:8px 0 0; font-size: 0.9em;"><strong>Conservation property.</strong> Cross-rank confidence at-or-above the dropped node's rank is conserved because the descendant's full <code class="inline">tot_hits</code> climbs through <code class="inline">parents[]</code> and lands at the ancestor's rank. Species-rank confidence reflects the descendant directly; higher ranks are unchanged.</p>
   </div>
 
   <div class="note" style="font-size: 0.9em;">
@@ -1227,11 +1219,11 @@ roll-up  (src/classify.rs:1090–1111):
   </div>
 </div>
 
-<h3><span class="step-badge">8e</span>End-to-end: what Stage 2 hands to Stage 3</h3>
+<h3><span class="step-badge">8f</span>End-to-end: what Stage 2 hands to Stage 3</h3>
 <div class="panel">
   <p>Two runs of the toy query through Stage 2, to see how the §8 knobs compose before Stage 3 enters the picture.</p>
 
-  <h4>Scenario A — baseline (all Stage 2 flags off)</h4>
+  <h4>Scenario A — default Stage 2 settings</h4>
   <div style="margin: 12px 0;">
     <div class="rankbar"><span class="label">Animalia</span><span class="bar" style="width: 320px;">98 / 100 (98%)</span></div>
     <div class="rankbar"><span class="label">Canidae</span><span class="bar" style="width: 310px;">95 / 100 (95%)</span></div>
@@ -1243,8 +1235,8 @@ roll-up  (src/classify.rs:1090–1111):
   confidence   = [100, 98, 95, 92, 62]
   alternatives = []                              ← C. latrans silently dropped</pre>
 
-  <h4>Scenario B — <code class="inline">sibling_aware_leaf</code> + <code class="inline">tie_margin=0.02</code> on</h4>
-  <p>Same votes, but now <code class="inline">sibling_aware_leaf</code> brings C. latrans into leaf-phase and <code class="inline">tie_margin=0.02</code> makes it a co-winner → LCA clamp at Canis. Per-rank confidences themselves are unchanged from the rollup — the only difference is where the lineage is allowed to report to:</p>
+  <h4>Scenario B — <code class="inline">leaf_tie_margin=0.02</code> on</h4>
+  <p>Same votes with <code class="inline">leaf_tie_margin=0.02</code>: C. latrans is a co-winner of the leaf-phase comparison → LCA clamp at Canis. Per-rank confidences themselves are unchanged from the rollup — the difference is where the lineage is allowed to report to:</p>
   <div style="margin: 12px 0;">
     <div class="rankbar"><span class="label">Animalia</span><span class="bar" style="width: 320px;">98 / 100 (98%)</span></div>
     <div class="rankbar"><span class="label">Canidae</span><span class="bar" style="width: 310px;">95 / 100 (95%)</span></div>
@@ -1252,7 +1244,7 @@ roll-up  (src/classify.rs:1090–1111):
     <div class="rankbar"><span class="label">species rank</span><span class="bar fail" style="width: 30px;">— (clamped at Canis LCA)</span></div>
   </div>
   <pre class="ascii">Stage 2 hand-off to Stage 3:
-  taxon        = [Root, Animalia, Canidae, Canis]   ← clamped by tie_margin LCA
+  taxon        = [Root, Animalia, Canidae, Canis]   ← clamped by leaf_tie_margin LCA
   confidence   = [100, 98, 95, 92]
   alternatives = [Canis_latrans, Canis_lupus]      ← both tied species reported</pre>
 </div>
@@ -1271,7 +1263,7 @@ roll-up  (src/classify.rs:1090–1111):
   <p>With the Scenario-B confidences <code class="inline">[100, 98, 95, 92]</code> (already clamped at Canis) and <code class="inline">threshold = 60</code>: all ranks pass → taxon is <code class="inline">[Root, Animalia, Canidae, Canis]</code>, alternatives <code class="inline">[Canis_latrans, Canis_lupus]</code>. The LCA clamp from Stage 2 is what prevents a species-level report here, not Stage 3.</p>
 
   <h4>Per-rank thresholds</h4>
-  <p>Instead of a single global <code class="inline">threshold = 60</code>, use <code class="inline">rank_thresholds = [0, 50, 70, 80, 90, 95]</code> (Root, Kingdom, Phylum, Class, Order/Family, Genus/Species). Stage 3 now applies a <em>different</em> threshold at each rank, walking Root-down. Against a noisier query that produced rolled-up confidences <code class="inline">[100, 72, 65, 55]</code>:</p>
+  <p>For rank-specific filtering, use <code class="inline">rank_thresholds = [0, 50, 70, 80, 90, 95]</code> (Root, Kingdom, Phylum, Class, Order/Family, Genus/Species). Stage 3 applies a <em>different</em> threshold at each rank, walking Root-down. Against a noisier query that produced rolled-up confidences <code class="inline">[100, 72, 65, 55]</code>:</p>
 
   <pre class="ascii">rank          confidence   threshold   outcome
 ────          ──────────   ─────────   ───────
@@ -1283,14 +1275,47 @@ Canis            55           80         (not evaluated)
 final taxon   = [Root, Animalia]
 final conf    = [100, 72]</pre>
 
-  <p>Per-tier thresholds let you express policies like "I'll accept Kingdom on ≥50 evidence but won't commit to a species unless it clears 95." This is how the singleton-leaf gotcha (§8b) is typically addressed in practice: keep <code class="inline">threshold</code> lenient for high ranks, tight for the species rank, so noisy singleton-leaf species confidence gets filtered out while the well-supported genus still reports. Source: <code class="inline">src/classify.rs:1191–1208</code>.</p>
+  <p>Per-tier thresholds let you express policies like "I'll accept Kingdom on ≥50 evidence but won't commit to a species unless it clears 95." This is how the singleton-leaf gotcha (§8b) is typically addressed in practice: keep <code class="inline">threshold</code> lenient for high ranks, tight for the species rank, so noisy singleton-leaf species confidence gets filtered out while the well-supported genus still reports.</p>
 
   <div class="note">
-    <strong>How the knobs interact across the three stages:</strong> <code class="inline">sibling_aware_leaf</code> and <code class="inline">tie_margin</code> both shape Stage 2 (what leaf-phase considers a winner and how far the LCA clamps). <code class="inline">threshold</code> / <code class="inline">rank_thresholds</code> are Stage 3 only. Together they let the classifier honestly report "we got close, but we can't commit below genus, and here are the candidates you should consider."
+    <strong>How the knobs interact across the three stages:</strong> <code class="inline">descent_tie_margin</code> widens Stage 1 beam search, <code class="inline">leaf_tie_margin</code> widens Stage 2 tied-winner reporting, and <code class="inline">threshold</code> / <code class="inline">rank_thresholds</code> trim Stage 3 output. Together they let the classifier honestly report "we got close, but we can't commit below genus, and here are the candidates you should consider."
   </div>
 </div>
 
-<h3><span class="step-badge">9b</span>Output format — no sentinel</h3>
+<h3><span class="step-badge">9b</span>Optional deepest-rank margin rescue</h3>
+<div class="panel">
+  <p>The normal threshold walk is conservative: if the deepest rank fails its threshold, that rank is dropped. Oxidtaxa has an optional rescue path for the narrow case where the only failure is the deepest terminal rank, and the selected leaf beats its terminal siblings decisively in a direct challenge.</p>
+
+  <div class="param-box">
+    <h4>deepest_rank_margin_floor + margin gates <span class="tag">default: disabled</span></h4>
+    <pre class="ascii" style="font-size:0.8em;">Rescue is considered only if:
+  1. predicted group is a deepest-rank leaf with references
+  2. every shallower rank passed Stage 3
+  3. no LCA clamp already stopped the path
+  4. deepest_rank_margin_floor is not None
+
+Then oxidtaxa scores a terminal-sibling challenge:
+  candidates = deepest sibling leaves under the same parent
+  selected_conf = confidence of the selected leaf
+  runner_conf   = best confidence among sibling challengers
+
+Accept deepest rank if:
+  selected_conf ≥ deepest_rank_margin_floor
+  selected_conf − runner_conf ≥ deepest_rank_margin_min_delta
+  selected_conf / runner_conf ≥ deepest_rank_margin_min_ratio</pre>
+    <table style="margin:10px 0; font-size:0.85em;">
+      <thead><tr><th>Example</th><th>Normal threshold</th><th>Challenge</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>clear leaf</td><td>species confidence 52 &lt; 60</td><td>52 vs 18, delta 34, ratio 2.9</td><td><span class="kept">rescued</span></td></tr>
+        <tr><td>near sibling</td><td>species confidence 52 &lt; 60</td><td>52 vs 45, delta 7, ratio 1.16</td><td>rejected</td></tr>
+        <tr><td>LCA-capped tie</td><td>species already clamped away</td><td>not evaluated</td><td>rejected</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:6px 0 0; font-size:0.9em;">Safety valve: <code class="inline">max_deepest_rank_challenge_candidates</code> rejects rescue when the sibling set is too broad. Diagnostics on <code class="inline">ClassificationResult</code> record the acceptance mode, effective confidence/threshold, runner-up confidence, delta, ratio, candidate count, and rejection reason.</p>
+  </div>
+</div>
+
+<h3><span class="step-badge">9c</span>Output format — no sentinel</h3>
 <div class="panel">
   <p>The Python <code class="inline">ClassificationResult</code> and the TSV file show the <em>same</em> truncated path — no synthetic <code class="inline">unclassified_*</code> sentinel. Truncation depth is carried by the <code class="inline">confidence</code> list length and by <code class="inline">reject_reason</code>.</p>
 
@@ -1306,7 +1331,9 @@ final conf    = [100, 72]</pre>
 confidence    = [100, 98, 95, 92]
 alternatives  = ["Canis_latrans", "Canis_lupus"]
 reject_reason = None   # tied-species is signaled by non-empty `alternatives`,
-                       # not by a dedicated reject_reason string</pre>
+                       # not by a dedicated reject_reason string
+leaf_widened_winners = 1
+beam_widened_runner_ups = 0</pre>
         </td>
       </tr>
       <tr>
@@ -1432,7 +1459,7 @@ asv_1    Animalia;Canidae;Canis 92          Canis_latrans|Canis_lupus           
       <div class="track"><div class="fill loser" style="width: 8%;"></div></div>
       <span class="val">8</span>
     </div>
-    <p class="hist-caption">At the terminal split, <code class="inline">sibling_aware_leaf</code> widens the cut-off to 0.5·B = 50 (green bars only). C. latrans (30) falls below that, so only C. lupus enters leaf-phase — unless the flag is off, in which case just the single winner does. Neither flag lets Vulpes through because it's a different subtree.</p>
+    <p class="hist-caption">At the terminal split, only the winner (C. lupus) enters leaf-phase. Vulpes is in a different subtree.</p>
   </div>
 
   <div class="note" style="font-size: 0.88em;"><strong>Why the histograms matter.</strong> The number you see in the output as "confidence 92" is <em>this</em> — a literal count of how often, out of 100 noisy independent replicates, the classifier agreed on the same answer. If the underlying evidence were weak, the tallest bar would be shorter and you'd see it; if ambiguous, you'd see two bars of similar height. The histogram is the confidence, made literal.</div>
@@ -1592,7 +1619,6 @@ asv_1    Animalia;Canidae;Canis 92          Canis_latrans|Canis_lupus           
       <text class="trace-text" x="455" y="358" text-anchor="middle" fill="#c0392b">w_indices hand-off</text>
       <text class="trace-text-small" x="455" y="375" text-anchor="middle">{Canis, Vulpes} carry over</text>
       <text class="trace-text-small" x="455" y="390" text-anchor="middle">to Stage 2 leaf-phase</text>
-      <text class="trace-text-small" x="455" y="404" text-anchor="middle" fill="var(--muted)">(or just {Canis} when sibling_aware_leaf = off)</text>
 
       <text class="trace-text-small" x="360" y="445">Result: descent halted at Canidae.</text>
       <text class="trace-text-small" x="360" y="460">Leaf candidates carried forward: Canis subtree.</text>
@@ -1604,7 +1630,7 @@ asv_1    Animalia;Canidae;Canis 92          Canis_latrans|Canis_lupus           
 
       <!-- COLUMN 3: STAGE 2 - LEAF PHASE -->
       <text class="trace-stage-label" x="760" y="30" style="fill: var(--accent);">Stage 2 — Leaf-phase + LCA</text>
-      <text class="trace-knob" x="760" y="48">knobs: sibling_aware_leaf, tie_margin</text>
+      <text class="trace-knob" x="760" y="48">knobs: leaf_tie_margin</text>
 
       <rect class="trace-box trace-box-stage2" x="760" y="60" width="320" height="440" rx="6"/>
 
@@ -1631,11 +1657,11 @@ asv_1    Animalia;Canidae;Canis 92          Canis_latrans|Canis_lupus           
       <text class="trace-text-mono" x="775" y="301">Canis    =  95</text>
       <text class="trace-text-mono" x="775" y="318">Species  =  62  (C. lupus only)</text>
 
-      <text class="trace-text" x="775" y="355">tie_margin = 0.02 test:</text>
+      <text class="trace-text" x="775" y="355">leaf_tie_margin = 0.02 test:</text>
       <text class="trace-text-small" x="775" y="372">max_tot × (1 − 0.02) = 62 × 0.98 = 60.76</text>
       <text class="trace-text-small" x="775" y="388">latrans (30) &lt; 60.76  →  NOT a co-winner</text>
       <text class="trace-text-small" x="775" y="408">→ no LCA clamp, full path to species kept.</text>
-      <text class="trace-text-small" x="775" y="424" fill="var(--muted)">(with tie_margin ≥ 0.52, latrans tips in; LCA clamps to Canis.)</text>
+      <text class="trace-text-small" x="775" y="424" fill="var(--muted)">(with leaf_tie_margin ≥ 0.52, latrans tips in; LCA clamps to Canis.)</text>
 
       <text class="trace-text-small" x="775" y="455" fill="var(--accent)">Stage 2 out: taxon [Root, Animalia, Canidae, Canis, C. lupus]</text>
       <text class="trace-text-small" x="775" y="472" fill="var(--accent)">              confidence [100, 100, 100, 95, 62]</text>
@@ -1711,7 +1737,6 @@ asv_1    Animalia;Canidae;Canis 92          Canis_latrans|Canis_lupus           
       <text class="trace-text-small" x="40" y="738">Knobs active here:</text>
       <text class="trace-text-small" x="40" y="755" fill="var(--accent-4)">• min_descend</text>
       <text class="trace-text-small" x="40" y="772" fill="var(--accent-4)">• beam_width</text>
-      <text class="trace-text-small" x="40" y="789" fill="var(--accent-4)">• sibling_aware_leaf (terminal)</text>
 
       <rect x="340" y="600" width="340" height="260" fill="#eef7ff" rx="4"/>
       <text class="trace-text" x="350" y="622" font-weight="600">Stage 2 detail recap</text>
@@ -1719,11 +1744,11 @@ asv_1    Animalia;Canidae;Canis 92          Canis_latrans|Canis_lupus           
       <text class="trace-text-small" x="350" y="660">  every reference sequence under w_indices</text>
       <text class="trace-text-small" x="350" y="677">• per-bootstrap best-match recorded in tot_hits</text>
       <text class="trace-text-small" x="350" y="694">• groups tallied; winners = groups ≥</text>
-      <text class="trace-text-small" x="350" y="711">  max_tot × (1 − tie_margin)</text>
+      <text class="trace-text-small" x="350" y="711">  max_tot × (1 − leaf_tie_margin)</text>
       <text class="trace-text-small" x="350" y="728">• if |winners| &gt; 1: LCA-clamp taxon;</text>
       <text class="trace-text-small" x="350" y="745">  list all winners as alternatives</text>
       <text class="trace-text-small" x="350" y="762">• rank confidences rolled up from tot_hits</text>
-      <text class="trace-text-small" x="350" y="789" fill="var(--accent-4)">Knobs: sibling_aware_leaf, tie_margin</text>
+      <text class="trace-text-small" x="350" y="789" fill="var(--accent-4)">Knobs: leaf_tie_margin, leaf_top_m</text>
 
       <rect x="760" y="600" width="320" height="260" fill="#fff0e6" rx="4"/>
       <text class="trace-text" x="770" y="622" font-weight="600">Stage 3 detail recap</text>
@@ -1765,7 +1790,7 @@ GCC(37)  →  [seq4, seq5]
 TTA(60)  →  [seq6]
 ...</pre>
 
-  <p>At classification time, Stage 2's leaf-phase scoring (§8b) iterates over query k-mers rather than over reference sequences — which is why it can widen <code class="inline">w_indices</code> to large candidate sets (from Stage-1 stopping at a mid-tree node, or from beam descent, or from <code class="inline">sibling_aware_leaf</code>) without a runtime cost in the common case.</p>
+  <p>At classification time, Stage 2's leaf-phase scoring (§8b) iterates over query k-mers rather than over reference sequences — which is why it can widen <code class="inline">w_indices</code> to large candidate sets (from Stage-1 stopping at a mid-tree node, or from beam descent) without a runtime cost in the common case.</p>
 
   <table>
     <thead>
@@ -1782,7 +1807,7 @@ TTA(60)  →  [seq6]
 <!-- =========== §12 PARAMETER INDEX =========== -->
 <h2>12. Appendix: parameter index</h2>
 <div class="panel">
-  <p>Every knob that appears in the document, alphabetical by code identifier, with the section where it's introduced. For differences-from-IDTAXA context (default state, category), see §3.</p>
+  <p>Every knob that appears in the document, alphabetical by code identifier, with the section where it is introduced.</p>
 
   <table>
     <thead>
@@ -1791,24 +1816,29 @@ TTA(60)  →  [seq6]
     <tbody>
       <tr><td><code class="inline">beam_width</code></td><td>classify</td><td>§7c</td><td>Number of candidate paths maintained during tree descent</td></tr>
       <tr><td><code class="inline">bootstraps</code>, <code class="inline">sample_exponent</code></td><td>classify</td><td>§7a</td><td>Bootstrap count &amp; per-replicate sample size (<code class="inline">S = L<sup>sample_exponent</sup></code>)</td></tr>
-      <tr><td><code class="inline">confidence_uses_descent_margin</code></td><td>classify</td><td>§7d</td><td>Per-rank confidence multiplied by the descent margin at each split (affine-remapped to [0.82, 1.0], non-cumulative)</td></tr>
       <tr><td><code class="inline">correlation_aware_features</code></td><td>train</td><td>§6d</td><td>Greedy feature selection with Bhattacharyya redundancy penalty (well-defined for any split size)</td></tr>
+      <tr><td><code class="inline">deepest_rank_margin_floor</code></td><td>classify</td><td>§9b</td><td>Enable optional rescue when only the deepest rank fails threshold but beats terminal siblings decisively</td></tr>
+      <tr><td><code class="inline">deepest_rank_margin_min_delta</code>, <code class="inline">deepest_rank_margin_min_ratio</code></td><td>classify</td><td>§9b</td><td>Minimum absolute and relative advantage required for deepest-rank rescue</td></tr>
       <tr><td><code class="inline">descendant_weighting</code></td><td>train</td><td>§6d</td><td>Count / Equal / Log weighting when building per-child profiles</td></tr>
+      <tr><td><code class="inline">descent_tie_margin</code></td><td>classify</td><td>§7c</td><td>Near-runner-up admission margin for Stage-1 beam descent; only active when <code class="inline">beam_width &gt; 1</code></td></tr>
+      <tr><td><code class="inline">diagnostics_path</code></td><td>train/staged train</td><td>§6d</td><td>Optional JSON sidecar with per-node diagnostics; does not affect classification</td></tr>
       <tr><td><code class="inline">k</code>, <code class="inline">seed_pattern</code></td><td>train</td><td>§6a</td><td>K-mer size &amp; spacing</td></tr>
+      <tr><td><code class="inline">leaf_aggregation_mode</code></td><td>classify</td><td>§8d</td><td>How the top-M references in a group are combined: <code class="inline">mean</code>, <code class="inline">trimmed_mean</code>, or <code class="inline">per_rep_best</code></td></tr>
+      <tr><td><code class="inline">leaf_tie_margin</code></td><td>classify</td><td>§8c</td><td>Near-tied groups enter Stage-2 share-split and tied-species LCA reporting</td></tr>
+      <tr><td><code class="inline">leaf_top_m</code></td><td>classify</td><td>§8d</td><td>Number of top-scoring references per taxonomic group aggregated in leaf phase</td></tr>
       <tr><td><code class="inline">leave_one_out</code></td><td>train</td><td>§6e</td><td>Per-kmer leave-one-out: subtract held-out sequence's contribution from sibling's raw counts and renormalize</td></tr>
       <tr><td><code class="inline">length_normalize</code></td><td>classify</td><td>§8b</td><td>Scale leaf-phase hits by <code class="inline">1/√(n_unique/avg)</code> to dampen long-reference inflation</td></tr>
       <tr><td><code class="inline">max_children</code></td><td>train</td><td>§6d</td><td>Max child count at which feature selection runs; above, the node becomes opaque (no DecisionNode)</td></tr>
       <tr><td><code class="inline">max_fraction</code>, <code class="inline">min_fraction</code></td><td>train</td><td>§6e</td><td>Ceiling/floor on per-node learned sampling fraction</td></tr>
+      <tr><td><code class="inline">max_deepest_rank_challenge_candidates</code></td><td>classify</td><td>§9b</td><td>Optional cap on deepest-rank sibling challenge size before rescue is rejected</td></tr>
       <tr><td><code class="inline">max_iterations</code></td><td>train</td><td>§6e</td><td>Outer-loop cap on fraction learning</td></tr>
       <tr><td><code class="inline">min_descend</code></td><td>classify</td><td>§7b</td><td>Vote fraction required to descend a node (Stage 1 gate)</td></tr>
       <tr><td><code class="inline">multiplier</code></td><td>train</td><td>§6e</td><td>Per-failure fraction-decrement scale (feeds <code class="inline">delta</code>)</td></tr>
       <tr><td><code class="inline">n</code></td><td>train</td><td>§6a</td><td>Target reference count used only to auto-pick <code class="inline">k</code> when unspecified</td></tr>
       <tr><td><code class="inline">per_rank_idf</code></td><td>train</td><td>§6b</td><td>IDF computed per rank depth instead of globally (always on)</td></tr>
       <tr><td><code class="inline">record_kmers_fraction</code></td><td>train</td><td>§6d</td><td>How many features per decision node</td></tr>
-      <tr><td><code class="inline">sibling_aware_leaf</code></td><td>classify</td><td>§8a</td><td>Widen <code class="inline">w_indices</code> at the terminal descent step</td></tr>
-      <tr><td><code class="inline">suppress_ancestor_only_groups</code></td><td>classify</td><td>§8d</td><td>Drop ancestor-only training entries that parasitically tie with species-resolved descendants (dual-stage: share-split + winner)</td></tr>
+      <tr><td><code class="inline">suppress_ancestor_only_groups</code></td><td>classify</td><td>§8e</td><td>Drop ancestor-only training entries that parasitically tie with species-resolved descendants (dual-stage: share-split + winner)</td></tr>
       <tr><td><code class="inline">threshold</code>, <code class="inline">rank_thresholds</code></td><td>classify</td><td>§9a</td><td>Per-rank confidence cutoff (Stage 3 filter)</td></tr>
-      <tr><td><code class="inline">tie_margin</code></td><td>classify</td><td>§8c</td><td>Near-tied groups enter the tied-species report (Stage 2 LCA clamp)</td></tr>
       <tr><td><code class="inline">training_threshold</code></td><td>train</td><td>§6e</td><td>Self-classification rate required to stop fraction learning</td></tr>
       <tr><td><code class="inline">use_idf_in_descent</code></td><td>train</td><td>§6e</td><td>Apply IDF weights (per-rank matrix row at descent depth) during fraction-learning descent and classify-time descent</td></tr>
     </tbody>
@@ -1816,7 +1846,7 @@ TTA(60)  →  [seq6]
 </div>
 
 <footer>
-  Oxidtaxa — a Rust rewrite of IDTAXA (Murali, Bhargava &amp; Wright 2018) with per-query independent PRNG, per-rank IDF, sibling-aware classification, beam-width descent, and inverted-index acceleration.
+  Oxidtaxa — taxonomic classification with per-query independent PRNG, per-rank IDF, beam-width descent, stage-specific tie handling, and inverted-index acceleration.
 </footer>
 
 </body>

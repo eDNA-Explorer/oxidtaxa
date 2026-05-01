@@ -78,7 +78,8 @@ mod python_bindings {
         seed_pattern = None, training_threshold = 0.8,
         descendant_weighting = "count", use_idf_in_descent = false,
         leave_one_out = false, correlation_aware_features = false,
-        processors = 1
+        processors = 1,
+        diagnostics_path = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn train(
@@ -97,6 +98,7 @@ mod python_bindings {
         leave_one_out: bool,
         correlation_aware_features: bool,
         processors: usize,
+        diagnostics_path: Option<String>,
     ) -> PyResult<()> {
         let (names, seqs) =
             crate::fasta::read_fasta(fasta_path).map_err(|e| PyValueError::new_err(e))?;
@@ -121,16 +123,42 @@ mod python_bindings {
             ..Default::default()
         };
 
-        // Release the GIL so parallel Python threads can run concurrently
-        let model = py
-            .allow_threads(|| {
-                crate::training::learn_taxa(&filtered_seqs, &filtered_tax, &config, seed, verbose)
+        // Release the GIL so parallel Python threads can run concurrently.
+        // When `diagnostics_path` is set, route through the
+        // `learn_taxa_with_diagnostics` path that computes the sidecar from
+        // the SAME prepared dataset used by the tree-build — avoids running
+        // `_prepare_data_inner` a second time.
+        let (model, diagnostics) = py
+            .allow_threads(|| -> Result<_, String> {
+                if diagnostics_path.is_some() {
+                    let (model, diag) = crate::training::learn_taxa_with_diagnostics(
+                        &filtered_seqs,
+                        &filtered_tax,
+                        &config,
+                        seed,
+                        verbose,
+                    )?;
+                    Ok((model, Some(diag)))
+                } else {
+                    let model = crate::training::learn_taxa(
+                        &filtered_seqs,
+                        &filtered_tax,
+                        &config,
+                        seed,
+                        verbose,
+                    )?;
+                    Ok((model, None))
+                }
             })
             .map_err(|e| PyValueError::new_err(e))?;
 
         model
             .save(output_path)
             .map_err(|e| PyValueError::new_err(e))?;
+
+        if let (Some(path), Some(diag)) = (diagnostics_path, diagnostics) {
+            write_node_diagnostics_json(&path, &diag)?;
+        }
         Ok(())
     }
 
@@ -144,10 +172,11 @@ mod python_bindings {
     ///   classifier could not resolve between multiple equally-scored
     ///   references (empty for non-tied classifications)
     ///
-    /// If `output_path` is provided, a TSV with columns
-    /// `read_id, taxonomic_path, confidence, alternatives` is also written to
+    /// If `output_path` is provided, a TSV with six columns
+    /// `read_id, taxonomic_path, confidence, alternatives, reject_reason, similarity` is also written to
     /// that path. If omitted, no file is written and results are only
-    /// returned in-memory.
+    /// returned in-memory. Deepest-rank margin diagnostics are exposed on the
+    /// returned `ClassificationResult` objects and are not included in the TSV.
     #[pyfunction]
     #[pyo3(signature = (
         query_path, model_path, output_path = None,
@@ -156,11 +185,15 @@ mod python_bindings {
         sample_exponent = 0.47, seed = 42, deterministic = false,
         length_normalize = false, rank_thresholds = None,
         beam_width = 1,
-        tie_margin = 0.0,
-        confidence_uses_descent_margin = false,
-        sibling_aware_leaf = false,
-        sibling_aware_min_vote_frac = 0.5,
+        descent_tie_margin = 0.0,
+        leaf_tie_margin = 0.0,
+        leaf_top_m = 1,
+        leaf_aggregation_mode = "mean",
         suppress_ancestor_only_groups = false,
+        deepest_rank_margin_floor = None,
+        deepest_rank_margin_min_delta = 15.0,
+        deepest_rank_margin_min_ratio = 2.0,
+        max_deepest_rank_challenge_candidates = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn classify(
@@ -179,11 +212,15 @@ mod python_bindings {
         length_normalize: bool,
         rank_thresholds: Option<Vec<f64>>,
         beam_width: usize,
-        tie_margin: f64,
-        confidence_uses_descent_margin: bool,
-        sibling_aware_leaf: bool,
-        sibling_aware_min_vote_frac: f64,
+        descent_tie_margin: f64,
+        leaf_tie_margin: f64,
+        leaf_top_m: usize,
+        leaf_aggregation_mode: &str,
         suppress_ancestor_only_groups: bool,
+        deepest_rank_margin_floor: Option<f64>,
+        deepest_rank_margin_min_delta: f64,
+        deepest_rank_margin_min_ratio: f64,
+        max_deepest_rank_challenge_candidates: Option<usize>,
     ) -> PyResult<Vec<crate::types::ClassificationResult>> {
         let model =
             crate::types::TrainingSet::load(model_path).map_err(|e| PyValueError::new_err(e))?;
@@ -199,21 +236,19 @@ mod python_bindings {
         // permissive (no internal asserts on these), so the Python binding is
         // the one place we surface user typos as clear errors instead of
         // silent misbehavior.
-        if !(0.0..=1.0).contains(&tie_margin) {
+        if !(0.0..=1.0).contains(&descent_tie_margin) {
             return Err(PyValueError::new_err(format!(
-                "tie_margin must be in [0.0, 1.0], got {}",
-                tie_margin
+                "descent_tie_margin must be in [0.0, 1.0], got {}",
+                descent_tie_margin
             )));
         }
-        if sibling_aware_leaf && tie_margin == 0.0 {
-            return Err(PyValueError::new_err(
-                "sibling_aware_leaf=True requires tie_margin > 0 — without a \
-                 relaxed margin, the widened sibling set has no path to \
-                 surface as alternatives. Set tie_margin to a small positive \
-                 value (e.g. 0.05) when enabling sibling_aware_leaf."
-                    .to_string(),
-            ));
+        if !(0.0..=1.0).contains(&leaf_tie_margin) {
+            return Err(PyValueError::new_err(format!(
+                "leaf_tie_margin must be in [0.0, 1.0], got {}",
+                leaf_tie_margin
+            )));
         }
+
         if let Some(rt) = &rank_thresholds {
             if rt.is_empty() {
                 return Err(PyValueError::new_err(
@@ -231,12 +266,13 @@ mod python_bindings {
                 }
             }
         }
-        if !(0.0..=1.0).contains(&sibling_aware_min_vote_frac) {
+        if leaf_top_m < 1 {
             return Err(PyValueError::new_err(format!(
-                "sibling_aware_min_vote_frac must be in [0.0, 1.0], got {}",
-                sibling_aware_min_vote_frac
+                "leaf_top_m must be >= 1, got {}",
+                leaf_top_m
             )));
         }
+        let leaf_aggregation_mode_parsed = parse_leaf_aggregation_mode(leaf_aggregation_mode)?;
 
         let config = crate::types::ClassifyConfig {
             threshold,
@@ -247,12 +283,17 @@ mod python_bindings {
             length_normalize,
             rank_thresholds,
             beam_width,
-            tie_margin,
-            confidence_uses_descent_margin,
-            sibling_aware_leaf,
-            sibling_aware_min_vote_frac,
+            descent_tie_margin,
+            leaf_tie_margin,
+            leaf_top_m,
+            leaf_aggregation_mode: leaf_aggregation_mode_parsed,
             suppress_ancestor_only_groups,
+            deepest_rank_margin_floor,
+            deepest_rank_margin_min_delta,
+            deepest_rank_margin_min_ratio,
+            max_deepest_rank_challenge_candidates,
         };
+        config.validate().map_err(PyValueError::new_err)?;
 
         // Release the GIL so parallel Python threads can run concurrently
         let results = py.allow_threads(|| {
@@ -317,7 +358,8 @@ mod python_bindings {
     #[pyo3(signature = (
         prepared, record_kmers_fraction = 0.10, descendant_weighting = "count",
         correlation_aware_features = false,
-        processors = 1
+        processors = 1,
+        diagnostics_path = None,
     ))]
     fn build_tree_py(
         py: Python<'_>,
@@ -326,6 +368,7 @@ mod python_bindings {
         descendant_weighting: &str,
         correlation_aware_features: bool,
         processors: usize,
+        diagnostics_path: Option<String>,
     ) -> PyResult<PyBuiltTree> {
         let dw = parse_descendant_weighting(descendant_weighting)?;
         let config = crate::types::BuildTreeConfig {
@@ -337,8 +380,17 @@ mod python_bindings {
         };
         let data = Arc::clone(&prepared.inner);
         let built = py
-            .allow_threads(move || crate::training::build_tree(&data, &config))
+            .allow_threads({
+                let data = Arc::clone(&data);
+                move || crate::training::build_tree(&data, &config)
+            })
             .map_err(|e| PyValueError::new_err(e))?;
+
+        if let Some(path) = diagnostics_path {
+            let diag = crate::training::compute_node_diagnostics(&data, dw);
+            write_node_diagnostics_json(&path, &diag)?;
+        }
+
         Ok(PyBuiltTree {
             inner: Arc::new(built),
         })
@@ -347,7 +399,8 @@ mod python_bindings {
     #[pyfunction]
     #[pyo3(signature = (
         prepared, built_tree, output_path, seed = 42, training_threshold = 0.8,
-        use_idf_in_descent = false, leave_one_out = false, processors = 1
+        use_idf_in_descent = false, leave_one_out = false, processors = 1,
+        diagnostics_path = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn learn_fractions_py(
@@ -360,6 +413,7 @@ mod python_bindings {
         use_idf_in_descent: bool,
         leave_one_out: bool,
         processors: usize,
+        diagnostics_path: Option<String>,
     ) -> PyResult<()> {
         let config = crate::types::LearnFractionsConfig {
             training_threshold,
@@ -374,11 +428,42 @@ mod python_bindings {
         let prep = Arc::clone(&prepared.inner);
         let tree = Arc::clone(&built_tree.inner);
         let model = py
-            .allow_threads(move || crate::training::learn_fractions(&prep, &tree, &config, seed))
+            .allow_threads({
+                let prep = Arc::clone(&prep);
+                let tree = Arc::clone(&tree);
+                let config = crate::types::LearnFractionsConfig {
+                    training_threshold: config.training_threshold,
+                    use_idf_in_descent: config.use_idf_in_descent,
+                    leave_one_out: config.leave_one_out,
+                    min_fraction: config.min_fraction,
+                    max_fraction: config.max_fraction,
+                    max_iterations: config.max_iterations,
+                    multiplier: config.multiplier,
+                    processors: config.processors,
+                };
+                move || crate::training::learn_fractions(&prep, &tree, &config, seed)
+            })
             .map_err(|e| PyValueError::new_err(e))?;
         model
             .save(output_path)
             .map_err(|e| PyValueError::new_err(e))?;
+
+        if let Some(path) = diagnostics_path {
+            let diag = crate::training::compute_node_diagnostics(&prep, tree.descendant_weighting);
+            write_node_diagnostics_json(&path, &diag)?;
+        }
+        Ok(())
+    }
+
+    /// Serialize per-node training diagnostics to a JSON sidecar file.
+    fn write_node_diagnostics_json(
+        path: &str,
+        diagnostics: &[crate::types::NodeDiagnostic],
+    ) -> PyResult<()> {
+        let json = serde_json::to_string_pretty(diagnostics)
+            .map_err(|e| PyValueError::new_err(format!("serialize diagnostics: {e}")))?;
+        std::fs::write(path, json)
+            .map_err(|e| PyValueError::new_err(format!("write {path}: {e}")))?;
         Ok(())
     }
 
@@ -401,6 +486,19 @@ mod python_bindings {
             "log" => Ok(crate::types::DescendantWeighting::Log),
             _ => Err(PyValueError::new_err(format!(
                 "Invalid descendant_weighting: '{}'. Expected 'count', 'equal', or 'log'",
+                s
+            ))),
+        }
+    }
+
+    fn parse_leaf_aggregation_mode(s: &str) -> PyResult<crate::types::LeafAggregationMode> {
+        match s {
+            "mean" => Ok(crate::types::LeafAggregationMode::Mean),
+            "trimmed_mean" => Ok(crate::types::LeafAggregationMode::TrimmedMean),
+            "per_rep_best" => Ok(crate::types::LeafAggregationMode::PerRepBest),
+            _ => Err(PyValueError::new_err(format!(
+                "Invalid leaf_aggregation_mode: '{}'. Expected 'mean', \
+                 'trimmed_mean', or 'per_rep_best'",
                 s
             ))),
         }

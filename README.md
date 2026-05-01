@@ -59,9 +59,10 @@ results = classify(
     length_normalize=False,            # normalize scores by training sequence length
     rank_thresholds=None,              # per-rank thresholds, e.g. [90, 80, 70, 60, 50, 40, 40] for Domain→Species
     beam_width=1,                      # candidate paths during tree descent (1 = greedy)
-    tie_margin=0.0,                    # near-tied groups within (1 - margin) of winner join alternatives
-    confidence_uses_descent_margin=False, # discount per-rank confidence by descent decisiveness
-    sibling_aware_leaf=False,          # include terminal siblings with >= 50% descent votes
+    descent_tie_margin=0.0,            # beam-descent (Stage 1) runner-up admission margin
+    leaf_tie_margin=0.0,               # leaf-phase (Stage 2) tied-set + winners cutoff margin
+    leaf_top_m=1,                      # 1 = single-best ref per group; >1 aggregates top-M refs (Phase 3)
+    leaf_aggregation_mode="mean",      # "mean", "trimmed_mean", or "per_rep_best" (used when leaf_top_m > 1)
     suppress_ancestor_only_groups=False, # drop ancestor-only training entries that parasitically tie with descendants
 )
 
@@ -130,10 +131,11 @@ Ranges below are intended operating ranges. The Python binding currently validat
 | **sample_exponent** | 0.47 | (0, 1] | Controls k-mers sampled per bootstrap: S = L^exponent. Default 0.47 is canonical IDTAXA (DECIPHER's `samples=L^0.47`); the `[0.35, 0.40, 0.47, 0.55, 0.65]` spread is the recommended Tier 1 sweep range. Lower = fewer samples per replicate. Note: bootstraps are also implicitly capped at `b = min(5L/S, bootstraps)`, so lowering `sample_exponent` lets `b` rise toward the configured `bootstraps`. |
 | **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). **Symmetric**: long references are demoted (divisor > 1), short references are promoted (divisor < 1). Most useful for variable-length markers. Inert at single-keep (e.g. singleton-leaf — divisor is 1.0 by construction). |
 | **rank_thresholds** | None | list of floats in [0, 100] | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set to `Some(non-empty)`, **fully overrides** the global `threshold` for every rank — there is no per-element fallback. If shorter than the predicted path, the last value is reused for every rank past its end; if longer, extras are ignored. Empty list (`Some([])`) is rejected. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). |
-| **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent (original IDTAXA). At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
-| **tie_margin** | 0.0 | 0.0-1.0 | Relative margin for near-tie reporting. At 0.0, only exact equal `tot_hits` winners tie. At 0.05, groups scoring at least 95% of the winner join the tied set, cap the reported lineage at their LCA, and appear in `alternatives`. |
-| **confidence_uses_descent_margin** | false | true/false | When true, each non-root rank's confidence is multiplied by an affine-scaled descent margin from the split that selected it. This down-weights ranks reached through near-tied descent votes. |
-| **sibling_aware_leaf** | false | true/false | When true, if greedy descent reaches a leaf parent with a single winner, terminal siblings with at least 50% of bootstrap votes are also included in leaf-phase scoring. This can surface near-tied species as `alternatives`. |
+| **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent. At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
+| **descent_tie_margin** | 0.0 | 0.0-1.0 | **Stage 1 — beam descent runner-up relaxation.** When `beam_width > 1`, runner-up subtrees enter the beam if they clear `min_descend`; `descent_tie_margin` additionally admits below-threshold runner-ups within `(1 - descent_tie_margin)` of the winner's vote count. **Higher-risk knob** — widens the search space before final scoring, so loose values can grow runtime and surface false-positive subtrees. Inert at `beam_width = 1`. |
+| **leaf_tie_margin** | 0.0 | 0.0-1.0 | **Stage 2 — leaf-phase tied-set widening.** Two internal sub-stages share this knob: per-replicate share-split and post-bootstrap winners cutoff. Groups within `(1 - leaf_tie_margin)` of `max_tot` join `winners`, cap the lineage at the LCA, and surface in `alternatives`. **Lower-risk knob** — only widens uncertainty reporting among candidates Stage 1 already retained. |
+| **leaf_top_m** | 1 | 1-20 | Number of top-scoring refs aggregated per group at leaf phase (Phase 3). At 1 (default) classification uses the single-best ref per group — bit-identical to pre-Phase-3 output. At M > 1, the per-replicate accumulator value becomes `aggregate(top_m_refs, rep, mode)` over `M_eff = min(M, n_refs(group))` refs, sorted by `sum_hits` descending. Sparse groups degrade gracefully (M_eff caps at the group's actual ref count). |
+| **leaf_aggregation_mode** | "mean" | mean/trimmed_mean/per_rep_best | How to aggregate per-replicate scores across the top-M refs when `leaf_top_m > 1`. `mean`: average. `trimmed_mean`: drop highest and lowest then average; falls back to `mean` when `M_eff < 3`. `per_rep_best`: max at each replicate (per-rep selection can pick different refs across replicates, distinct from M=1's single-ref selection). At M=1 every mode is identity on the single ref. |
 | **suppress_ancestor_only_groups** | false | true/false | When true, drops ancestor-only training entries (e.g. `"Oncorhynchus sp."` after canonical NA-trim) that parasitically tie with a species-resolved descendant. Dual-stage: (1) per-replicate, drop ancestor-prefix groups from the tied set before share-split so the descendant gets full credit; (2) post-bootstrap, drop ancestor-prefix winners so the LCA-cap doesn't collapse to the ancestor's rank. The ancestor's outright-win evidence is preserved. Use when your reference database mixes ancestor-only and descendant-resolved entries. |
 | **deterministic** | false | true/false | When true, uses a single shared PRNG for R-compatible sequential output. When false (default), each query gets an independent PRNG for parallel execution. |
 | **processors** | 1 | 1+ | Number of threads for parallel classification. |
@@ -261,7 +263,7 @@ The repository's `train.py` and `classify.py` scripts are minimal helper CLIs. T
 - `train.py`: `--seed`, `--k`, `--record-kmers-fraction`, `--seed-pattern`
 - `classify.py`: `threshold`, `strand`, `min_descend`, `processors`, plus `--bootstraps`, `--sample-exponent`, `--seed`, `--deterministic`, `--length-normalize`, `--rank-thresholds`
 
-Use direct Python API calls for the remaining knobs (`descendant_weighting`, `training_threshold`, `use_idf_in_descent`, `leave_one_out`, `correlation_aware_features`, `beam_width`, `tie_margin`, `confidence_uses_descent_margin`, `sibling_aware_leaf`, `suppress_ancestor_only_groups`).
+Use direct Python API calls for the remaining knobs (`descendant_weighting`, `training_threshold`, `use_idf_in_descent`, `leave_one_out`, `correlation_aware_features`, `beam_width`, `descent_tie_margin`, `leaf_tie_margin`, `leaf_top_m`, `leaf_aggregation_mode`, `suppress_ancestor_only_groups`).
 
 ```bash
 # Tier 2: train models with different k values
@@ -307,11 +309,13 @@ results = classify(
     processors=8,
     bootstraps=50,
     beam_width=3,
-    tie_margin=0.05,
-    sibling_aware_leaf=True,
+    leaf_tie_margin=0.05,    # leaf-stage near-ties → alternatives + LCA cap
+    descent_tie_margin=0.0,  # keep descent strict; only widen on a separate sweep
     suppress_ancestor_only_groups=True,
 )
 ```
+
+`leaf_tie_margin` is the safer default-facing knob for production sweeps; `descent_tie_margin` is higher-risk and should be swept independently and only when `beam_width > 1`.
 
 **Tip:** Use `bootstraps=50` during sweeps for 2x speedup. The optimal threshold found at 50 bootstraps transfers directly to production at 100 bootstraps.
 

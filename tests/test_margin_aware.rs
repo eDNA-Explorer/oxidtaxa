@@ -1,12 +1,16 @@
 //! Flag-gated margin-aware classification tests.
 //!
-//! Covers `tie_margin`, `confidence_uses_descent_margin`, and
-//! `sibling_aware_leaf`. Each flag defaults to legacy behavior; these
-//! tests exercise both on and off to verify the guard holds.
+//! Covers `descent_tie_margin` and `leaf_tie_margin`. These tests exercise
+//! each stage-specific margin independently so descent widening and leaf
+//! reporting remain separate.
+
+mod common;
 
 use oxidtaxa::classify::id_taxa;
 use oxidtaxa::training::learn_taxa;
-use oxidtaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig, TrainingSet};
+use oxidtaxa::types::{
+    ClassifyConfig, LeafAggregationMode, OutputType, StrandMode, TrainConfig, TrainingSet,
+};
 
 /// Tree:
 ///   Root
@@ -28,7 +32,7 @@ use oxidtaxa::types::{ClassifyConfig, OutputType, StrandMode, TrainConfig, Train
 ///
 /// `Canis_lupus` and `Canis_latrans` share ~97% of their k-mers so their
 /// `tot_hits` scores are near-tied but not exact. This lets us distinguish
-/// `tie_margin = 0` (legacy) from `tie_margin > 0` in leaf-phase LCA capping.
+/// `leaf_tie_margin = 0` from `leaf_tie_margin > 0` in leaf-phase LCA capping.
 fn build_near_tied_training_set() -> TrainingSet {
     // ~200 bp of varied content; this is the "base" sequence.
     let base = "\
@@ -81,12 +85,12 @@ fn build_near_tied_training_set() -> TrainingSet {
 }
 
 // ============================================================================
-// tie_margin
+// leaf_tie_margin
 // ============================================================================
 
 #[test]
-fn test_tie_margin_zero_preserves_legacy() {
-    // With `tie_margin = 0.0`, only exact `tot_hits` equalities produce
+fn test_leaf_tie_margin_zero_reports_single_near_tie_winner() {
+    // With `leaf_tie_margin = 0.0`, only exact `tot_hits` equalities produce
     // alternatives. Near-tied Canis_lupus / Canis_latrans → single winner.
     let ts = build_near_tied_training_set();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
@@ -98,7 +102,7 @@ fn test_tie_margin_zero_preserves_legacy() {
     let names = vec!["q".to_string()];
 
     let config = ClassifyConfig {
-        tie_margin: 0.0,
+        leaf_tie_margin: 0.0,
         ..Default::default()
     };
     let results = id_taxa(
@@ -114,17 +118,19 @@ fn test_tie_margin_zero_preserves_legacy() {
 
     // Whether alternatives is empty or not depends on whether the randomized
     // bootstrap produces exact ties. What we care about is that flipping
-    // `tie_margin` from 0.0 to 0.10 can only *grow* the alternatives set:
-    // compare in the next test.
+    // `leaf_tie_margin` from 0.0 to 0.10 can only *grow* the alternatives
+    // set: compare in the next test. `leaf_widened_winners` must be 0 at
+    // the default since the relaxed-cutoff branch is skipped.
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].leaf_widened_winners, 0);
     let _ = results[0].alternatives.len();
 }
 
 #[test]
-fn test_tie_margin_catches_near_ties() {
-    // With `tie_margin = 0.10`, a near-tied sibling (Canis_latrans scoring
-    // within 90% of Canis_lupus's max) should be captured in alternatives,
-    // and the lineage truncated at Canis.
+fn test_leaf_tie_margin_catches_near_ties() {
+    // With `leaf_tie_margin = 0.10`, a near-tied sibling (Canis_latrans
+    // scoring within 90% of Canis_lupus's max) should be captured in
+    // alternatives, and the lineage truncated at Canis.
     let ts = build_near_tied_training_set();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -134,9 +140,9 @@ fn test_tie_margin_catches_near_ties() {
         .to_string()];
     let names = vec!["q".to_string()];
 
-    // Compute baseline alternatives count at tie_margin = 0.0.
+    // Compute baseline alternatives count at leaf_tie_margin = 0.0.
     let cfg_zero = ClassifyConfig {
-        tie_margin: 0.0,
+        leaf_tie_margin: 0.0,
         ..Default::default()
     };
     let base = id_taxa(
@@ -151,12 +157,12 @@ fn test_tie_margin_catches_near_ties() {
     );
     let base_alts = base[0].alternatives.len();
 
-    // At tie_margin = 0.10 the filter is v >= 0.9 * max_tot, which is a
+    // At leaf_tie_margin = 0.10 the filter is v >= 0.9 * max_tot, which is a
     // superset of v == max_tot — alternatives count can only grow or stay
     // the same, never shrink. And on this near-tied fixture we expect it to
     // grow to 2 (Canis_latrans joins Canis_lupus).
     let cfg_wide = ClassifyConfig {
-        tie_margin: 0.10,
+        leaf_tie_margin: 0.10,
         ..Default::default()
     };
     let wide = id_taxa(
@@ -171,13 +177,13 @@ fn test_tie_margin_catches_near_ties() {
     );
     assert!(
         wide[0].alternatives.len() >= base_alts,
-        "tie_margin=0.10 shrank alternatives ({} < {})",
+        "leaf_tie_margin=0.10 shrank alternatives ({} < {})",
         wide[0].alternatives.len(),
         base_alts
     );
     assert!(
         wide[0].alternatives.len() >= 2,
-        "expected ≥2 near-tied alternatives at tie_margin=0.10, got {:?}",
+        "expected ≥2 near-tied alternatives at leaf_tie_margin=0.10, got {:?}",
         wide[0].alternatives
     );
     assert!(
@@ -193,261 +199,160 @@ fn test_tie_margin_catches_near_ties() {
         "species leaked into taxon despite near-tie LCA cap: {:?}",
         wide[0].taxon
     );
+    // `leaf_widened_winners` increments only on NEAR-ties (`tot_hits[j] >=
+    // cutoff && tot_hits[j] != max_tot`). On this fixture the bootstrap
+    // produces exact-tied `tot_hits` for both Canis species, so they both
+    // sit at `max_tot` and the counter stays 0 — the relaxed cutoff is
+    // exercised but never beyond exact equality. The cross-knob independence
+    // is covered by `test_descent_only_leaf_zero_does_not_widen_winners`
+    // and `test_leaf_only_descent_zero_keeps_beam_count_at_zero`.
+    let _ = wide[0].leaf_widened_winners;
 }
 
-// ============================================================================
-// confidence_uses_descent_margin
-// ============================================================================
-
+/// Positive-direction coverage for `leaf_widened_winners`. Drives a real
+/// classification on a 3-near-tied-sibling configuration where the bootstrap
+/// produces non-byte-equal `tot_hits` for ≥2 groups but they're close enough
+/// that a generous `leaf_tie_margin = 0.5` admits at least one non-max group
+/// to `winners`. Without a positive-direction test, every existing assertion
+/// is `== 0` and the `+= 1` line at classify.rs:1340 is uncovered.
 #[test]
-fn test_descent_margin_default_off() {
-    // With the flag off (default), confidence values must match the no-flag
-    // path exactly. The golden classify tests already cover this at tolerance
-    // 5.0, so we just assert the knob exists and is default-false here.
-    let cfg = ClassifyConfig::default();
-    assert!(!cfg.confidence_uses_descent_margin);
-}
-
-#[test]
-fn test_descent_margin_on_never_raises_confidence() {
-    // Flipping `confidence_uses_descent_margin` ON multiplies each rank's
-    // confidence by a per-rank affine-remapped margin in `[0.82, 1.0]`
-    // (current semantic; pre-e287eb7 was a cumulative product floored at
-    // 0.1, see test_descent_margin_does_not_collapse_deep_ranks for the
-    // non-collapse contract). Per-rank multiplier ≤ 1.0, so each per-rank
-    // confidence can only shrink (or stay equal when every descent was
-    // unambiguous).
+fn test_leaf_widened_winners_counts_relaxed_admissions() {
     let ts = build_near_tied_training_set();
+    // Mid-divergence query: shares some signal with both Canis species AND
+    // with Vulpes/Felis (via the universal `ACGT...` content), creating a
+    // three-way leaf-phase competition where tot_hits won't all be at
+    // max_tot but some will land above the relaxed cutoff.
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
-         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         GGGGCCCCAAAATTTTGGGGCCCCAAAATTTTGGGGCCCC\
          TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
          CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
          AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
         .to_string()];
     let names = vec!["q".to_string()];
 
-    let cfg_off = ClassifyConfig::default();
-    let off = id_taxa(
-        &query,
-        &names,
-        &ts,
-        &cfg_off,
-        StrandMode::Top,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    let cfg_on = ClassifyConfig {
-        confidence_uses_descent_margin: true,
+    let cfg = ClassifyConfig {
+        leaf_tie_margin: 0.5,
+        // Lower threshold so the query doesn't fail Path-C on this synthetic
+        // mid-divergence setup.
+        threshold: 10.0,
         ..Default::default()
     };
-    let on = id_taxa(
+    let results = id_taxa(
         &query,
         &names,
         &ts,
-        &cfg_on,
+        &cfg,
         StrandMode::Top,
         OutputType::Extended,
         42,
         true,
     );
+    assert!(
+        results[0].leaf_widened_winners >= 1,
+        "expected >=1 leaf-widened admission with leaf_tie_margin=0.5 on \
+         mid-divergence query, got {}",
+        results[0].leaf_widened_winners
+    );
+}
 
-    assert_eq!(off.len(), 1);
-    assert_eq!(on.len(), 1);
-    let len = off[0].confidence.len().min(on[0].confidence.len());
-    for i in 0..len {
+/// Mathematical coverage of `beam_widened_runner_ups`. Demonstrates that
+/// the widening admission window is non-empty for realistic parameters
+/// and that the inner condition (gate passes AND votes < min_descend_floor) is
+/// distinguishable from non-widening admission cases.
+///
+/// We can't deterministically reproduce specific vote splits across the
+/// bootstrap RNG, so the integration-level `+= 1` fires only when the
+/// trained model + query happen to produce a split inside the narrow
+/// admission window. The math test below + Phase 1 truncation test
+/// + Phase 4 terminal-flag test together cover the counter mechanics; the
+/// `leaf_widened_winners` cross-knob baseline (below) provides positive
+/// integration-level evidence for the analogous leaf counter.
+#[test]
+fn test_beam_widening_admission_window_math() {
+    use oxidtaxa::classify::passes_descent_runner_up_gate;
+
+    // Scenario: b=10, min_descend=0.30, descent_tie_margin=0.95.
+    let b: usize = 10;
+    let min_descend = 0.30_f64;
+    let descent_tie_margin = 0.95_f64;
+    let min_descend_floor = (min_descend * b as f64) as usize;
+    assert_eq!(min_descend_floor, 3);
+
+    // Case A: Widening fires.
+    //   winner_votes=8, runner=2.
+    //   gate = 8 * 0.05 = 0.40 → 2 ≥ 0.40 ✓ (admitted)
+    //   2 < min_descend_floor=3 ✓ (widened)
+    let winner_a = 8;
+    let runner_a = 2;
+    assert!(passes_descent_runner_up_gate(
+        runner_a,
+        winner_a,
+        descent_tie_margin
+    ));
+    let widened_a = if runner_a < min_descend_floor { 1 } else { 0 };
+    assert_eq!(widened_a, 1, "case A must be a widening event");
+
+    // Case B: Admitted but NOT widened.
+    //   winner_votes=10, runner=4 (above min_descend_floor).
+    let winner_b = 10;
+    let runner_b = 4;
+    assert!(passes_descent_runner_up_gate(
+        runner_b,
+        winner_b,
+        descent_tie_margin
+    ));
+    let widened_b = if runner_b < min_descend_floor { 1 } else { 0 };
+    assert_eq!(widened_b, 0, "case B is admitted but not below floor");
+
+    // Case C: Below floor but gate rejects.
+    //   winner_votes=5, runner=2, descent_tie_margin=0.30.
+    //   gate = 5 * 0.70 = 3.5 → 2 < 3.5 ✗ (rejected at gate, no count).
+    let winner_c = 5;
+    let runner_c = 2;
+    let dtm_c = 0.30_f64;
+    assert!(!passes_descent_runner_up_gate(runner_c, winner_c, dtm_c));
+    // Counter wouldn't be reached — break before increment.
+}
+
+#[test]
+fn test_descent_only_leaf_zero_does_not_widen_winners() {
+    // First: prove the counter machinery DOES fire on this fixture so the
+    // `== 0` assertion below is falsifiable. Without this baseline, the
+    // test would pass even if the counter were hardcoded to 0.
+    {
+        let ts = build_near_tied_training_set();
+        let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+             GGGGCCCCAAAATTTTGGGGCCCCAAAATTTTGGGGCCCC\
+             TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+             CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+             AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string()];
+        let names = vec!["q".to_string()];
+        let cfg_baseline = ClassifyConfig {
+            leaf_tie_margin: 0.5,
+            threshold: 10.0,
+            ..Default::default()
+        };
+        let baseline = id_taxa(
+            &query,
+            &names,
+            &ts,
+            &cfg_baseline,
+            StrandMode::Top,
+            OutputType::Extended,
+            42,
+            true,
+        );
         assert!(
-            on[0].confidence[i] <= off[0].confidence[i] + 1e-6,
-            "rank {} confidence rose from {} (off) to {} (on)",
-            i,
-            off[0].confidence[i],
-            on[0].confidence[i]
+            baseline[0].leaf_widened_winners >= 1,
+            "fixture invariant broken: leaf_widened_winners must fire on \
+             this fixture when leaf_tie_margin > 0; got {}",
+            baseline[0].leaf_widened_winners
         );
     }
-}
 
-#[test]
-fn test_descent_margin_active_with_beam_width_3() {
-    // Regression guard for the empty-margins bug in the beam path.
-    //
-    // Previously (pre-fix) the beam path constructed an `empty_margins: Vec<f64>`
-    // at classify.rs:464 and passed it to `leaf_phase_score`, which then
-    // guarded on `!descent_margins.is_empty()` and silently did nothing.
-    // Result: `confidence_uses_descent_margin=true` was a no-op whenever
-    // `beam_width > 1`.
-    //
-    // We test this by comparing beam+margin-on output against greedy+margin-on
-    // output on a 1K benchmark dataset known to produce real margin discounts.
-    // If the beam wiring is broken, beam+margin-on would equal beam+margin-off,
-    // which in turn differs from greedy+margin-on. If the wiring is correct,
-    // beam and greedy margin-on will be within floating-point noise of each
-    // other at every reported rank (same descent path, same margins applied,
-    // same leaf).
-    use std::path::PathBuf;
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let data_dir = manifest_dir.join("benchmarks").join("data");
-    if !data_dir.join("bench_1000_ref.fasta").exists() {
-        eprintln!("skipping beam descent-margin plumbing test: benchmark data not present");
-        return;
-    }
-
-    use oxidtaxa::fasta::{read_fasta, read_taxonomy};
-    use oxidtaxa::sequence::remove_gaps;
-
-    let (ref_names, ref_seqs) =
-        read_fasta(data_dir.join("bench_1000_ref.fasta").to_str().unwrap()).unwrap();
-    let ref_tax = read_taxonomy(
-        data_dir
-            .join("bench_1000_ref_taxonomy.tsv")
-            .to_str()
-            .unwrap(),
-        &ref_names,
-    )
-    .unwrap();
-    // Minimal training-filter — mirror eval_training.rs.
-    let mut train_seqs = Vec::new();
-    let mut train_tax = Vec::new();
-    for (i, seq) in ref_seqs.iter().enumerate() {
-        let tax = &ref_tax[i];
-        let full_tax = format!("Root; {}", tax.replace(";", "; "));
-        let rank_count = full_tax.split("; ").count();
-        if rank_count < 4 || seq.len() < 30 {
-            continue;
-        }
-        train_seqs.push(seq.clone());
-        train_tax.push(full_tax);
-    }
-    let model = learn_taxa(&train_seqs, &train_tax, &TrainConfig::default(), 42, false).unwrap();
-
-    let (q_names, q_seqs) =
-        read_fasta(data_dir.join("bench_1000_query.fasta").to_str().unwrap()).unwrap();
-    let clean = remove_gaps(&q_seqs);
-    // Trim to the first 20 queries — enough to hit real margins without
-    // paying the full 500-query cost.
-    let queries: Vec<String> = clean.into_iter().take(20).collect();
-    let names: Vec<String> = q_names.into_iter().take(20).collect();
-
-    let cfg_greedy_on = ClassifyConfig {
-        beam_width: 1,
-        confidence_uses_descent_margin: true,
-        ..Default::default()
-    };
-    let greedy_on = id_taxa(
-        &queries,
-        &names,
-        &model,
-        &cfg_greedy_on,
-        StrandMode::Both,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    let cfg_beam_on = ClassifyConfig {
-        beam_width: 1, // still beam code path, but test with width=1 first
-        confidence_uses_descent_margin: true,
-        ..Default::default()
-    };
-    let _beam_width1_on = id_taxa(
-        &queries,
-        &names,
-        &model,
-        &cfg_beam_on,
-        StrandMode::Both,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    // The real plumbing test: beam_width=3 must also apply margins. Compare
-    // beam margin-on against beam margin-off — they must differ on at least
-    // one query's confidence vector, since this benchmark is known to
-    // produce margin discounts under greedy.
-    let cfg_beam3_off = ClassifyConfig {
-        beam_width: 3,
-        confidence_uses_descent_margin: false,
-        ..Default::default()
-    };
-    let beam3_off = id_taxa(
-        &queries,
-        &names,
-        &model,
-        &cfg_beam3_off,
-        StrandMode::Both,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    let cfg_beam3_on = ClassifyConfig {
-        beam_width: 3,
-        confidence_uses_descent_margin: true,
-        ..Default::default()
-    };
-    let beam3_on = id_taxa(
-        &queries,
-        &names,
-        &model,
-        &cfg_beam3_on,
-        StrandMode::Both,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    // Also verify greedy+margin-on actually does something on this dataset
-    // (anchor for the beam comparison).
-    let cfg_greedy_off = ClassifyConfig {
-        beam_width: 1,
-        confidence_uses_descent_margin: false,
-        ..Default::default()
-    };
-    let greedy_off = id_taxa(
-        &queries,
-        &names,
-        &model,
-        &cfg_greedy_off,
-        StrandMode::Both,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    let any_greedy_changed = greedy_off.iter().zip(greedy_on.iter()).any(|(a, b)| {
-        let len = a.confidence.len().min(b.confidence.len());
-        (0..len).any(|i| (a.confidence[i] - b.confidence[i]).abs() > 1e-6)
-    });
-    assert!(
-        any_greedy_changed,
-        "benchmark dataset does not produce margin discounts even under greedy"
-    );
-
-    let any_beam3_changed = beam3_off.iter().zip(beam3_on.iter()).any(|(a, b)| {
-        let len = a.confidence.len().min(b.confidence.len());
-        (0..len).any(|i| (a.confidence[i] - b.confidence[i]).abs() > 1e-6)
-    });
-    assert!(
-        any_beam3_changed,
-        "beam_width=3 + confidence_uses_descent_margin=true produced identical \
-         confidences to the flag-off path on a dataset where greedy + \
-         confidence_uses_descent_margin=true DID change them — the beam path \
-         is still ignoring margins (empty_margins regression)"
-    );
-}
-
-#[test]
-fn test_descent_margin_does_not_collapse_deep_ranks() {
-    // With per-rank (non-cumulative) application + affine remap to
-    // `[MARGIN_FLOOR=0.8, 1.0]`, the deepest rank's confidence is discounted
-    // by at most one multiplier ≥ 0.82 (`MARGIN_FLOOR + (1-MARGIN_FLOOR)·0.1
-    // = 0.82` at the lowest m=0.1). At typical tree depth L=4-6, this gives
-    // `0.82^L ∈ [0.45, 0.55]` worst-case — comfortably above 0.5. Under
-    // pre-e287eb7 cumulative-product semantics, 6-7 compounded margins could
-    // collapse to `0.1^6 ≈ 1e-6` — a collapse we explicitly guard against.
-    // Tighten the assertion to 0.5 so a regression to cumulative-product
-    // would actually fail the test (the prior 0.1 threshold passed under
-    // either semantic and couldn't distinguish them).
+    // Now: with descent_tie_margin > 0 but leaf_tie_margin = 0, the leaf
+    // counter must stay at 0 — the leaf cutoff branch is skipped entirely.
     let ts = build_near_tied_training_set();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -457,71 +362,72 @@ fn test_descent_margin_does_not_collapse_deep_ranks() {
         .to_string()];
     let names = vec!["q".to_string()];
 
-    let cfg_off = ClassifyConfig::default();
-    let off = id_taxa(
-        &query,
-        &names,
-        &ts,
-        &cfg_off,
-        StrandMode::Top,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    let cfg_on = ClassifyConfig {
-        confidence_uses_descent_margin: true,
+    let cfg = ClassifyConfig {
+        beam_width: 2,
+        descent_tie_margin: 0.20,
+        leaf_tie_margin: 0.0,
         ..Default::default()
     };
-    let on = id_taxa(
+    let results = id_taxa(
         &query,
         &names,
         &ts,
-        &cfg_on,
+        &cfg,
         StrandMode::Top,
         OutputType::Extended,
         42,
         true,
     );
 
-    assert_eq!(off.len(), 1);
-    assert_eq!(on.len(), 1);
+    assert_eq!(
+        results[0].leaf_widened_winners, 0,
+        "descent_tie_margin alone must not widen leaf-stage winners"
+    );
+}
 
-    // Compare the deepest rank where both paths reported a confidence.
-    let len = off[0].confidence.len().min(on[0].confidence.len());
-    assert!(len > 0);
-    let deepest_off = off[0].confidence[len - 1];
-    let deepest_on = on[0].confidence[len - 1];
-
-    // Skip the trivially-safe case where off was already near zero.
-    if deepest_off > 1.0 {
-        let ratio = deepest_on / deepest_off;
+#[test]
+fn test_leaf_only_descent_zero_keeps_beam_count_at_zero() {
+    // Falsifiability sanity: confirm the beam descent path is exercised on
+    // this fixture (beam_candidate_count >= 1 means at least one candidate
+    // reached leaf-phase scoring). Without this baseline, an `== 0`
+    // assertion below could pass even if beam descent never engaged.
+    // (Constructing a synthetic fixture that actually triggers
+    // `beam_widened_runner_ups += 1` is finicky; the math test
+    // `test_beam_widening_admission_window_math` covers the counter math.)
+    {
+        let ts = build_near_tied_training_set();
+        let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+             GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+             TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+             CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+             AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+            .to_string()];
+        let names = vec!["q".to_string()];
+        let cfg_baseline = ClassifyConfig {
+            beam_width: 2,
+            descent_tie_margin: 0.0,
+            ..Default::default()
+        };
+        let baseline = id_taxa(
+            &query,
+            &names,
+            &ts,
+            &cfg_baseline,
+            StrandMode::Top,
+            OutputType::Extended,
+            42,
+            true,
+        );
         assert!(
-            ratio >= 0.5 - 1e-6,
-            "deepest-rank confidence collapsed: off={}, on={}, ratio={} (< 0.5 — \
-             would only happen under pre-e287eb7 cumulative-product semantics)",
-            deepest_off,
-            deepest_on,
-            ratio
+            baseline[0].beam_candidate_count >= 1,
+            "fixture invariant broken: beam descent must reach leaf-phase \
+             scoring (beam_candidate_count >= 1); got {}",
+            baseline[0].beam_candidate_count,
         );
     }
-}
 
-// ============================================================================
-// sibling_aware_leaf
-// ============================================================================
-
-#[test]
-fn test_sibling_aware_leaf_default_off() {
-    let cfg = ClassifyConfig::default();
-    assert!(!cfg.sibling_aware_leaf);
-}
-
-#[test]
-fn test_sibling_aware_leaf_cannot_shrink_alternatives() {
-    // Flipping `sibling_aware_leaf` ON can only widen w_indices at leaf-parent
-    // descent sites, which can only add sibling evidence to `tot_hits` — so
-    // alternatives count is monotonically non-decreasing from off → on.
+    // Now: leaf_tie_margin > 0 widens leaf reporting but must NOT produce
+    // any beam-side widened admissions when descent_tie_margin = 0.0.
     let ts = build_near_tied_training_set();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
          GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
@@ -531,40 +437,26 @@ fn test_sibling_aware_leaf_cannot_shrink_alternatives() {
         .to_string()];
     let names = vec!["q".to_string()];
 
-    let cfg_off = ClassifyConfig::default();
-    let off = id_taxa(
-        &query,
-        &names,
-        &ts,
-        &cfg_off,
-        StrandMode::Top,
-        OutputType::Extended,
-        42,
-        true,
-    );
-
-    let cfg_on = ClassifyConfig {
-        sibling_aware_leaf: true,
+    let cfg = ClassifyConfig {
+        beam_width: 2,
+        descent_tie_margin: 0.0,
+        leaf_tie_margin: 0.10,
         ..Default::default()
     };
-    let on = id_taxa(
+    let results = id_taxa(
         &query,
         &names,
         &ts,
-        &cfg_on,
+        &cfg,
         StrandMode::Top,
         OutputType::Extended,
         42,
         true,
     );
 
-    assert_eq!(off.len(), 1);
-    assert_eq!(on.len(), 1);
-    assert!(
-        on[0].alternatives.len() >= off[0].alternatives.len(),
-        "sibling_aware_leaf=true shrank alternatives ({} < {})",
-        on[0].alternatives.len(),
-        off[0].alternatives.len()
+    assert_eq!(
+        results[0].beam_widened_runner_ups, 0,
+        "leaf_tie_margin alone must not widen beam-stage runner-ups"
     );
 }
 
@@ -1698,8 +1590,13 @@ fn test_use_idf_in_descent_serialization_roundtrip() {
     let ts_on = build_idf_descent_fixture(true);
     assert!(ts_on.use_idf_in_descent);
 
+    // Process-pid suffix avoids cross-test collisions when many test
+    // binaries run in parallel and share /tmp.
     let tmp_dir = std::env::temp_dir();
-    let path = tmp_dir.join("oxidtaxa_idf_descent_roundtrip.bin");
+    let path = tmp_dir.join(format!(
+        "oxidtaxa_idf_descent_roundtrip_{}.bin",
+        std::process::id()
+    ));
     let path_str = path.to_str().unwrap();
     ts_on.save(path_str).unwrap();
     let ts_loaded = TrainingSet::load(path_str).unwrap();
@@ -1810,4 +1707,49 @@ fn test_use_idf_in_descent_classify_smoke_test() {
     assert_eq!(r_beam.len(), 1);
     assert!(!r_beam[0].taxon.is_empty());
     assert_eq!(r_beam[0].taxon[0], "Root");
+}
+
+/// Kitchen-sink composition smoke test: enable every margin-aware /
+/// sibling-aware / IDF / leaf-top-M / suppression knob simultaneously
+/// against a near-tied fixture. Asserts the classifier doesn't panic and
+/// produces well-formed output (non-empty taxon, finite confidences). This
+/// catches mutual-exclusivity regressions that single-knob tests miss.
+#[test]
+fn test_kitchen_sink_composition_does_not_panic() {
+    let ts = build_near_tied_training_set();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         GCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         AAATTTAAATTTAAATTTAAATTTAAATTTAAATTTAAAT"
+        .to_string()];
+    let names = vec!["q".to_string()];
+
+    let cfg = ClassifyConfig {
+        beam_width: 2,
+        descent_tie_margin: 0.10,
+        leaf_tie_margin: 0.10,
+        leaf_top_m: 3,
+        leaf_aggregation_mode: LeafAggregationMode::TrimmedMean,
+        suppress_ancestor_only_groups: true,
+        bootstraps: 100,
+        ..Default::default()
+    };
+    let results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &cfg,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    assert!(!results.is_empty());
+    let r = &results[0];
+    assert!(!r.taxon.is_empty());
+    for &c in &r.confidence {
+        assert!(c.is_finite(), "non-finite confidence: {}", c);
+    }
 }
