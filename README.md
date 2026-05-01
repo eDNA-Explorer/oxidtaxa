@@ -39,6 +39,7 @@ train(
     use_idf_in_descent=False,          # IDF-weighted scoring during training/classify descent
     leave_one_out=False,               # per-kmer LOO during fraction learning (subtract held-out's contribution, renormalize)
     correlation_aware_features=False,  # greedy feature selection with redundancy penalty
+    correlation_penalty_strength=1.0,  # 0=no redundancy discount, 1=hard duplicate-profile penalty
     processors=1,                      # threads for tree construction + fraction learning
 )
 
@@ -154,7 +155,8 @@ Ranges below are intended operating ranges. The Python binding currently validat
 | **descendant_weighting** | "count" | count/equal/log | How to weight child profiles when computing the merged profile for cross-entropy feature selection. "count" = weight by raw descendant count (original IDTAXA). "equal" = 1/n_children each, preventing large clades from dominating feature selection. "log" = log(1+descendants), a middle ground. |
 | **use_idf_in_descent** | false | true/false | Multiply profile weights by rank-appropriate IDF weights during fraction-learning descent, and persist that setting on the model so classify-time descent uses the same scoring regime. Leaf-phase classification always uses IDF weights. |
 | **leave_one_out** | false | true/false | Per-kmer leave-one-out during fraction learning (one sequence held out at a time per descent iteration, matching the IDTAXA paper — no batched/multi-holdout variant). Subtracts the held-out sequence's contribution from the matching sibling's raw k-mer counts and renormalizes by the reduced total. Applied only when the matching child group has more than one sequence and a positive reduced total; classify-time scoring is unaffected. **Approximation note:** exact at leaf siblings and at internal siblings under `descendant_weighting=Count`; approximate at internal siblings under `Equal` or `Log` (treats the subtree as a flat collection of leaf-sequences, ignoring the weighting). |
-| **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. At each step, selects the k-mer maximizing `entropy * (1 - max_correlation_with_selected)` using **Bhattacharyya coefficient on L1-normalized sqrt profiles** as the redundancy metric (well-defined for any split size, including `n_children = 2` where Pearson degenerates). Slower training (O(R · C) per node, parallelized when n_cand >= 2048); no impact on classification speed. |
+| **correlation_aware_features** | false | true/false | Replace the default round-robin k-mer selection with greedy forward selection that penalizes redundant features. Uses **Bhattacharyya coefficient on L1-normalized sqrt profiles** as the redundancy metric (well-defined for any split size, including `n_children = 2` where Pearson degenerates). Slower training (O(R · C) per node, parallelized when n_cand >= 2048); no impact on classification speed. |
+| **correlation_penalty_strength** | 1.0 | 0.0-1.0 | Redundancy penalty strength when `correlation_aware_features=true`. At each step, selects the k-mer maximizing `entropy * (1 - correlation_penalty_strength * max_correlation_with_selected)`. `0.0` keeps greedy entropy selection without discounting duplicate-profile features; `1.0` is the original hard penalty. |
 | **processors** | 1 | 1+ | Number of threads. Parallelizes tree construction (sibling subtrees) and fraction learning (sequences within each iteration). |
 | **seed** | 42 | any u32 | PRNG seed for the training bootstrap loop. |
 | **verbose** | true | true/false | Accepted by the Python API for compatibility, but currently ignored by the Rust training core. Fraction-learning progress is emitted to stderr regardless of this setting. |
@@ -223,6 +225,7 @@ These are experimental improvements to the IDTAXA training algorithm. Each chang
 # Feature selection strategy
 descendant_weighting_values = ["count", "equal", "log"]
 correlation_aware_features = [False, True]
+correlation_penalty_strength = [0.0, 0.25, 0.5, 0.75, 1.0]  # when correlation_aware_features=True
 
 # Training/classification consistency
 training_threshold_values = [0.8, 0.9, 0.98]  # match min_descend for consistency
@@ -263,7 +266,7 @@ The repository's `train.py` and `classify.py` scripts are minimal helper CLIs. T
 - `train.py`: `--seed`, `--k`, `--record-kmers-fraction`, `--seed-pattern`
 - `classify.py`: `threshold`, `strand`, `min_descend`, `processors`, plus `--bootstraps`, `--sample-exponent`, `--seed`, `--deterministic`, `--length-normalize`, `--rank-thresholds`
 
-Use direct Python API calls for the remaining knobs (`descendant_weighting`, `training_threshold`, `use_idf_in_descent`, `leave_one_out`, `correlation_aware_features`, `beam_width`, `descent_tie_margin`, `leaf_tie_margin`, `leaf_top_m`, `leaf_aggregation_mode`, `suppress_ancestor_only_groups`).
+Use direct Python API calls for the remaining knobs (`descendant_weighting`, `training_threshold`, `use_idf_in_descent`, `leave_one_out`, `correlation_aware_features`, `correlation_penalty_strength`, `beam_width`, `descent_tie_margin`, `leaf_tie_margin`, `leaf_top_m`, `leaf_aggregation_mode`, `suppress_ancestor_only_groups`).
 
 ```bash
 # Tier 2: train models with different k values
@@ -297,6 +300,7 @@ train(
     use_idf_in_descent=True,
     leave_one_out=True,
     correlation_aware_features=True,
+    correlation_penalty_strength=0.5,
     training_threshold=0.98,
     processors=8,
 )

@@ -273,6 +273,7 @@ fn test_staged_training_equivalence() {
         record_kmers_fraction: 0.10,
         descendant_weighting: DescendantWeighting::Count,
         correlation_aware_features: false,
+        correlation_penalty_strength: 1.0,
         max_children: 200,
         processors: 1,
     };

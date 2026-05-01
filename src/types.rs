@@ -157,6 +157,7 @@ pub struct BuildTreeConfig {
     pub record_kmers_fraction: f64,
     pub descendant_weighting: DescendantWeighting,
     pub correlation_aware_features: bool,
+    pub correlation_penalty_strength: f64,
     pub max_children: usize,
     pub processors: usize,
 }
@@ -179,6 +180,7 @@ impl From<&TrainConfig> for BuildTreeConfig {
             record_kmers_fraction: c.record_kmers_fraction,
             descendant_weighting: c.descendant_weighting,
             correlation_aware_features: c.correlation_aware_features,
+            correlation_penalty_strength: c.correlation_penalty_strength,
             max_children: c.max_children,
             processors: c.processors,
         }
@@ -525,6 +527,13 @@ pub struct TrainConfig {
     /// per node (R = `record_kmers`, C = candidate pool size), parallelized
     /// when `n_cand >= 2048`. No impact on classify speed. Default false.
     pub correlation_aware_features: bool,
+    /// Strength of the redundancy penalty when `correlation_aware_features`
+    /// is true. The selected gain is
+    /// `entropy * (1 - correlation_penalty_strength * max_corr)`, clamped to
+    /// `[0, entropy]`. `0.0` keeps greedy entropy selection without a
+    /// redundancy discount; `1.0` is the original hard penalty where an
+    /// identical-profile feature has zero marginal gain. Default 1.0.
+    pub correlation_penalty_strength: f64,
     /// Number of threads for the rayon thread pool. Default 1.
     pub processors: usize,
 }
@@ -546,6 +555,7 @@ impl Default for TrainConfig {
             use_idf_in_descent: false,
             leave_one_out: false,
             correlation_aware_features: false,
+            correlation_penalty_strength: 1.0,
             processors: 1,
         }
     }

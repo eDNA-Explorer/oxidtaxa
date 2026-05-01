@@ -646,6 +646,69 @@ fn test_correlation_aware_changes_decision_kmers() {
 }
 
 #[test]
+fn test_correlation_penalty_strength_allows_repeated_strong_signal() {
+    let seqs = vec!["AAAAAC".to_string(), "GGGGGG".to_string()];
+    let tax = vec!["Root;A".to_string(), "Root;B".to_string()];
+
+    let hard = learn_taxa(
+        &seqs,
+        &tax,
+        &TrainConfig {
+            k: Some(1),
+            record_kmers_fraction: 1.0,
+            max_iterations: 0,
+            correlation_aware_features: true,
+            correlation_penalty_strength: 1.0,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
+    let soft = learn_taxa(
+        &seqs,
+        &tax,
+        &TrainConfig {
+            k: Some(1),
+            record_kmers_fraction: 1.0,
+            max_iterations: 0,
+            correlation_aware_features: true,
+            correlation_penalty_strength: 0.0,
+            ..Default::default()
+        },
+        42,
+        false,
+    )
+    .unwrap();
+
+    let hard_node = hard
+        .decision_kmers
+        .iter()
+        .flatten()
+        .find(|dk| dk.keep.len() == 2)
+        .expect("hard-penalty model should build a two-feature decision node");
+    let soft_node = soft
+        .decision_kmers
+        .iter()
+        .flatten()
+        .find(|dk| dk.keep.len() == 2)
+        .expect("soft-penalty model should build a two-feature decision node");
+
+    assert_ne!(
+        hard_node.keep, soft_node.keep,
+        "penalty strength should affect which correlated features survive"
+    );
+    assert_eq!(
+        soft_node.profiles[0][0], soft_node.profiles[0][1],
+        "with zero penalty, both retained features can carry the same child profile"
+    );
+    assert_eq!(
+        soft_node.profiles[1][0], soft_node.profiles[1][1],
+        "with zero penalty, both retained features can carry the same child profile"
+    );
+}
+
+#[test]
 fn test_correlation_aware_parallel_matches_sequential() {
     let (seqs, tax) = load_standard_data();
 

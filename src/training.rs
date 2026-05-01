@@ -1197,7 +1197,8 @@ fn create_tree(
             // Greedy forward selection: pick k-mers that maximize
             // conditional information gain, penalizing redundancy.
             //
-            // For each candidate, gain = base_entropy * (1 - max_corr_with_selected).
+            // For each candidate, gain =
+            // base_entropy * (1 - alpha * max_corr_with_selected).
             // Profile vectors across children serve as the feature representation.
             //
             // Uses struct-of-arrays with a flat contiguous matrix for cache-friendly
@@ -1278,6 +1279,11 @@ fn create_tree(
             let n_cand = sorted_kmer_indices.len();
             let mut is_selected = vec![false; n_cand];
             let mut result_set = HashSet::new();
+            let corr_alpha = if config.correlation_penalty_strength.is_finite() {
+                config.correlation_penalty_strength.clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
 
             // Per-candidate running-max correlation against all selected features so far.
             // Updated incrementally: each outer iteration adds exactly one correlation
@@ -1307,7 +1313,8 @@ fn create_tree(
                         .into_par_iter()
                         .filter(|&ci| !is_selected[ci])
                         .map(|ci| {
-                            let gain = sorted_entropies[ci] * (1.0 - max_corr[ci]);
+                            let gain =
+                                sorted_entropies[ci] * (1.0 - corr_alpha * max_corr[ci]).max(0.0);
                             (ci, gain)
                         })
                         .reduce(
@@ -1342,7 +1349,7 @@ fn create_tree(
                         if base_h <= best_gain {
                             break;
                         }
-                        let gain = base_h * (1.0 - max_corr[ci]);
+                        let gain = base_h * (1.0 - corr_alpha * max_corr[ci]).max(0.0);
                         if gain > best_gain {
                             best_gain = gain;
                             best_ci = Some(ci);

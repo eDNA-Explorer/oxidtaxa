@@ -78,6 +78,7 @@ mod python_bindings {
         seed_pattern = None, training_threshold = 0.8,
         descendant_weighting = "count", use_idf_in_descent = false,
         leave_one_out = false, correlation_aware_features = false,
+        correlation_penalty_strength = 1.0,
         processors = 1,
         diagnostics_path = None,
     ))]
@@ -97,9 +98,17 @@ mod python_bindings {
         use_idf_in_descent: bool,
         leave_one_out: bool,
         correlation_aware_features: bool,
+        correlation_penalty_strength: f64,
         processors: usize,
         diagnostics_path: Option<String>,
     ) -> PyResult<()> {
+        if !(0.0..=1.0).contains(&correlation_penalty_strength)
+            || !correlation_penalty_strength.is_finite()
+        {
+            return Err(PyValueError::new_err(
+                "correlation_penalty_strength must be a finite value in [0, 1]",
+            ));
+        }
         let (names, seqs) =
             crate::fasta::read_fasta(fasta_path).map_err(|e| PyValueError::new_err(e))?;
 
@@ -119,6 +128,7 @@ mod python_bindings {
             use_idf_in_descent,
             leave_one_out,
             correlation_aware_features,
+            correlation_penalty_strength,
             processors,
             ..Default::default()
         };
@@ -358,6 +368,7 @@ mod python_bindings {
     #[pyo3(signature = (
         prepared, record_kmers_fraction = 0.10, descendant_weighting = "count",
         correlation_aware_features = false,
+        correlation_penalty_strength = 1.0,
         processors = 1,
         diagnostics_path = None,
     ))]
@@ -367,14 +378,23 @@ mod python_bindings {
         record_kmers_fraction: f64,
         descendant_weighting: &str,
         correlation_aware_features: bool,
+        correlation_penalty_strength: f64,
         processors: usize,
         diagnostics_path: Option<String>,
     ) -> PyResult<PyBuiltTree> {
+        if !(0.0..=1.0).contains(&correlation_penalty_strength)
+            || !correlation_penalty_strength.is_finite()
+        {
+            return Err(PyValueError::new_err(
+                "correlation_penalty_strength must be a finite value in [0, 1]",
+            ));
+        }
         let dw = parse_descendant_weighting(descendant_weighting)?;
         let config = crate::types::BuildTreeConfig {
             record_kmers_fraction,
             descendant_weighting: dw,
             correlation_aware_features,
+            correlation_penalty_strength,
             max_children: 200,
             processors,
         };
