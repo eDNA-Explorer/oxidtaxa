@@ -1580,6 +1580,20 @@ fn test_use_idf_in_descent_training_completes() {
     assert!(!ts_on.idf_weights_by_rank.is_empty());
     let any_decision = ts_on.decision_kmers.iter().any(|d| d.is_some());
     assert!(any_decision, "expected at least one decision-kmer node");
+    for dk in ts_on.decision_kmers.iter().flatten() {
+        assert_eq!(
+            dk.weighted_profiles.len(),
+            dk.profiles.len(),
+            "IDF-descent models must persist one weighted row per profile row"
+        );
+        for (weighted, raw) in dk.weighted_profiles.iter().zip(dk.profiles.iter()) {
+            assert_eq!(
+                weighted.len(),
+                raw.len(),
+                "weighted profile rows must stay aligned to raw profile rows"
+            );
+        }
+    }
 }
 
 #[test]

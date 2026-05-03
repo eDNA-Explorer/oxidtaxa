@@ -242,38 +242,14 @@ fn classify_one_pass(
             let sampling = rng.sample_int_replace(n, s_dk * b);
             let matches = int_match(&dk.keep, my_kmers);
             let n_sub = subtrees.len();
-            // When the trained model recorded `use_idf_in_descent = true`,
-            // multiply per-child profile values by the rank-appropriate IDF
-            // row, mirroring training-side descent at training.rs:462-481.
-            // `idf_row` selection runs once per descent step; per-child
-            // weights are built only when the flag is set.
-            let idf_row: Option<&[f64]> = if ts.use_idf_in_descent {
-                Some(crate::training::idf_row_for_depth(
-                    &ts.idf_weights_by_rank,
-                    ts.levels[k_node],
-                ))
+            let profiles = if ts.use_idf_in_descent {
+                &dk.weighted_profiles
             } else {
-                None
+                &dk.profiles
             };
             let mut hits_flat = vec![0.0f64; n_sub * b];
             for j in 0..n_sub {
-                let row = if let Some(idf_row) = idf_row {
-                    let weights_j: Vec<f64> = dk.profiles[j]
-                        .iter()
-                        .zip(dk.keep.iter())
-                        .map(|(&prof, &km)| {
-                            let idf = if km > 0 && (km as usize) <= idf_row.len() {
-                                idf_row[(km - 1) as usize]
-                            } else {
-                                0.0
-                            };
-                            prof * idf
-                        })
-                        .collect();
-                    vector_sum(&matches, &weights_j, &sampling, b)
-                } else {
-                    vector_sum(&matches, &dk.profiles[j], &sampling, b)
-                };
+                let row = vector_sum(&matches, &profiles[j], &sampling, b);
                 hits_flat[j * b..(j + 1) * b].copy_from_slice(&row);
             }
             let mut vote_counts = vec![0usize; n_sub];
@@ -573,35 +549,14 @@ fn classify_one_pass_beam(
             let matches = int_match(&dk.keep, my_kmers);
 
             let n_sub = subtrees.len();
-            // Mirror greedy: apply rank-appropriate IDF to per-child profile
-            // values when the trained model recorded `use_idf_in_descent = true`.
-            let idf_row: Option<&[f64]> = if ts.use_idf_in_descent {
-                Some(crate::training::idf_row_for_depth(
-                    &ts.idf_weights_by_rank,
-                    ts.levels[k_node],
-                ))
+            let profiles = if ts.use_idf_in_descent {
+                &dk.weighted_profiles
             } else {
-                None
+                &dk.profiles
             };
             let mut hits_flat = vec![0.0f64; n_sub * b];
             for j in 0..n_sub {
-                let row = if let Some(idf_row) = idf_row {
-                    let weights_j: Vec<f64> = dk.profiles[j]
-                        .iter()
-                        .zip(dk.keep.iter())
-                        .map(|(&prof, &km)| {
-                            let idf = if km > 0 && (km as usize) <= idf_row.len() {
-                                idf_row[(km - 1) as usize]
-                            } else {
-                                0.0
-                            };
-                            prof * idf
-                        })
-                        .collect();
-                    vector_sum(&matches, &weights_j, &sampling, b)
-                } else {
-                    vector_sum(&matches, &dk.profiles[j], &sampling, b)
-                };
+                let row = vector_sum(&matches, &profiles[j], &sampling, b);
                 hits_flat[j * b..(j + 1) * b].copy_from_slice(&row);
             }
             let mut vote_counts = vec![0usize; n_sub];

@@ -456,6 +456,10 @@ fn test_leave_one_out_kmer_specificity() {
             dk.profiles.len(),
             "raw_counts row count must match profiles row count"
         );
+        assert!(
+            dk.weighted_profiles.is_empty(),
+            "raw-descent models should not persist duplicate weighted profiles"
+        );
         assert_eq!(
             dk.raw_totals.len(),
             dk.profiles.len(),

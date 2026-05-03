@@ -735,6 +735,8 @@ fn _learn_fractions_inner(
 
     let (avg_n_unique_per_node, avg_n_unique_global) = compute_avg_unique_per_node(prepared);
 
+    let decision_kmers = decision_kmers_for_model(prepared, built_tree, config.use_idf_in_descent);
+
     Ok(TrainingSet {
         taxonomy: prepared.taxonomy.clone(),
         taxa: prepared.taxa.clone(),
@@ -747,7 +749,7 @@ fn _learn_fractions_inner(
         kmers: prepared.kmers.clone(),
         cross_index: prepared.cross_index.clone(),
         k: prepared.k,
-        decision_kmers: built_tree.decision_kmers.clone(),
+        decision_kmers,
         problem_sequences,
         problem_groups,
         seed_pattern: prepared.seed_pattern.clone(),
@@ -758,6 +760,62 @@ fn _learn_fractions_inner(
         avg_n_unique_per_node,
         avg_n_unique_global,
     })
+}
+
+fn decision_kmers_for_model(
+    prepared: &PreparedData,
+    built_tree: &BuiltTree,
+    use_idf_in_descent: bool,
+) -> Vec<Option<DecisionNode>> {
+    built_tree
+        .decision_kmers
+        .iter()
+        .enumerate()
+        .map(|(node, dk)| {
+            dk.as_ref().map(|dk| {
+                let weighted_profiles = if use_idf_in_descent {
+                    weighted_profiles_for_node(
+                        &dk.keep,
+                        &dk.profiles,
+                        idf_row_for_depth(&prepared.idf_weights_by_rank, prepared.levels[node]),
+                    )
+                } else {
+                    Vec::new()
+                };
+                DecisionNode {
+                    keep: dk.keep.clone(),
+                    profiles: dk.profiles.clone(),
+                    weighted_profiles,
+                    raw_counts: dk.raw_counts.clone(),
+                    raw_totals: dk.raw_totals.clone(),
+                }
+            })
+        })
+        .collect()
+}
+
+fn weighted_profiles_for_node(
+    keep: &[i32],
+    profiles: &[Vec<f64>],
+    idf_row: &[f64],
+) -> Vec<Vec<f64>> {
+    profiles
+        .iter()
+        .map(|profile| {
+            profile
+                .iter()
+                .zip(keep.iter())
+                .map(|(&prof, &km)| {
+                    let idf = if km > 0 && (km as usize) <= idf_row.len() {
+                        idf_row[(km - 1) as usize]
+                    } else {
+                        0.0
+                    };
+                    prof * idf
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// Compute the mean unique-k-mer count of training sequences in each node's
@@ -1484,6 +1542,7 @@ fn create_tree(
             DecisionNode {
                 keep: keep_indices,
                 profiles: selected_profiles,
+                weighted_profiles: Vec::new(),
                 raw_counts: selected_raw_counts,
                 raw_totals: raw_totals_children.clone(),
             },

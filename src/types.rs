@@ -8,6 +8,10 @@ pub struct DecisionNode {
     pub keep: Vec<i32>,
     /// Profile matrix: rows = child subtrees, cols = kept k-mers.
     pub profiles: Vec<Vec<f64>>,
+    /// IDF-weighted profile matrix for classify-time descent when
+    /// `TrainingSet.use_idf_in_descent = true`. Rows/cols align with
+    /// `profiles`; empty when the model was trained with raw descent profiles.
+    pub weighted_profiles: Vec<Vec<f64>>,
     /// Raw sequence counts per child subtree, aligned with `keep`.
     /// `raw_counts[j][k]` = number of leaf-sequences in child subtree `j`
     /// that contain `keep[k]`. Used by leave-one-out at fraction-learning
