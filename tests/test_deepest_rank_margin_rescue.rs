@@ -176,12 +176,22 @@ fn deepest_rank_diagnostics_serde_defaults_and_round_trip() {
     let default_json = serde_json::to_string(&ClassificationResult::default()).unwrap();
     assert!(!default_json.contains("deepest_rank_acceptance_mode"));
     assert!(!default_json.contains("deepest_rank_challenge_margin_delta"));
+    assert!(!default_json.contains("deepest_rank_challenge_selected_path"));
+    assert!(!default_json.contains("deepest_rank_stop_reason"));
+    assert!(!default_json.contains("deepest_rank_top_k"));
+    assert!(!default_json.contains("failed_rank_top_k"));
+    assert!(!default_json.contains("rank_trace"));
     assert!(!default_json.contains("leaf_margin_candidate_count"));
 
     let old_json = r#"{"taxon":["Root"],"confidence":[0.0]}"#;
     let old: ClassificationResult = serde_json::from_str(old_json).unwrap();
     assert_eq!(old.deepest_rank_acceptance_mode, None);
     assert_eq!(old.deepest_rank_challenge_candidate_count, None);
+    assert_eq!(old.deepest_rank_challenge_selected_path, None);
+    assert_eq!(old.deepest_rank_stop_reason, None);
+    assert!(old.deepest_rank_top_k.is_none());
+    assert!(old.failed_rank_top_k.is_none());
+    assert!(old.rank_trace.is_empty());
 
     let mut populated = ClassificationResult::default();
     populated.deepest_rank_acceptance_mode = Some("margin_rescue".to_string());
@@ -192,8 +202,38 @@ fn deepest_rank_diagnostics_serde_defaults_and_round_trip() {
     populated.deepest_rank_challenge_margin_delta = Some(20.0);
     populated.deepest_rank_challenge_margin_ratio = Some(38.0 / 18.0);
     populated.deepest_rank_challenge_candidate_count = Some(2);
+    populated.deepest_rank_challenge_selected_path =
+        Some("Root; Kingdom; Phylum; Class; Order; Genus; target".to_string());
+    populated.deepest_rank_challenge_runner_up_path =
+        Some("Root; Kingdom; Phylum; Class; Order; Genus; sibling".to_string());
+    populated.deepest_rank_stop_reason = Some("deepest_threshold_failed".to_string());
+    populated.deepest_rank_top_k = Some(oxidtaxa::types::DeepestRankTopK {
+        paths: vec![
+            "Root; Kingdom; Phylum; Class; Order; Genus; target".to_string(),
+            "Root; Kingdom; Phylum; Class; Order; Genus; sibling".to_string(),
+        ],
+        confidences: vec![Some(38.0), Some(18.0)],
+        entropy: Some(0.626_869),
+        effective_n: Some(1.871),
+    });
+    populated.failed_rank_top_k = populated.deepest_rank_top_k.clone();
+    populated.rank_trace = vec![oxidtaxa::types::RankTraceRow {
+        rank: "rank_6".to_string(),
+        selected_path: "Root; Kingdom; Phylum; Class; Order; Genus; target".to_string(),
+        selected_confidence: Some(38.0),
+        threshold: Some(55.0),
+        passed_threshold: false,
+        runner_up_path: Some("Root; Kingdom; Phylum; Class; Order; Genus; sibling".to_string()),
+        runner_up_confidence: Some(18.0),
+        stop_reason: Some("failed_threshold".to_string()),
+    }];
     let json = serde_json::to_string(&populated).unwrap();
     assert!(json.contains("deepest_rank_acceptance_mode"));
+    assert!(json.contains("deepest_rank_challenge_selected_path"));
+    assert!(json.contains("deepest_rank_stop_reason"));
+    assert!(json.contains("deepest_rank_top_k"));
+    assert!(json.contains("failed_rank_top_k"));
+    assert!(json.contains("rank_trace"));
     assert!(!json.contains("Infinity"));
     assert!(!json.contains("NaN"));
     let round_trip: ClassificationResult = serde_json::from_str(&json).unwrap();
@@ -202,6 +242,29 @@ fn deepest_rank_diagnostics_serde_defaults_and_round_trip() {
         Some("margin_rescue")
     );
     assert_eq!(round_trip.deepest_rank_challenge_candidate_count, Some(2));
+    assert_eq!(
+        round_trip.deepest_rank_challenge_selected_path.as_deref(),
+        Some("Root; Kingdom; Phylum; Class; Order; Genus; target")
+    );
+    assert_eq!(
+        round_trip.deepest_rank_stop_reason.as_deref(),
+        Some("deepest_threshold_failed")
+    );
+    assert_eq!(
+        round_trip
+            .deepest_rank_top_k
+            .as_ref()
+            .map(|top_k| top_k.paths.len()),
+        Some(2)
+    );
+    assert_eq!(
+        round_trip
+            .failed_rank_top_k
+            .as_ref()
+            .map(|top_k| top_k.paths.len()),
+        Some(2)
+    );
+    assert_eq!(round_trip.rank_trace.len(), 1);
 }
 
 fn build_clear_sibling_training_set() -> TrainingSet {
@@ -278,6 +341,189 @@ fn deepest_rank_margin_rescue_accepts_clear_terminal_sibling_challenge() {
         result.taxon.contains(&"target".to_string()),
         "{:?}",
         result.taxon
+    );
+    assert_eq!(
+        result.deepest_rank_challenge_selected_path.as_deref(),
+        Some("Root;Kingdom;Phylum;Class;Order;Genus;target;")
+    );
+    assert!(
+        result
+            .deepest_rank_challenge_runner_up_path
+            .as_deref()
+            .is_some_and(|p| p.starts_with("Root;Kingdom;Phylum;Class;Order;Genus;sibling")),
+        "{:?}",
+        result.deepest_rank_challenge_runner_up_path
+    );
+    assert_eq!(
+        result.deepest_rank_stop_reason.as_deref(),
+        Some("deepest_threshold_failed")
+    );
+}
+
+#[test]
+fn deepest_rank_diagnostics_collects_challenge_without_rescuing() {
+    let ts = build_clear_sibling_training_set();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         GATCGATCGATCGATCGATCGATCGATCGATCGATCGATC"
+        .to_string()];
+    let names = vec!["q".to_string()];
+    let baseline = ClassifyConfig {
+        rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.0]),
+        deepest_rank_margin_floor: None,
+        ..Default::default()
+    };
+    let diagnostic = ClassifyConfig {
+        deepest_rank_diagnostics: true,
+        deepest_rank_diagnostic_top_k: 5,
+        rank_trace_diagnostics: true,
+        ..baseline.clone()
+    };
+
+    let baseline_results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &baseline,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let diagnostic_results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &diagnostic,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    let baseline_result = &baseline_results[0];
+    let diagnostic_result = &diagnostic_results[0];
+    assert_eq!(diagnostic_result.taxon, baseline_result.taxon);
+    assert!(baseline_result.deepest_rank_top_k.is_none());
+    assert!(baseline_result.failed_rank_top_k.is_none());
+    assert!(baseline_result.rank_trace.is_empty());
+    assert!(
+        !diagnostic_result.taxon.contains(&"target".to_string()),
+        "{:?}",
+        diagnostic_result.taxon
+    );
+    assert_eq!(
+        diagnostic_result.deepest_rank_acceptance_mode.as_deref(),
+        Some("rejected")
+    );
+    assert_eq!(
+        diagnostic_result
+            .deepest_rank_margin_rejection_reason
+            .as_deref(),
+        Some("rescue_disabled")
+    );
+    assert_eq!(
+        diagnostic_result.deepest_rank_stop_reason.as_deref(),
+        Some("deepest_threshold_failed")
+    );
+    assert_eq!(
+        diagnostic_result
+            .deepest_rank_challenge_selected_path
+            .as_deref(),
+        Some("Root;Kingdom;Phylum;Class;Order;Genus;target;")
+    );
+    assert!(diagnostic_result
+        .deepest_rank_challenge_runner_up_path
+        .is_some());
+    assert!(diagnostic_result
+        .deepest_rank_challenge_original_selection_confidence
+        .is_some());
+    assert!(diagnostic_result
+        .deepest_rank_challenge_runner_up_confidence
+        .is_some());
+    let top_k = diagnostic_result
+        .deepest_rank_top_k
+        .as_ref()
+        .expect("top-k diagnostics should be populated");
+    assert!(!top_k.paths.is_empty());
+    assert_eq!(
+        top_k.paths[0],
+        diagnostic_result
+            .deepest_rank_challenge_selected_path
+            .clone()
+            .unwrap()
+    );
+    assert_eq!(
+        top_k.confidences[0],
+        diagnostic_result.deepest_rank_challenge_original_selection_confidence
+    );
+    assert_eq!(
+        top_k.paths.get(1),
+        diagnostic_result
+            .deepest_rank_challenge_runner_up_path
+            .as_ref()
+    );
+    assert!(top_k.entropy.is_some());
+    assert!(top_k.effective_n.is_some());
+    let failed_top_k = diagnostic_result
+        .failed_rank_top_k
+        .as_ref()
+        .expect("failed-rank top-k diagnostics should be populated");
+    assert!(!failed_top_k.paths.is_empty());
+    assert!(!diagnostic_result.rank_trace.is_empty());
+    assert!(diagnostic_result
+        .rank_trace
+        .iter()
+        .any(|row| row.stop_reason.as_deref() == Some("failed_threshold")));
+}
+
+#[test]
+fn failed_rank_top_k_populates_for_shallower_threshold_failure() {
+    let ts = build_clear_sibling_training_set();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         GATCGATCGATCGATCGATCGATCGATCGATCGATCGATC"
+        .to_string()];
+    let names = vec!["q".to_string()];
+    let config = ClassifyConfig {
+        rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 101.0, 0.0]),
+        deepest_rank_diagnostics: true,
+        deepest_rank_diagnostic_top_k: 5,
+        rank_trace_diagnostics: true,
+        deepest_rank_margin_floor: None,
+        ..Default::default()
+    };
+
+    let results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let result = &results[0];
+    assert_eq!(
+        result.deepest_rank_stop_reason.as_deref(),
+        Some("shallower_threshold_failed")
+    );
+    assert!(result.deepest_rank_top_k.is_none());
+    let failed_top_k = result
+        .failed_rank_top_k
+        .as_ref()
+        .expect("failed-rank top-k should be populated for upstream threshold failure");
+    assert!(!failed_top_k.paths.is_empty());
+    assert_eq!(
+        result
+            .rank_trace
+            .iter()
+            .filter(|row| row.stop_reason.as_deref() == Some("failed_threshold"))
+            .count(),
+        1
     );
 }
 

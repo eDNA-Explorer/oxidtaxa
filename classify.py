@@ -20,6 +20,8 @@ def main() -> None:
     parser.add_argument("processors", type=int)
     parser.add_argument("--bootstraps", type=int, default=100)
     parser.add_argument("--sample-exponent", type=float, default=0.47)
+    parser.add_argument("--disable-bootstrap-coverage-cap", action="store_true",
+                        help="Use the configured bootstrap count for every query")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--deterministic", action="store_true")
     parser.add_argument("--length-normalize", action="store_true",
@@ -42,6 +44,7 @@ def main() -> None:
         min_descend=args.min_descend,
         processors=args.processors,
         sample_exponent=args.sample_exponent,
+        bootstrap_coverage_cap=not args.disable_bootstrap_coverage_cap,
         seed=args.seed,
         deterministic=args.deterministic,
         length_normalize=args.length_normalize,

@@ -206,6 +206,28 @@ impl From<&TrainConfig> for LearnFractionsConfig {
     }
 }
 
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DeepestRankTopK {
+    pub paths: Vec<String>,
+    pub confidences: Vec<Option<f64>>,
+    pub entropy: Option<f64>,
+    pub effective_n: Option<f64>,
+}
+
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RankTraceRow {
+    pub rank: String,
+    pub selected_path: String,
+    pub selected_confidence: Option<f64>,
+    pub threshold: Option<f64>,
+    pub passed_threshold: bool,
+    pub runner_up_path: Option<String>,
+    pub runner_up_confidence: Option<f64>,
+    pub stop_reason: Option<String>,
+}
+
 /// Classification result for a single query sequence.
 #[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -327,6 +349,18 @@ pub struct ClassificationResult {
     pub deepest_rank_challenge_margin_ratio: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deepest_rank_challenge_candidate_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_challenge_selected_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_challenge_runner_up_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_stop_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepest_rank_top_k: Option<DeepestRankTopK>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_rank_top_k: Option<DeepestRankTopK>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rank_trace: Vec<RankTraceRow>,
 }
 
 impl Default for ClassificationResult {
@@ -361,6 +395,12 @@ impl Default for ClassificationResult {
             deepest_rank_challenge_margin_delta: None,
             deepest_rank_challenge_margin_ratio: None,
             deepest_rank_challenge_candidate_count: None,
+            deepest_rank_challenge_selected_path: None,
+            deepest_rank_challenge_runner_up_path: None,
+            deepest_rank_stop_reason: None,
+            deepest_rank_top_k: None,
+            failed_rank_top_k: None,
+            rank_trace: Vec::new(),
         }
     }
 }
@@ -585,10 +625,15 @@ pub struct ClassifyConfig {
     /// guard reflects the unique-signal floor, so a low-complexity query (many
     /// repeated k-mers) is correctly caught.
     ///
-    /// Implicit Pareto knob: classify-time bootstraps are capped at
-    /// `b = min(5L/S, bootstraps)`, so lowering `sample_exponent` lets `b`
-    /// climb toward the configured cap.
+    /// When `bootstrap_coverage_cap` is enabled, classify-time bootstraps are
+    /// capped at `b = min(5L/S, bootstraps)`, so lowering `sample_exponent`
+    /// lets `b` climb toward the configured cap.
     pub sample_exponent: f64,
+    /// Preserve DECIPHER's query-kmer coverage cap on bootstrap replicates.
+    /// When true, the actual replicate count is `min(5L/S, bootstraps)` where
+    /// `L` is the query's unique k-mer count and `S` is the per-replicate
+    /// sample size. When false, every query uses exactly `bootstraps`.
+    pub bootstrap_coverage_cap: bool,
     /// Normalize per-reference leaf-phase scores by `sqrt(n_unique / avg)`,
     /// where `n_unique` is the unique-k-mer count of the training sequence
     /// (after seed/dedup) and `avg` is the keep-local mean unique-k-mer count
@@ -696,6 +741,17 @@ pub struct ClassifyConfig {
     /// near-ties using the same relaxed cutoff as the post-bootstrap winner
     /// stage.
     pub suppress_ancestor_only_groups: bool,
+    /// When true, compute deepest-rank challenge diagnostics without changing
+    /// the emitted classification. Margin rescue remains controlled solely by
+    /// `deepest_rank_margin_floor`.
+    pub deepest_rank_diagnostics: bool,
+    /// Number of deepest-rank challenge candidates to retain in the optional
+    /// diagnostic payload. Zero disables top-k collection. Populated only when
+    /// the deepest-rank threshold challenge actually runs.
+    pub deepest_rank_diagnostic_top_k: usize,
+    /// When true, record a compact per-rank selected-confidence/threshold
+    /// trace reconstructed after classification. Does not affect descent.
+    pub rank_trace_diagnostics: bool,
     /// Experimental deepest-rank margin rescue floor on the 0-100 confidence
     /// scale. `None` disables rescue.
     pub deepest_rank_margin_floor: Option<f64>,
@@ -720,6 +776,7 @@ impl Default for ClassifyConfig {
             min_descend: 0.98,
             processors: 1,
             sample_exponent: 0.47,
+            bootstrap_coverage_cap: true,
             length_normalize: false,
             rank_thresholds: None,
             beam_width: 1,
@@ -728,6 +785,9 @@ impl Default for ClassifyConfig {
             leaf_top_m: 1,
             leaf_aggregation_mode: LeafAggregationMode::Mean,
             suppress_ancestor_only_groups: false,
+            deepest_rank_diagnostics: false,
+            deepest_rank_diagnostic_top_k: 0,
+            rank_trace_diagnostics: false,
             deepest_rank_margin_floor: None,
             deepest_rank_margin_min_delta: 15.0,
             deepest_rank_margin_min_ratio: 2.0,
@@ -769,6 +829,12 @@ impl ClassifyConfig {
                     v
                 ));
             }
+        }
+        if self.deepest_rank_diagnostic_top_k > 50 {
+            return Err(format!(
+                "deepest_rank_diagnostic_top_k must be <= 50, got {}",
+                self.deepest_rank_diagnostic_top_k
+            ));
         }
         Ok(())
     }

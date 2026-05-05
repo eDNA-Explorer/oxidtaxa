@@ -5,7 +5,8 @@ use crate::matching::{int_match, parallel_match, parallel_match_inverted, vector
 use crate::rng::RRng;
 use crate::sequence::reverse_complement;
 use crate::types::{
-    ClassificationResult, ClassifyConfig, LeafAggregationMode, OutputType, StrandMode, TrainingSet,
+    ClassificationResult, ClassifyConfig, DeepestRankTopK, LeafAggregationMode, OutputType,
+    RankTraceRow, StrandMode, TrainingSet,
 };
 
 /// Pre-computed per-sequence data shared across classification calls.
@@ -133,13 +134,7 @@ fn precompute(
         .iter()
         .zip(s_values.iter())
         .map(|(km, &s)| {
-            if s == 0 {
-                bootstraps
-            } else {
-                (5.0 * km.len() as f64 / s as f64)
-                    .min(bootstraps as f64)
-                    .max(1.0) as usize
-            }
+            effective_bootstrap_replicates(km.len(), s, bootstraps, config.bootstrap_coverage_cap)
         })
         .collect();
 
@@ -186,6 +181,21 @@ fn precompute(
         boths,
         boths_map,
         ls,
+    }
+}
+
+fn effective_bootstrap_replicates(
+    unique_kmer_count: usize,
+    sample_size: usize,
+    bootstraps: usize,
+    bootstrap_coverage_cap: bool,
+) -> usize {
+    if !bootstrap_coverage_cap || sample_size == 0 {
+        bootstraps
+    } else {
+        (5.0 * unique_kmer_count as f64 / sample_size as f64)
+            .min(bootstraps as f64)
+            .max(1.0) as usize
     }
 }
 
@@ -853,6 +863,24 @@ impl RescueRejection {
     }
 }
 
+fn deepest_rank_stop_reason_for_rejection(reason: RescueRejection) -> &'static str {
+    match reason {
+        RescueRejection::ChallengeNoCandidatesAfterSuppression => {
+            "challenge_no_candidates_after_suppression"
+        }
+        RescueRejection::ChallengeScoringEmpty => "challenge_scoring_empty",
+        RescueRejection::CandidateCountLt2 => "challenge_candidate_count_lt2",
+        RescueRejection::ChallengeCandidateCapExceeded => "challenge_candidate_cap_exceeded",
+        RescueRejection::SelectedMissingFromChallenge => "selected_missing_from_challenge",
+        RescueRejection::ChallengeExactTie => "challenge_exact_tie",
+        RescueRejection::ChallengeNearTie => "challenge_near_tie",
+        RescueRejection::FloorFailed => "margin_floor_failed",
+        RescueRejection::DeltaFailed => "margin_delta_failed",
+        RescueRejection::RatioFailed => "margin_ratio_failed",
+        _ => reason.as_str(),
+    }
+}
+
 pub struct DeepestRankRescueDecisionInput {
     pub challenge_original_selection: f64,
     pub challenge_runner: f64,
@@ -1316,12 +1344,222 @@ fn finite_opt(v: Option<f64>) -> Option<f64> {
     v.filter(|x| x.is_finite())
 }
 
+fn build_deepest_rank_top_k(
+    scores: &LeafCandidateScores,
+    ts: &TrainingSet,
+    b: usize,
+    k: usize,
+) -> Option<DeepestRankTopK> {
+    if k == 0 || b == 0 || scores.tot_hits.is_empty() {
+        return None;
+    }
+    let mut rows: Vec<(String, Option<f64>, f64)> = scores
+        .unique_groups
+        .iter()
+        .zip(scores.tot_hits.iter())
+        .map(|(&group, &hits)| {
+            let confidence = hits / b as f64 * 100.0;
+            (
+                ts.taxonomy[group].clone(),
+                finite_opt(Some(confidence)),
+                confidence,
+            )
+        })
+        .collect();
+    rows.sort_by(|a, b_| {
+        b_.2.partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b_.0))
+    });
+    rows.truncate(k.min(rows.len()));
+
+    let positive: Vec<f64> = rows
+        .iter()
+        .filter_map(|(_, conf, _)| conf.filter(|v| *v > 0.0))
+        .collect();
+    let total_positive: f64 = positive.iter().sum();
+    let entropy = if total_positive > 0.0 {
+        Some(
+            positive
+                .iter()
+                .map(|v| {
+                    let p = *v / total_positive;
+                    -p * p.ln()
+                })
+                .sum(),
+        )
+    } else {
+        None
+    };
+    let effective_n = entropy.map(f64::exp);
+
+    Some(DeepestRankTopK {
+        paths: rows.iter().map(|(path, _, _)| path.clone()).collect(),
+        confidences: rows.iter().map(|(_, conf, _)| *conf).collect(),
+        entropy: finite_opt(entropy),
+        effective_n: finite_opt(effective_n),
+    })
+}
+
+fn ancestor_at_level(group: usize, target_level: i32, ts: &TrainingSet) -> usize {
+    let mut p = group;
+    loop {
+        let level = ts.levels.get(p).copied().unwrap_or(target_level);
+        if level <= target_level || p == 0 || ts.parents[p] == p {
+            return p;
+        }
+        p = ts.parents[p];
+    }
+}
+
+fn build_rank_candidate_top_k(
+    scores: &LeafCandidateScores,
+    ts: &TrainingSet,
+    b: usize,
+    rank_index: usize,
+    predicteds: &[usize],
+    k: usize,
+) -> Option<DeepestRankTopK> {
+    if k == 0 || b == 0 || scores.tot_hits.is_empty() {
+        return None;
+    }
+    let target_node = *predicteds.get(rank_index)?;
+    let target_level = ts
+        .levels
+        .get(target_node)
+        .copied()
+        .unwrap_or(rank_index as i32);
+    let mut hits_by_node: HashMap<usize, f64> = HashMap::new();
+    for (&group, &hits) in scores.unique_groups.iter().zip(scores.tot_hits.iter()) {
+        let node = ancestor_at_level(group, target_level, ts);
+        *hits_by_node.entry(node).or_insert(0.0) += hits;
+    }
+
+    let mut rows: Vec<(String, Option<f64>, f64)> = hits_by_node
+        .into_iter()
+        .map(|(node, hits)| {
+            let confidence = hits / b as f64 * 100.0;
+            (
+                ts.taxonomy[node].clone(),
+                finite_opt(Some(confidence)),
+                confidence,
+            )
+        })
+        .collect();
+    rows.sort_by(|a, b_| {
+        b_.2.partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b_.0))
+    });
+    rows.truncate(k.min(rows.len()));
+
+    let positive: Vec<f64> = rows
+        .iter()
+        .filter_map(|(_, conf, _)| conf.filter(|v| *v > 0.0))
+        .collect();
+    let total_positive: f64 = positive.iter().sum();
+    let entropy = if total_positive > 0.0 {
+        Some(
+            positive
+                .iter()
+                .map(|v| {
+                    let p = *v / total_positive;
+                    -p * p.ln()
+                })
+                .sum(),
+        )
+    } else {
+        None
+    };
+    let effective_n = entropy.map(f64::exp);
+
+    Some(DeepestRankTopK {
+        paths: rows.iter().map(|(path, _, _)| path.clone()).collect(),
+        confidences: rows.iter().map(|(_, conf, _)| *conf).collect(),
+        entropy: finite_opt(entropy),
+        effective_n: finite_opt(effective_n),
+    })
+}
+
+fn rank_label(ts: &TrainingSet, rank_index: usize) -> String {
+    ts.ranks
+        .as_ref()
+        .and_then(|ranks| ranks.get(rank_index))
+        .cloned()
+        .unwrap_or_else(|| format!("rank_{}", rank_index))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_rank_trace(
+    predicteds: &[usize],
+    confidences: &[f64],
+    ts: &TrainingSet,
+    config: &ClassifyConfig,
+    stop_reason: ThresholdStopReason,
+    challenge_runner_up_path: Option<&String>,
+    challenge_runner_up_confidence: Option<f64>,
+) -> Vec<RankTraceRow> {
+    if !config.rank_trace_diagnostics {
+        return Vec::new();
+    }
+
+    let stop_rank_index = match stop_reason {
+        ThresholdStopReason::FullPass => None,
+        ThresholdStopReason::FailedThreshold { rank_index, .. } => Some(rank_index),
+        ThresholdStopReason::LcaCapped { cap_index } => Some(cap_index.saturating_add(1)),
+    };
+
+    predicteds
+        .iter()
+        .enumerate()
+        .map(|(i, &node)| {
+            let threshold = threshold_for_rank(config, i);
+            let confidence = confidences.get(i).copied().unwrap_or(0.0);
+            let stop_reason_label = match stop_reason {
+                ThresholdStopReason::FullPass => None,
+                ThresholdStopReason::FailedThreshold { rank_index, .. } if rank_index == i => {
+                    Some("failed_threshold".to_string())
+                }
+                ThresholdStopReason::LcaCapped { cap_index } if i == cap_index + 1 => {
+                    Some("lca_capped".to_string())
+                }
+                _ => None,
+            };
+            let stopped_before_or_here = stop_rank_index.is_some_and(|stop_i| i >= stop_i);
+            let runner_up_path = if i == predicteds.len().saturating_sub(1) {
+                challenge_runner_up_path.cloned()
+            } else {
+                None
+            };
+            let runner_up_confidence = if i == predicteds.len().saturating_sub(1) {
+                challenge_runner_up_confidence
+            } else {
+                None
+            };
+            RankTraceRow {
+                rank: rank_label(ts, i),
+                selected_path: ts.taxonomy[node].clone(),
+                selected_confidence: finite_opt(Some(confidence)),
+                threshold: finite_opt(Some(threshold)),
+                passed_threshold: !stopped_before_or_here && confidence >= threshold,
+                runner_up_path,
+                runner_up_confidence: finite_opt(runner_up_confidence),
+                stop_reason: stop_reason_label,
+            }
+        })
+        .collect()
+}
+
 struct ChallengeDecision {
     original_selection_confidence: Option<f64>,
     runner_up_confidence: Option<f64>,
     margin_delta: Option<f64>,
     margin_ratio: Option<f64>,
     candidate_count: Option<u32>,
+    selected_path: Option<String>,
+    runner_up_path: Option<String>,
+    stop_reason: Option<String>,
+    top_k: Option<DeepestRankTopK>,
     decision: Result<(), RescueRejection>,
 }
 
@@ -1346,6 +1584,15 @@ fn evaluate_deepest_rank_challenge(
             margin_delta: None,
             margin_ratio: None,
             candidate_count: Some(0),
+            selected_path: None,
+            runner_up_path: None,
+            stop_reason: Some(
+                deepest_rank_stop_reason_for_rejection(
+                    RescueRejection::ChallengeNoCandidatesAfterSuppression,
+                )
+                .to_string(),
+            ),
+            top_k: None,
             decision: Err(RescueRejection::ChallengeNoCandidatesAfterSuppression),
         };
     }
@@ -1357,6 +1604,13 @@ fn evaluate_deepest_rank_challenge(
             margin_delta: None,
             margin_ratio: None,
             candidate_count: Some(candidate_count),
+            selected_path: None,
+            runner_up_path: None,
+            stop_reason: Some(
+                deepest_rank_stop_reason_for_rejection(RescueRejection::CandidateCountLt2)
+                    .to_string(),
+            ),
+            top_k: None,
             decision: Err(RescueRejection::CandidateCountLt2),
         };
     }
@@ -1368,6 +1622,15 @@ fn evaluate_deepest_rank_challenge(
                 margin_delta: None,
                 margin_ratio: None,
                 candidate_count: Some(candidate_count),
+                selected_path: None,
+                runner_up_path: None,
+                stop_reason: Some(
+                    deepest_rank_stop_reason_for_rejection(
+                        RescueRejection::ChallengeCandidateCapExceeded,
+                    )
+                    .to_string(),
+                ),
+                top_k: None,
                 decision: Err(RescueRejection::ChallengeCandidateCapExceeded),
             };
         }
@@ -1386,9 +1649,22 @@ fn evaluate_deepest_rank_challenge(
             margin_delta: None,
             margin_ratio: None,
             candidate_count: Some(candidate_count),
+            selected_path: None,
+            runner_up_path: None,
+            stop_reason: Some(
+                deepest_rank_stop_reason_for_rejection(RescueRejection::ChallengeScoringEmpty)
+                    .to_string(),
+            ),
+            top_k: None,
             decision: Err(RescueRejection::ChallengeScoringEmpty),
         };
     };
+    let top_k = build_deepest_rank_top_k(
+        &challenge_scores,
+        ts,
+        context.b,
+        config.deepest_rank_diagnostic_top_k,
+    );
     let Some(selected_idx) = challenge_scores
         .unique_groups
         .iter()
@@ -1400,12 +1676,23 @@ fn evaluate_deepest_rank_challenge(
             margin_delta: None,
             margin_ratio: None,
             candidate_count: Some(candidate_count),
+            selected_path: None,
+            runner_up_path: None,
+            stop_reason: Some(
+                deepest_rank_stop_reason_for_rejection(
+                    RescueRejection::SelectedMissingFromChallenge,
+                )
+                .to_string(),
+            ),
+            top_k,
             decision: Err(RescueRejection::SelectedMissingFromChallenge),
         };
     };
 
     let selected_conf = challenge_scores.tot_hits[selected_idx] / context.b as f64 * 100.0;
+    let selected_path = Some(ts.taxonomy[challenge_scores.unique_groups[selected_idx]].clone());
     let mut runner = f64::NEG_INFINITY;
+    let mut runner_idx: Option<usize> = None;
     let mut top = f64::NEG_INFINITY;
     for (idx, &th) in challenge_scores.tot_hits.iter().enumerate() {
         let conf = th / context.b as f64 * 100.0;
@@ -1414,6 +1701,7 @@ fn evaluate_deepest_rank_challenge(
         }
         if idx != selected_idx && conf > runner {
             runner = conf;
+            runner_idx = Some(idx);
         }
     }
     if runner == f64::NEG_INFINITY {
@@ -1434,6 +1722,8 @@ fn evaluate_deepest_rank_challenge(
     } else {
         None
     };
+    let runner_up_path =
+        runner_idx.map(|idx| ts.taxonomy[challenge_scores.unique_groups[idx]].clone());
 
     let selected_is_top = selected_conf == top;
     let exact_tie = selected_is_top
@@ -1469,12 +1759,21 @@ fn evaluate_deepest_rank_challenge(
         candidate_count,
     };
     let decision = passes_deepest_rank_margin_rescue(&decision_input);
+    let stop_reason = match decision {
+        Err(RescueRejection::RescueDisabled) => None,
+        Err(reason) => Some(deepest_rank_stop_reason_for_rejection(reason).to_string()),
+        Ok(()) => None,
+    };
     ChallengeDecision {
         original_selection_confidence: finite_opt(Some(selected_conf)),
         runner_up_confidence: finite_opt(Some(normalized_runner)),
         margin_delta: finite_opt(delta),
         margin_ratio: finite_opt(ratio),
         candidate_count: Some(candidate_count),
+        selected_path,
+        runner_up_path,
+        stop_reason,
+        top_k,
         decision,
     }
 }
@@ -1772,20 +2071,30 @@ fn leaf_phase_score(
     let mut challenge_margin_delta: Option<f64> = None;
     let mut challenge_margin_ratio: Option<f64> = None;
     let mut challenge_candidate_count: Option<u32> = None;
+    let mut challenge_selected_path: Option<String> = None;
+    let mut challenge_runner_up_path: Option<String> = None;
+    let mut deepest_rank_stop_reason: Option<String> = None;
+    let mut deepest_rank_top_k: Option<DeepestRankTopK> = None;
 
-    let rescue_diagnostics_enabled = config.deepest_rank_margin_floor.is_some();
-    if deepest_eligible && rescue_diagnostics_enabled {
+    let deepest_rank_diagnostics_enabled = config.deepest_rank_diagnostics
+        || config.deepest_rank_margin_floor.is_some()
+        || config.deepest_rank_diagnostic_top_k > 0;
+    let rescue_enabled = config.deepest_rank_margin_floor.is_some();
+    if deepest_eligible && deepest_rank_diagnostics_enabled {
         deepest_rank_effective_confidence = finite_opt(confidences.get(deepest_idx).copied());
         deepest_rank_effective_threshold = finite_opt(Some(deepest_threshold));
+        challenge_selected_path = Some(ts.taxonomy[predicted_group].clone());
         match stop_reason {
             ThresholdStopReason::FullPass => {
                 deepest_rank_acceptance_mode = Some(DEEPEST_MODE_THRESHOLD.to_string());
+                deepest_rank_stop_reason = Some("full_pass".to_string());
             }
             ThresholdStopReason::LcaCapped { cap_index } => {
                 if cap_index < deepest_idx {
                     deepest_rank_acceptance_mode = Some(DEEPEST_MODE_REJECTED.to_string());
                     deepest_rank_margin_rejection_reason =
                         Some(RescueRejection::LcaCap.as_str().to_string());
+                    deepest_rank_stop_reason = Some("lca_capped".to_string());
                 }
             }
             ThresholdStopReason::FailedThreshold {
@@ -1797,10 +2106,12 @@ fn leaf_phase_score(
                     deepest_rank_acceptance_mode = Some(DEEPEST_MODE_REJECTED.to_string());
                     deepest_rank_margin_rejection_reason =
                         Some(RescueRejection::ShallowerRankFailed.as_str().to_string());
+                    deepest_rank_stop_reason = Some("shallower_threshold_failed".to_string());
                 } else if rank_index == deepest_idx {
                     deepest_rank_effective_confidence = finite_opt(Some(confidence));
                     deepest_rank_effective_threshold = finite_opt(Some(threshold));
                     deepest_rank_acceptance_mode = Some(DEEPEST_MODE_REJECTED.to_string());
+                    deepest_rank_stop_reason = Some("deepest_threshold_failed".to_string());
                     let challenge = evaluate_deepest_rank_challenge(
                         predicted_group,
                         &context,
@@ -1815,13 +2126,20 @@ fn leaf_phase_score(
                     challenge_margin_delta = challenge.margin_delta;
                     challenge_margin_ratio = challenge.margin_ratio;
                     challenge_candidate_count = challenge.candidate_count;
+                    challenge_selected_path = challenge.selected_path;
+                    challenge_runner_up_path = challenge.runner_up_path;
+                    deepest_rank_top_k = challenge.top_k;
+                    if let Some(reason) = challenge.stop_reason {
+                        deepest_rank_stop_reason = Some(reason);
+                    }
                     match challenge.decision {
-                        Ok(()) => {
+                        Ok(()) if rescue_enabled => {
                             above.push(deepest_idx);
                             deepest_rank_acceptance_mode =
                                 Some(DEEPEST_MODE_MARGIN_RESCUE.to_string());
                             deepest_rank_margin_rejection_reason = None;
                         }
+                        Ok(()) => {}
                         Err(reason) => {
                             deepest_rank_margin_rejection_reason =
                                 Some(reason.as_str().to_string());
@@ -1904,20 +2222,44 @@ fn leaf_phase_score(
         }
         (n_refs, n_close, dispersion, margin)
     };
-    let common_leaf_top_confidence = rescue_diagnostics_enabled
+    let common_leaf_top_confidence = deepest_rank_diagnostics_enabled
         .then(|| finite_opt(scores.top_confidence))
         .flatten();
-    let common_leaf_runner_up_confidence = rescue_diagnostics_enabled
+    let common_leaf_runner_up_confidence = deepest_rank_diagnostics_enabled
         .then(|| finite_opt(scores.runner_up_confidence))
         .flatten();
-    let common_leaf_margin_delta = rescue_diagnostics_enabled
+    let common_leaf_margin_delta = deepest_rank_diagnostics_enabled
         .then(|| finite_opt(scores.margin_delta))
         .flatten();
-    let common_leaf_margin_ratio = rescue_diagnostics_enabled
+    let common_leaf_margin_ratio = deepest_rank_diagnostics_enabled
         .then(|| finite_opt(scores.margin_ratio))
         .flatten();
     let common_leaf_margin_candidate_count =
-        rescue_diagnostics_enabled.then_some(scores.candidate_count);
+        deepest_rank_diagnostics_enabled.then_some(scores.candidate_count);
+    let failed_rank_top_k = match stop_reason {
+        ThresholdStopReason::FailedThreshold { rank_index, .. }
+            if config.deepest_rank_diagnostic_top_k > 0 =>
+        {
+            build_rank_candidate_top_k(
+                &scores,
+                ts,
+                b,
+                rank_index,
+                &predicteds,
+                config.deepest_rank_diagnostic_top_k,
+            )
+        }
+        _ => None,
+    };
+    let rank_trace = build_rank_trace(
+        &predicteds,
+        &confidences,
+        ts,
+        config,
+        stop_reason,
+        challenge_runner_up_path.as_ref(),
+        challenge_runner_up_confidence,
+    );
 
     let result = if above.len() == predicteds.len() {
         ClassificationResult {
@@ -1948,6 +2290,12 @@ fn leaf_phase_score(
             deepest_rank_challenge_margin_delta: challenge_margin_delta,
             deepest_rank_challenge_margin_ratio: challenge_margin_ratio,
             deepest_rank_challenge_candidate_count: challenge_candidate_count,
+            deepest_rank_challenge_selected_path: challenge_selected_path.clone(),
+            deepest_rank_challenge_runner_up_path: challenge_runner_up_path.clone(),
+            deepest_rank_stop_reason: deepest_rank_stop_reason.clone(),
+            deepest_rank_top_k: deepest_rank_top_k.clone(),
+            failed_rank_top_k: failed_rank_top_k.clone(),
+            rank_trace: rank_trace.clone(),
             ..Default::default()
         }
     } else if above.is_empty() {
@@ -1975,6 +2323,12 @@ fn leaf_phase_score(
             deepest_rank_challenge_margin_delta: challenge_margin_delta,
             deepest_rank_challenge_margin_ratio: challenge_margin_ratio,
             deepest_rank_challenge_candidate_count: challenge_candidate_count,
+            deepest_rank_challenge_selected_path: challenge_selected_path.clone(),
+            deepest_rank_challenge_runner_up_path: challenge_runner_up_path.clone(),
+            deepest_rank_stop_reason: deepest_rank_stop_reason.clone(),
+            deepest_rank_top_k: deepest_rank_top_k.clone(),
+            failed_rank_top_k: failed_rank_top_k.clone(),
+            rank_trace: rank_trace.clone(),
             ..Default::default()
         }
     } else {
@@ -2012,6 +2366,12 @@ fn leaf_phase_score(
             deepest_rank_challenge_margin_delta: challenge_margin_delta,
             deepest_rank_challenge_margin_ratio: challenge_margin_ratio,
             deepest_rank_challenge_candidate_count: challenge_candidate_count,
+            deepest_rank_challenge_selected_path: challenge_selected_path,
+            deepest_rank_challenge_runner_up_path: challenge_runner_up_path,
+            deepest_rank_stop_reason,
+            deepest_rank_top_k,
+            failed_rank_top_k,
+            rank_trace,
             ..Default::default()
         }
     };
@@ -2255,4 +2615,20 @@ fn pbinom(k: usize, n: usize, p: f64) -> f64 {
         sum += binom_coeff * p.powi(i as i32) * q.powi((n - i) as i32);
     }
     sum.min(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effective_bootstrap_replicates;
+
+    #[test]
+    fn bootstrap_coverage_cap_can_be_disabled() {
+        assert_eq!(effective_bootstrap_replicates(100, 20, 100, true), 25);
+        assert_eq!(effective_bootstrap_replicates(100, 20, 100, false), 100);
+    }
+
+    #[test]
+    fn bootstrap_coverage_cap_still_respects_configured_ceiling() {
+        assert_eq!(effective_bootstrap_replicates(1_000, 20, 100, true), 100);
+    }
 }

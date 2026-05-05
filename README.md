@@ -55,6 +55,7 @@ results = classify(
     min_descend=0.98,                  # fraction of votes to descend tree
     processors=8,                      # threads
     sample_exponent=0.47,              # k-mers per bootstrap: S = L^exponent
+    bootstrap_coverage_cap=True,       # False = force every query to use bootstraps
     seed=42,
     deterministic=False,               # True = R-compatible sequential PRNG
     length_normalize=False,            # normalize scores by training sequence length
@@ -129,7 +130,8 @@ Ranges below are intended operating ranges. The Python binding currently validat
 | **bootstraps** | 100 | 1-1000 | Bootstrap replicates. Higher = more precise confidence, slower. Use 50 for parameter sweeps, 100 for production. |
 | **strand** | "both" | top/bottom/both | Which strand(s) to classify. "both" classifies forward and reverse complement, keeps the better hit. |
 | **min_descend** | 0.98 | 0.5-1.0 | Fraction of bootstrap votes required to descend into a child node. Lower = more aggressive descent into uncertain branches. |
-| **sample_exponent** | 0.47 | (0, 1] | Controls k-mers sampled per bootstrap: S = L^exponent. Default 0.47 is canonical IDTAXA (DECIPHER's `samples=L^0.47`); the `[0.35, 0.40, 0.47, 0.55, 0.65]` spread is the recommended Tier 1 sweep range. Lower = fewer samples per replicate. Note: bootstraps are also implicitly capped at `b = min(5L/S, bootstraps)`, so lowering `sample_exponent` lets `b` rise toward the configured `bootstraps`. |
+| **sample_exponent** | 0.47 | (0, 1] | Controls k-mers sampled per bootstrap: S = L^exponent. Default 0.47 is canonical IDTAXA (DECIPHER's `samples=L^0.47`); the `[0.35, 0.40, 0.47, 0.55, 0.65]` spread is the recommended Tier 1 sweep range. Lower = fewer samples per replicate. Note: when `bootstrap_coverage_cap=True`, bootstraps are also implicitly capped at `b = min(5L/S, bootstraps)`, so lowering `sample_exponent` lets `b` rise toward the configured `bootstraps`. |
+| **bootstrap_coverage_cap** | true | true/false | Preserve DECIPHER's `b = min(5L/S, bootstraps)` cap. Set false to force every query to use the configured `bootstraps` count while leaving `S` unchanged. Useful for isolating whether the cap hurts classification performance. |
 | **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). **Symmetric**: long references are demoted (divisor > 1), short references are promoted (divisor < 1). Most useful for variable-length markers. Inert at single-keep (e.g. singleton-leaf — divisor is 1.0 by construction). |
 | **rank_thresholds** | None | list of floats in [0, 100] | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set to `Some(non-empty)`, **fully overrides** the global `threshold` for every rank — there is no per-element fallback. If shorter than the predicted path, the last value is reused for every rank past its end; if longer, extras are ignored. Empty list (`Some([])`) is rejected. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). |
 | **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent. At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |

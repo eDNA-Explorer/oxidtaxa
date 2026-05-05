@@ -200,10 +200,14 @@ mod python_bindings {
         leaf_top_m = 1,
         leaf_aggregation_mode = "mean",
         suppress_ancestor_only_groups = false,
+        deepest_rank_diagnostics = false,
+        deepest_rank_diagnostic_top_k = 0,
+        rank_trace_diagnostics = false,
         deepest_rank_margin_floor = None,
         deepest_rank_margin_min_delta = 15.0,
         deepest_rank_margin_min_ratio = 2.0,
         max_deepest_rank_challenge_candidates = None,
+        bootstrap_coverage_cap = true,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn classify(
@@ -227,10 +231,14 @@ mod python_bindings {
         leaf_top_m: usize,
         leaf_aggregation_mode: &str,
         suppress_ancestor_only_groups: bool,
+        deepest_rank_diagnostics: bool,
+        deepest_rank_diagnostic_top_k: usize,
+        rank_trace_diagnostics: bool,
         deepest_rank_margin_floor: Option<f64>,
         deepest_rank_margin_min_delta: f64,
         deepest_rank_margin_min_ratio: f64,
         max_deepest_rank_challenge_candidates: Option<usize>,
+        bootstrap_coverage_cap: bool,
     ) -> PyResult<Vec<crate::types::ClassificationResult>> {
         let model =
             crate::types::TrainingSet::load(model_path).map_err(|e| PyValueError::new_err(e))?;
@@ -290,6 +298,7 @@ mod python_bindings {
             min_descend,
             processors,
             sample_exponent,
+            bootstrap_coverage_cap,
             length_normalize,
             rank_thresholds,
             beam_width,
@@ -298,6 +307,9 @@ mod python_bindings {
             leaf_top_m,
             leaf_aggregation_mode: leaf_aggregation_mode_parsed,
             suppress_ancestor_only_groups,
+            deepest_rank_diagnostics,
+            deepest_rank_diagnostic_top_k,
+            rank_trace_diagnostics,
             deepest_rank_margin_floor,
             deepest_rank_margin_min_delta,
             deepest_rank_margin_min_ratio,
@@ -572,6 +584,8 @@ mod python_bindings {
         m.add_function(pyo3::wrap_pyfunction!(learn_fractions_py, m)?)?;
         m.add_function(pyo3::wrap_pyfunction!(model_n_ranks, m)?)?;
         m.add_class::<crate::types::ClassificationResult>()?;
+        m.add_class::<crate::types::DeepestRankTopK>()?;
+        m.add_class::<crate::types::RankTraceRow>()?;
         m.add_class::<PyPreparedData>()?;
         m.add_class::<PyBuiltTree>()?;
         Ok(())
