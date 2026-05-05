@@ -159,6 +159,73 @@ pub fn parallel_match(
     (hits_flat, col_sums)
 }
 
+/// Sum-only merge-join k-mer matching.
+///
+/// Returns one row sum per requested training sequence without materializing
+/// the per-bootstrap hit matrix. Each matched query k-mer contributes its
+/// weight once per sampled bootstrap position.
+pub fn match_sums(
+    query_kmers: &[i32],
+    train_kmers: &[Vec<i32>],
+    indices: &[usize],
+    weights: &[f64],
+    _positions: &[usize],
+    ranges: &[usize],
+) -> Vec<f64> {
+    let size_x = query_kmers.len();
+    let mut col_sums = vec![0.0f64; indices.len()];
+
+    for (k, &idx) in indices.iter().enumerate() {
+        let train_k = &train_kmers[idx];
+        let mut j = 0usize;
+        let mut sum = 0.0;
+        for i in 0..size_x {
+            while j < train_k.len() {
+                if query_kmers[i] <= train_k[j] {
+                    if query_kmers[i] == train_k[j] {
+                        sum += weights[i] * (ranges[i + 1] - ranges[i]) as f64;
+                    }
+                    break;
+                }
+                j += 1;
+            }
+        }
+        col_sums[k] = sum;
+    }
+
+    col_sums
+}
+
+/// Merge-join k-mer matching for a compact set of selected rows.
+///
+/// `selected_positions` are positions into `indices`; output row order follows
+/// `selected_positions` exactly.
+pub fn match_selected_rows(
+    query_kmers: &[i32],
+    train_kmers: &[Vec<i32>],
+    indices: &[usize],
+    selected_positions: &[usize],
+    weights: &[f64],
+    block_count: usize,
+    positions: &[usize],
+    ranges: &[usize],
+) -> Vec<f64> {
+    if selected_positions.is_empty() || block_count == 0 {
+        return Vec::new();
+    }
+    let selected_indices: Vec<usize> = selected_positions.iter().map(|&pos| indices[pos]).collect();
+    let (hits_flat, _) = parallel_match(
+        query_kmers,
+        train_kmers,
+        &selected_indices,
+        weights,
+        block_count,
+        positions,
+        ranges,
+    );
+    hits_flat
+}
+
 /// Inverted-index based k-mer matching.
 /// Instead of merge-joining query against each training sequence,
 /// for each query k-mer, look up which training sequences have it.
@@ -214,6 +281,100 @@ pub fn parallel_match_inverted(
         *sum = hits_flat[base..base + block_count].iter().sum();
     }
     (hits_flat, col_sums)
+}
+
+/// Sum-only inverted-index k-mer matching.
+///
+/// Returns one row sum per kept sequence without materializing per-bootstrap
+/// rows. This is the first pass used by compact leaf scoring.
+pub fn match_sums_inverted(
+    query_kmers: &[i32],
+    inverted_index: &[Vec<u32>],
+    keep: &[usize],
+    weights: &[f64],
+    _positions: &[usize],
+    ranges: &[usize],
+) -> Vec<f64> {
+    if keep.is_empty() {
+        return Vec::new();
+    }
+
+    let max_idx = keep.iter().copied().max().unwrap_or(0);
+    let mut dense_map = vec![u32::MAX; max_idx + 1];
+    for (pos, &idx) in keep.iter().enumerate() {
+        dense_map[idx] = pos as u32;
+    }
+
+    let mut col_sums = vec![0.0f64; keep.len()];
+    for (i, &kmer) in query_kmers.iter().enumerate() {
+        if kmer <= 0 || (kmer as usize) > inverted_index.len() {
+            continue;
+        }
+        let posting_list = &inverted_index[(kmer - 1) as usize];
+        let contribution = weights[i] * (ranges[i + 1] - ranges[i]) as f64;
+        for &seq_idx in posting_list {
+            let si = seq_idx as usize;
+            if si < dense_map.len() {
+                let keep_pos = dense_map[si];
+                if keep_pos != u32::MAX {
+                    col_sums[keep_pos as usize] += contribution;
+                }
+            }
+        }
+    }
+
+    col_sums
+}
+
+/// Inverted-index matching for a compact set of selected rows.
+///
+/// `selected_positions` are positions into `keep`; output row order follows
+/// `selected_positions` exactly.
+pub fn match_selected_rows_inverted(
+    query_kmers: &[i32],
+    inverted_index: &[Vec<u32>],
+    keep: &[usize],
+    selected_positions: &[usize],
+    weights: &[f64],
+    block_count: usize,
+    positions: &[usize],
+    ranges: &[usize],
+) -> Vec<f64> {
+    if selected_positions.is_empty() || block_count == 0 {
+        return Vec::new();
+    }
+
+    let selected_indices: Vec<usize> = selected_positions.iter().map(|&pos| keep[pos]).collect();
+    let max_idx = selected_indices.iter().copied().max().unwrap_or(0);
+    let mut dense_map = vec![u32::MAX; max_idx + 1];
+    for (row, &idx) in selected_indices.iter().enumerate() {
+        dense_map[idx] = row as u32;
+    }
+
+    let mut hits_flat = vec![0.0f64; selected_positions.len() * block_count];
+    for (i, &kmer) in query_kmers.iter().enumerate() {
+        if kmer <= 0 || (kmer as usize) > inverted_index.len() {
+            continue;
+        }
+        let posting_list = &inverted_index[(kmer - 1) as usize];
+        let w = weights[i];
+        let range_start = ranges[i];
+        let range_end = ranges[i + 1];
+        for &seq_idx in posting_list {
+            let si = seq_idx as usize;
+            if si < dense_map.len() {
+                let selected_row = dense_map[si];
+                if selected_row != u32::MAX {
+                    let base = selected_row as usize * block_count;
+                    for &pos in &positions[range_start..range_end] {
+                        hits_flat[base + pos] += w;
+                    }
+                }
+            }
+        }
+    }
+
+    hits_flat
 }
 
 /// Index of first maximum in `values` for each group.

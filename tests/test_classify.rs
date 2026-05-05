@@ -140,6 +140,83 @@ fn make_names(prefix: &str, n: usize) -> Vec<String> {
     (0..n).map(|i| format!("{}_{:03}", prefix, i + 1)).collect()
 }
 
+#[test]
+fn test_inverted_index_and_merge_fallback_classification_match() {
+    let ts = train_standard_model();
+    let mut merge_ts = ts.clone();
+    merge_ts.inverted_index = None;
+    let query_seqs: Vec<String> = load_json("s09a_query_seqs");
+    let names = make_names("query", query_seqs.len());
+    let config = ClassifyConfig {
+        threshold: 40.0,
+        min_descend: 0.98,
+        leaf_top_m: 3,
+        deepest_rank_diagnostics: true,
+        deepest_rank_diagnostic_top_k: 3,
+        rank_trace_diagnostics: true,
+        ..Default::default()
+    };
+
+    let inverted_results = id_taxa(
+        &query_seqs,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let merge_results = id_taxa(
+        &query_seqs,
+        &names,
+        &merge_ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+
+    assert_eq!(inverted_results.len(), merge_results.len());
+    for (inverted, merge) in inverted_results.iter().zip(merge_results.iter()) {
+        assert_eq!(inverted.taxon, merge.taxon);
+        assert_eq!(inverted.confidence, merge.confidence);
+        assert_eq!(inverted.alternatives, merge.alternatives);
+        assert_eq!(inverted.reject_reason, merge.reject_reason);
+        assert_eq!(inverted.similarity, merge.similarity);
+        assert_eq!(inverted.leaf_widened_winners, merge.leaf_widened_winners);
+        assert_eq!(
+            inverted.leaf_winning_group_n_refs,
+            merge.leaf_winning_group_n_refs
+        );
+        assert_eq!(
+            inverted.leaf_n_close_representatives,
+            merge.leaf_n_close_representatives
+        );
+        assert_eq!(
+            inverted.leaf_top_m_score_dispersion,
+            merge.leaf_top_m_score_dispersion
+        );
+        assert_eq!(
+            inverted.leaf_within_vs_between_margin,
+            merge.leaf_within_vs_between_margin
+        );
+        assert_eq!(inverted.leaf_top_confidence, merge.leaf_top_confidence);
+        assert_eq!(
+            inverted.leaf_runner_up_confidence,
+            merge.leaf_runner_up_confidence
+        );
+        assert_eq!(inverted.leaf_margin_delta, merge.leaf_margin_delta);
+        assert_eq!(inverted.leaf_margin_ratio, merge.leaf_margin_ratio);
+        assert_eq!(
+            inverted.leaf_margin_candidate_count,
+            merge.leaf_margin_candidate_count
+        );
+        assert_eq!(inverted.rank_trace.len(), merge.rank_trace.len());
+    }
+}
+
 // ============================================================================
 // 9a: Standard classification
 // ============================================================================

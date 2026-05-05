@@ -4,7 +4,10 @@ use std::path::PathBuf;
 use oxidtaxa::classify::id_taxa;
 use oxidtaxa::fasta::read_fasta;
 use oxidtaxa::kmer::enumerate_sequences;
-use oxidtaxa::matching::{int_match, parallel_match, vector_sum};
+use oxidtaxa::matching::{
+    int_match, match_selected_rows_inverted, match_sums_inverted, parallel_match,
+    parallel_match_inverted, vector_sum,
+};
 use oxidtaxa::rng::RRng;
 use oxidtaxa::sequence::{remove_gaps, reverse_complement};
 use oxidtaxa::training::learn_taxa;
@@ -172,6 +175,87 @@ fn bench_parallel_match(c: &mut Criterion) {
             ));
         });
     });
+}
+
+fn bench_leaf_phase_matching_stress(c: &mut Criterion) {
+    let n_refs = 20_000usize;
+    let n_kmers = 4096usize;
+    let kmers_per_ref = 80usize;
+    let block_count = 100usize;
+
+    let mut inverted_index = vec![Vec::<u32>::new(); n_kmers];
+    for seq_idx in 0..n_refs {
+        let mut prev = 0usize;
+        for j in 0..kmers_per_ref {
+            let kmer = ((seq_idx.wrapping_mul(37) + j.wrapping_mul(97)) % n_kmers) + 1;
+            if kmer == prev {
+                continue;
+            }
+            inverted_index[kmer - 1].push(seq_idx as u32);
+            prev = kmer;
+        }
+    }
+    for posting in &mut inverted_index {
+        posting.sort_unstable();
+        posting.dedup();
+    }
+
+    let keep: Vec<usize> = (0..n_refs).collect();
+    let query_kmers: Vec<i32> = (1..=256).map(|i| ((i * 13) % n_kmers + 1) as i32).collect();
+    let weights: Vec<f64> = query_kmers
+        .iter()
+        .enumerate()
+        .map(|(i, _)| 0.5 + (i % 11) as f64 * 0.1)
+        .collect();
+    let mut positions = Vec::new();
+    let mut ranges = vec![0usize];
+    for i in 0..query_kmers.len() {
+        for offset in 0..3 {
+            positions.push((i + offset * 17) % block_count);
+        }
+        ranges.push(positions.len());
+    }
+    let selected_positions: Vec<usize> = (0..keep.len()).step_by(1000).collect();
+
+    let mut group = c.benchmark_group("leaf_phase_matching_stress");
+    group.sample_size(10);
+    group.bench_function("dense_inverted_20k_refs_100b", |b| {
+        b.iter(|| {
+            black_box(parallel_match_inverted(
+                black_box(&query_kmers),
+                black_box(&inverted_index),
+                black_box(&keep),
+                black_box(&weights),
+                black_box(block_count),
+                black_box(&positions),
+                black_box(&ranges),
+            ));
+        });
+    });
+    group.bench_function("compact_sum_plus_selected_20k_refs_100b", |b| {
+        b.iter(|| {
+            let sums = match_sums_inverted(
+                black_box(&query_kmers),
+                black_box(&inverted_index),
+                black_box(&keep),
+                black_box(&weights),
+                black_box(&positions),
+                black_box(&ranges),
+            );
+            let rows = match_selected_rows_inverted(
+                black_box(&query_kmers),
+                black_box(&inverted_index),
+                black_box(&keep),
+                black_box(&selected_positions),
+                black_box(&weights),
+                black_box(block_count),
+                black_box(&positions),
+                black_box(&ranges),
+            );
+            black_box((sums, rows));
+        });
+    });
+    group.finish();
 }
 
 // ── sample_int_replace ──────────────���────────────────────────────────────────
@@ -567,6 +651,7 @@ criterion_group!(
     bench_int_match,
     bench_vector_sum,
     bench_parallel_match,
+    bench_leaf_phase_matching_stress,
     bench_sample_int_replace,
     bench_reverse_complement,
     bench_remove_gaps,

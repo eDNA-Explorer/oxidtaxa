@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::kmer::{enumerate_sequences, parse_seed_pattern, SpacedSeed, NA_INTEGER};
-use crate::matching::{int_match, parallel_match, parallel_match_inverted, vector_sum};
+use crate::matching::{
+    int_match, match_selected_rows, match_selected_rows_inverted, match_sums, match_sums_inverted,
+    vector_sum,
+};
 use crate::rng::RRng;
 use crate::sequence::reverse_complement;
 use crate::types::{
@@ -960,7 +963,7 @@ struct LeafCandidateScores {
     unique_groups: Vec<usize>,
     top_hits_idx: Vec<usize>,
     top_m_refs_per_group: Vec<Vec<usize>>,
-    hits_flat: Vec<f64>,
+    selected_hits_flat: Vec<f64>,
     sum_hits: Vec<f64>,
     tot_hits: Vec<f64>,
     winners: Vec<usize>,
@@ -982,29 +985,27 @@ fn score_leaf_candidate_set(
 ) -> Option<LeafCandidateScores> {
     let train_kmers = &ts.kmers;
     let cross_index = &ts.cross_index;
-    let (mut hits_flat, mut sum_hits) = if let Some(ref inv_idx) = ts.inverted_index {
-        parallel_match_inverted(
+    let mut sum_hits = if let Some(ref inv_idx) = ts.inverted_index {
+        match_sums_inverted(
             context.u_sampling,
             inv_idx,
             keep_seq_indices,
             context.u_weights,
-            context.b,
             context.positions,
             context.ranges,
         )
     } else {
-        parallel_match(
+        match_sums(
             context.u_sampling,
             train_kmers,
             keep_seq_indices,
             context.u_weights,
-            context.b,
             context.positions,
             context.ranges,
         )
     };
     let b = context.b;
-    if hits_flat.is_empty() || b == 0 {
+    if sum_hits.is_empty() || b == 0 {
         return None;
     }
 
@@ -1014,10 +1015,6 @@ fn score_leaf_candidate_set(
             let n_unique = ls[seq_idx] as f64;
             if n_unique > 0.0 && avg_unique > 0.0 {
                 let norm_factor = (n_unique / avg_unique).sqrt();
-                let base = k_idx * b;
-                for rep in 0..b {
-                    hits_flat[base + rep] /= norm_factor;
-                }
                 sum_hits[k_idx] /= norm_factor;
             }
         }
@@ -1033,6 +1030,7 @@ fn score_leaf_candidate_set(
     let mut unique_groups: Vec<usize> = Vec::new();
     let mut top_hits_idx: Vec<usize> = Vec::new();
     let mut top_m_refs_per_group: Vec<Vec<usize>> = Vec::new();
+    let mut selected_ref_positions: Vec<usize> = Vec::new();
     let leaf_top_m = config.leaf_top_m.max(1);
     let mut i = 0;
     while i < order.len() {
@@ -1056,7 +1054,6 @@ fn score_leaf_candidate_set(
             }
             i += 1;
         }
-        top_hits_idx.push(best_idx);
         if leaf_top_m > 1 {
             group_refs.sort_by(|&a, &b_| {
                 sum_hits[b_]
@@ -1064,13 +1061,65 @@ fn score_leaf_candidate_set(
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
             group_refs.truncate(leaf_top_m.min(group_refs.len()));
-            top_m_refs_per_group.push(group_refs);
+            let mut selected_group_refs = Vec::with_capacity(group_refs.len());
+            for keep_pos in group_refs {
+                selected_group_refs.push(selected_ref_positions.len());
+                selected_ref_positions.push(keep_pos);
+            }
+            top_hits_idx.push(selected_group_refs[0]);
+            top_m_refs_per_group.push(selected_group_refs);
+        } else {
+            top_hits_idx.push(selected_ref_positions.len());
+            selected_ref_positions.push(best_idx);
         }
     }
 
     let n_top = top_hits_idx.len();
     if n_top == 0 {
         return None;
+    }
+
+    let mut selected_hits_flat = if let Some(ref inv_idx) = ts.inverted_index {
+        match_selected_rows_inverted(
+            context.u_sampling,
+            inv_idx,
+            keep_seq_indices,
+            &selected_ref_positions,
+            context.u_weights,
+            b,
+            context.positions,
+            context.ranges,
+        )
+    } else {
+        match_selected_rows(
+            context.u_sampling,
+            train_kmers,
+            keep_seq_indices,
+            &selected_ref_positions,
+            context.u_weights,
+            b,
+            context.positions,
+            context.ranges,
+        )
+    };
+
+    if selected_hits_flat.is_empty() {
+        return None;
+    }
+
+    if config.length_normalize {
+        let avg_unique = context.avg_unique_for_stop_node;
+        for (selected_row, &keep_pos) in selected_ref_positions.iter().enumerate() {
+            let seq_idx = keep_seq_indices[keep_pos];
+            let n_unique = ls[seq_idx] as f64;
+            if n_unique > 0.0 && avg_unique > 0.0 {
+                let norm_factor = (n_unique / avg_unique).sqrt();
+                let base = selected_row * b;
+                for rep in 0..b {
+                    selected_hits_flat[base + rep] /= norm_factor;
+                }
+            }
+        }
     }
 
     let descendants_of: Vec<Vec<u32>> = if config.suppress_ancestor_only_groups {
@@ -1101,9 +1150,15 @@ fn score_leaf_candidate_set(
     for rep in 0..b {
         for j in 0..n_top {
             group_vals_at_rep[j] = if m_active {
-                aggregate_top_m_at_rep(&top_m_refs_per_group[j], rep, b, &hits_flat, leaf_mode)
+                aggregate_top_m_at_rep(
+                    &top_m_refs_per_group[j],
+                    rep,
+                    b,
+                    &selected_hits_flat,
+                    leaf_mode,
+                )
             } else {
-                hits_flat[top_hits_idx[j] * b + rep]
+                selected_hits_flat[top_hits_idx[j] * b + rep]
             };
         }
         let mut max_val = f64::NEG_INFINITY;
@@ -1219,7 +1274,7 @@ fn score_leaf_candidate_set(
         unique_groups,
         top_hits_idx,
         top_m_refs_per_group,
-        hits_flat,
+        selected_hits_flat,
         sum_hits,
         tot_hits,
         winners,
@@ -1938,14 +1993,17 @@ fn leaf_phase_score(
                     &scores.top_m_refs_per_group[selected],
                     rep,
                     b,
-                    &scores.hits_flat,
+                    &scores.selected_hits_flat,
                     config.leaf_aggregation_mode,
                 );
             }
             s / davg
         } else {
             let base = scores.top_hits_idx[selected] * b;
-            scores.hits_flat[base..base + b].iter().sum::<f64>() / davg
+            scores.selected_hits_flat[base..base + b]
+                .iter()
+                .sum::<f64>()
+                / davg
         }
     } else {
         0.0
