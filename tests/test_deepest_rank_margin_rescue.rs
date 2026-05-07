@@ -14,6 +14,8 @@ fn decision_input(top: f64, runner: f64) -> DeepestRankRescueDecisionInput {
         challenge_exact_tie: false,
         challenge_near_tie: false,
         candidate_cap_exceeded: false,
+        original_confidence: top,
+        min_original_confidence: None,
         floor: Some(30.0),
         min_delta: 15.0,
         min_ratio: 2.0,
@@ -53,6 +55,39 @@ fn deepest_rank_rescue_decision_rejects_disabled_and_basic_gates() {
     assert_eq!(
         passes_deepest_rank_margin_rescue(&input),
         Err(RescueRejection::RatioFailed)
+    );
+}
+
+#[test]
+fn deepest_rank_rescue_decision_checks_original_confidence_before_challenge_gates() {
+    let mut input = decision_input(80.0, 10.0);
+    input.original_confidence = 49.99;
+    input.min_original_confidence = Some(50.0);
+    assert_eq!(
+        passes_deepest_rank_margin_rescue(&input),
+        Err(RescueRejection::OriginalConfidenceFloorFailed)
+    );
+
+    let mut input = decision_input(80.0, 10.0);
+    input.original_confidence = 50.0;
+    input.min_original_confidence = Some(50.0);
+    assert_eq!(passes_deepest_rank_margin_rescue(&input), Ok(()));
+
+    let mut input = decision_input(80.0, 10.0);
+    input.original_confidence = f64::NAN;
+    input.min_original_confidence = Some(50.0);
+    assert_eq!(
+        passes_deepest_rank_margin_rescue(&input),
+        Err(RescueRejection::NonfiniteOriginalConfidence)
+    );
+
+    let mut input = decision_input(20.0, f64::NAN);
+    input.original_confidence = 49.99;
+    input.min_original_confidence = Some(50.0);
+    input.candidate_count = 1;
+    assert_eq!(
+        passes_deepest_rank_margin_rescue(&input),
+        Err(RescueRejection::OriginalConfidenceFloorFailed)
     );
 }
 
@@ -151,6 +186,14 @@ fn classify_config_default_and_rescue_validation() {
         ..Default::default()
     };
     assert!(cfg.validate().is_err());
+
+    for invalid_original_floor in [f64::NAN, f64::INFINITY, -0.01, 101.0] {
+        cfg = ClassifyConfig {
+            deepest_rank_margin_min_original_confidence: Some(invalid_original_floor),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
 
     cfg = ClassifyConfig {
         deepest_rank_margin_min_delta: f64::INFINITY,
@@ -361,6 +404,247 @@ fn deepest_rank_margin_rescue_accepts_clear_terminal_sibling_challenge() {
 }
 
 #[test]
+fn deepest_rank_margin_rescue_requires_original_confidence_floor() {
+    let ts = build_clear_sibling_training_set();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         GATCGATCGATCGATCGATCGATCGATCGATCGATCGATC"
+        .to_string()];
+    let names = vec!["q".to_string()];
+
+    let diagnostic_config = ClassifyConfig {
+        rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.0]),
+        deepest_rank_diagnostics: true,
+        deepest_rank_margin_floor: None,
+        ..Default::default()
+    };
+    let diagnostic_results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &diagnostic_config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let effective_confidence = diagnostic_results[0]
+        .deepest_rank_effective_confidence
+        .expect("fixture should expose deepest-rank ordinary confidence");
+
+    let rejecting_config = ClassifyConfig {
+        rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.0]),
+        deepest_rank_margin_floor: Some(10.0),
+        deepest_rank_margin_min_original_confidence: Some(effective_confidence + 1.0),
+        deepest_rank_margin_min_delta: 1.0,
+        deepest_rank_margin_min_ratio: 1.01,
+        ..Default::default()
+    };
+    let rejected = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &rejecting_config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let result = &rejected[0];
+    assert_eq!(
+        result.deepest_rank_acceptance_mode.as_deref(),
+        Some("rejected")
+    );
+    assert_eq!(
+        result.deepest_rank_margin_rejection_reason.as_deref(),
+        Some("original_confidence_floor_failed")
+    );
+    assert_eq!(
+        result.deepest_rank_stop_reason.as_deref(),
+        Some("original_confidence_floor_failed")
+    );
+    assert!(!result.taxon.contains(&"target".to_string()));
+    assert!(result
+        .deepest_rank_challenge_original_selection_confidence
+        .is_none());
+
+    let passing_config = ClassifyConfig {
+        deepest_rank_margin_min_original_confidence: Some(effective_confidence),
+        ..rejecting_config
+    };
+    let accepted = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &passing_config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    assert_eq!(
+        accepted[0].deepest_rank_acceptance_mode.as_deref(),
+        Some("margin_rescue")
+    );
+    assert!(accepted[0].taxon.contains(&"target".to_string()));
+}
+
+#[test]
+fn deepest_rank_margin_rescue_reports_focused_failure_after_original_confidence_passes() {
+    let ts = build_clear_sibling_training_set();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         GGGGCCCCAAAATTTTGGGGCCCCAAAATTTTGGGGCCCC"
+        .to_string()];
+    let names = vec!["q".to_string()];
+
+    let diagnostic_config = ClassifyConfig {
+        rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.0]),
+        deepest_rank_diagnostics: true,
+        deepest_rank_margin_floor: None,
+        ..Default::default()
+    };
+    let diagnostic_results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &diagnostic_config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let diagnostic = &diagnostic_results[0];
+    let effective_confidence = diagnostic
+        .deepest_rank_effective_confidence
+        .expect("fixture should expose deepest-rank ordinary confidence");
+    let challenge_ratio = diagnostic
+        .deepest_rank_challenge_margin_ratio
+        .expect("mixed fixture should give the runner-up nonzero confidence");
+    assert!(
+        challenge_ratio.is_finite(),
+        "diagnostic result should have a finite ratio: {diagnostic:?}"
+    );
+
+    let config = ClassifyConfig {
+        rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.0]),
+        deepest_rank_margin_floor: Some(10.0),
+        deepest_rank_margin_min_original_confidence: Some(effective_confidence),
+        deepest_rank_margin_min_delta: 1.0,
+        deepest_rank_margin_min_ratio: challenge_ratio + 1.0,
+        ..Default::default()
+    };
+    let results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let result = &results[0];
+    assert_eq!(
+        result.deepest_rank_acceptance_mode.as_deref(),
+        Some("rejected")
+    );
+    assert_eq!(
+        result.deepest_rank_margin_rejection_reason.as_deref(),
+        Some("ratio_failed")
+    );
+    assert_eq!(
+        result.deepest_rank_stop_reason.as_deref(),
+        Some("margin_ratio_failed")
+    );
+    assert!(!result.taxon.contains(&"target".to_string()));
+}
+
+#[test]
+fn deepest_rank_diagnostics_run_when_original_confidence_floor_blocks_rescue() {
+    let ts = build_clear_sibling_training_set();
+    let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
+         TTAATTAATTAATTAATTAATTAATTAATTAATTAATTAA\
+         CCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGGCCGG\
+         GATCGATCGATCGATCGATCGATCGATCGATCGATCGATC"
+        .to_string()];
+    let names = vec!["q".to_string()];
+
+    let baseline = ClassifyConfig {
+        rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.0]),
+        deepest_rank_diagnostics: true,
+        deepest_rank_margin_floor: None,
+        ..Default::default()
+    };
+    let baseline_results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &baseline,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let effective_confidence = baseline_results[0]
+        .deepest_rank_effective_confidence
+        .expect("fixture should expose deepest-rank ordinary confidence");
+
+    let config = ClassifyConfig {
+        deepest_rank_margin_floor: Some(10.0),
+        deepest_rank_margin_min_original_confidence: Some(effective_confidence + 1.0),
+        deepest_rank_margin_min_delta: 1.0,
+        deepest_rank_margin_min_ratio: 1.01,
+        deepest_rank_diagnostics: true,
+        deepest_rank_diagnostic_top_k: 5,
+        rank_trace_diagnostics: true,
+        ..baseline
+    };
+    let results = id_taxa(
+        &query,
+        &names,
+        &ts,
+        &config,
+        StrandMode::Top,
+        OutputType::Extended,
+        42,
+        true,
+    );
+    let result = &results[0];
+    assert_eq!(
+        result.deepest_rank_acceptance_mode.as_deref(),
+        Some("rejected")
+    );
+    assert_eq!(
+        result.deepest_rank_margin_rejection_reason.as_deref(),
+        Some("original_confidence_floor_failed")
+    );
+    assert_eq!(
+        result.deepest_rank_stop_reason.as_deref(),
+        Some("original_confidence_floor_failed")
+    );
+    assert!(!result.taxon.contains(&"target".to_string()));
+    assert!(result
+        .deepest_rank_challenge_original_selection_confidence
+        .is_some());
+    assert!(result.deepest_rank_challenge_runner_up_confidence.is_some());
+    assert!(result.deepest_rank_challenge_margin_delta.is_some());
+    assert!(result.deepest_rank_challenge_candidate_count.is_some());
+    assert!(result.deepest_rank_challenge_selected_path.is_some());
+    assert!(result.deepest_rank_challenge_runner_up_path.is_some());
+    assert!(result.deepest_rank_top_k.is_some());
+    assert!(!result.rank_trace.is_empty());
+
+    let json = serde_json::to_string(result).unwrap();
+    assert!(json
+        .contains("\"deepest_rank_margin_rejection_reason\":\"original_confidence_floor_failed\""));
+    assert!(json.contains("\"deepest_rank_effective_confidence\""));
+    assert!(json.contains("\"deepest_rank_challenge_original_selection_confidence\""));
+}
+
+#[test]
 fn deepest_rank_diagnostics_collects_challenge_without_rescuing() {
     let ts = build_clear_sibling_training_set();
     let query = vec!["ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\
@@ -539,6 +823,7 @@ fn deepest_rank_margin_rescue_candidate_cap_rejects_before_rescue() {
     let config = ClassifyConfig {
         rank_thresholds: Some(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.0]),
         deepest_rank_margin_floor: Some(10.0),
+        deepest_rank_margin_min_original_confidence: Some(0.0),
         deepest_rank_margin_min_delta: 1.0,
         deepest_rank_margin_min_ratio: 1.01,
         max_deepest_rank_challenge_candidates: Some(2),
@@ -679,6 +964,7 @@ fn deepest_rank_margin_rescue_disabled_json_is_byte_identical_to_baseline() {
     };
     let explicit_disabled = ClassifyConfig {
         deepest_rank_margin_floor: None,
+        deepest_rank_margin_min_original_confidence: None,
         deepest_rank_margin_min_delta: 1.0,
         deepest_rank_margin_min_ratio: 1.01,
         max_deepest_rank_challenge_candidates: Some(2),

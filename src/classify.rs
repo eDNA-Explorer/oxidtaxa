@@ -828,6 +828,8 @@ pub enum RescueRejection {
     ChallengeScoringEmpty,
     CandidateCountLt2,
     ChallengeCandidateCapExceeded,
+    NonfiniteOriginalConfidence,
+    OriginalConfidenceFloorFailed,
     NonfiniteChallengeScore,
     NegativeChallengeRunner,
     NonpositiveChallengeTop,
@@ -852,6 +854,8 @@ impl RescueRejection {
             RescueRejection::ChallengeScoringEmpty => "challenge_scoring_empty",
             RescueRejection::CandidateCountLt2 => "candidate_count_lt_2",
             RescueRejection::ChallengeCandidateCapExceeded => "challenge_candidate_cap_exceeded",
+            RescueRejection::NonfiniteOriginalConfidence => "nonfinite_original_confidence",
+            RescueRejection::OriginalConfidenceFloorFailed => "original_confidence_floor_failed",
             RescueRejection::NonfiniteChallengeScore => "nonfinite_challenge_score",
             RescueRejection::NegativeChallengeRunner => "negative_challenge_runner",
             RescueRejection::NonpositiveChallengeTop => "nonpositive_challenge_top",
@@ -891,6 +895,8 @@ pub struct DeepestRankRescueDecisionInput {
     pub challenge_exact_tie: bool,
     pub challenge_near_tie: bool,
     pub candidate_cap_exceeded: bool,
+    pub original_confidence: f64,
+    pub min_original_confidence: Option<f64>,
     pub floor: Option<f64>,
     pub min_delta: f64,
     pub min_ratio: f64,
@@ -901,6 +907,15 @@ pub fn passes_deepest_rank_margin_rescue(
     input: &DeepestRankRescueDecisionInput,
 ) -> Result<(), RescueRejection> {
     let floor = input.floor.ok_or(RescueRejection::RescueDisabled)?;
+    if let Some(original_floor) = input.min_original_confidence {
+        let original_confidence = input.original_confidence;
+        if !original_confidence.is_finite() {
+            return Err(RescueRejection::NonfiniteOriginalConfidence);
+        }
+        if original_confidence < original_floor {
+            return Err(RescueRejection::OriginalConfidenceFloorFailed);
+        }
+    }
     if input.candidate_count < 2 {
         return Err(RescueRejection::CandidateCountLt2);
     }
@@ -1625,6 +1640,7 @@ fn evaluate_deepest_rank_challenge(
     config: &ClassifyConfig,
     ls: &[usize],
     max_level: i32,
+    original_confidence: f64,
 ) -> ChallengeDecision {
     let groups = terminal_sibling_endpoint_groups(
         predicted_group,
@@ -1808,6 +1824,8 @@ fn evaluate_deepest_rank_challenge(
         challenge_exact_tie: exact_tie,
         challenge_near_tie: near_tie,
         candidate_cap_exceeded: false,
+        original_confidence,
+        min_original_confidence: config.deepest_rank_margin_min_original_confidence,
         floor: config.deepest_rank_margin_floor,
         min_delta: config.deepest_rank_margin_min_delta,
         min_ratio: config.deepest_rank_margin_min_ratio,
@@ -2170,37 +2188,70 @@ fn leaf_phase_score(
                     deepest_rank_effective_threshold = finite_opt(Some(threshold));
                     deepest_rank_acceptance_mode = Some(DEEPEST_MODE_REJECTED.to_string());
                     deepest_rank_stop_reason = Some("deepest_threshold_failed".to_string());
-                    let challenge = evaluate_deepest_rank_challenge(
-                        predicted_group,
-                        &context,
-                        ts,
-                        config,
-                        ls,
-                        max_level,
-                    );
-                    challenge_original_selection_confidence =
-                        challenge.original_selection_confidence;
-                    challenge_runner_up_confidence = challenge.runner_up_confidence;
-                    challenge_margin_delta = challenge.margin_delta;
-                    challenge_margin_ratio = challenge.margin_ratio;
-                    challenge_candidate_count = challenge.candidate_count;
-                    challenge_selected_path = challenge.selected_path;
-                    challenge_runner_up_path = challenge.runner_up_path;
-                    deepest_rank_top_k = challenge.top_k;
-                    if let Some(reason) = challenge.stop_reason {
-                        deepest_rank_stop_reason = Some(reason);
+                    let original_confidence_gate_rejection = config
+                        .deepest_rank_margin_min_original_confidence
+                        .and_then(|floor| {
+                            if !confidence.is_finite() {
+                                Some(RescueRejection::NonfiniteOriginalConfidence)
+                            } else if confidence < floor {
+                                Some(RescueRejection::OriginalConfidenceFloorFailed)
+                            } else {
+                                None
+                            }
+                        });
+                    let original_confidence_gate_passed =
+                        original_confidence_gate_rejection.is_none();
+                    let original_confidence_blocks_rescue =
+                        rescue_enabled && original_confidence_gate_rejection.is_some();
+                    let diagnostics_requested =
+                        config.deepest_rank_diagnostics || config.deepest_rank_diagnostic_top_k > 0;
+                    let should_run_challenge = (rescue_enabled && original_confidence_gate_passed)
+                        || diagnostics_requested;
+
+                    if let Some(reason) = original_confidence_gate_rejection {
+                        deepest_rank_margin_rejection_reason = Some(reason.as_str().to_string());
+                        deepest_rank_stop_reason =
+                            Some(deepest_rank_stop_reason_for_rejection(reason).to_string());
                     }
-                    match challenge.decision {
-                        Ok(()) if rescue_enabled => {
-                            above.push(deepest_idx);
-                            deepest_rank_acceptance_mode =
-                                Some(DEEPEST_MODE_MARGIN_RESCUE.to_string());
-                            deepest_rank_margin_rejection_reason = None;
+
+                    if should_run_challenge {
+                        let challenge = evaluate_deepest_rank_challenge(
+                            predicted_group,
+                            &context,
+                            ts,
+                            config,
+                            ls,
+                            max_level,
+                            confidence,
+                        );
+                        challenge_original_selection_confidence =
+                            challenge.original_selection_confidence;
+                        challenge_runner_up_confidence = challenge.runner_up_confidence;
+                        challenge_margin_delta = challenge.margin_delta;
+                        challenge_margin_ratio = challenge.margin_ratio;
+                        challenge_candidate_count = challenge.candidate_count;
+                        challenge_selected_path = challenge.selected_path;
+                        challenge_runner_up_path = challenge.runner_up_path;
+                        deepest_rank_top_k = challenge.top_k;
+                        if let Some(reason) = challenge.stop_reason {
+                            if !original_confidence_blocks_rescue {
+                                deepest_rank_stop_reason = Some(reason);
+                            }
                         }
-                        Ok(()) => {}
-                        Err(reason) => {
-                            deepest_rank_margin_rejection_reason =
-                                Some(reason.as_str().to_string());
+                        match challenge.decision {
+                            Ok(()) if rescue_enabled && original_confidence_gate_passed => {
+                                above.push(deepest_idx);
+                                deepest_rank_acceptance_mode =
+                                    Some(DEEPEST_MODE_MARGIN_RESCUE.to_string());
+                                deepest_rank_margin_rejection_reason = None;
+                            }
+                            Ok(()) => {}
+                            Err(reason) => {
+                                if !original_confidence_blocks_rescue {
+                                    deepest_rank_margin_rejection_reason =
+                                        Some(reason.as_str().to_string());
+                                }
+                            }
                         }
                     }
                 }

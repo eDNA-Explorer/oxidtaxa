@@ -60,6 +60,14 @@ results = classify(
     deterministic=False,               # True = R-compatible sequential PRNG
     length_normalize=False,            # normalize scores by training sequence length
     rank_thresholds=None,              # per-rank thresholds, e.g. [90, 80, 70, 60, 50, 40, 40] for Domain→Species
+    deepest_rank_diagnostics=False,    # collect deepest-rank challenge diagnostics without changing calls
+    deepest_rank_diagnostic_top_k=0,   # retain top-K focused challenge candidates in diagnostics
+    rank_trace_diagnostics=False,      # record per-rank confidence/threshold trace diagnostics
+    deepest_rank_margin_floor=None,    # focused terminal-sibling rescue floor; None disables rescue
+    deepest_rank_margin_min_original_confidence=None, # optional ordinary-confidence gate before rescue
+    deepest_rank_margin_min_delta=15.0,
+    deepest_rank_margin_min_ratio=2.0,
+    max_deepest_rank_challenge_candidates=None,
     beam_width=1,                      # candidate paths during tree descent (1 = greedy)
     descent_tie_margin=0.0,            # beam-descent (Stage 1) runner-up admission margin
     leaf_tie_margin=0.0,               # leaf-phase (Stage 2) tied-set + winners cutoff margin
@@ -134,6 +142,14 @@ Ranges below are intended operating ranges. The Python binding currently validat
 | **bootstrap_coverage_cap** | true | true/false | Preserve DECIPHER's `b = min(5L/S, bootstraps)` cap. Set false to force every query to use the configured `bootstraps` count while leaving `S` unchanged. Useful for isolating whether the cap hurts classification performance. |
 | **length_normalize** | false | true/false | Divide each training sequence's score by sqrt(n_unique_kmers / avg_unique_kmers). **Symmetric**: long references are demoted (divisor > 1), short references are promoted (divisor < 1). Most useful for variable-length markers. Inert at single-keep (e.g. singleton-leaf — divisor is 1.0 by construction). |
 | **rank_thresholds** | None | list of floats in [0, 100] | Per-rank confidence thresholds (index 0 = Root, 1 = next rank, etc.). When set to `Some(non-empty)`, **fully overrides** the global `threshold` for every rank — there is no per-element fallback. If shorter than the predicted path, the last value is reused for every rank past its end; if longer, extras are ignored. Empty list (`Some([])`) is rejected. Allows strict filtering at high ranks (e.g., 90 for phylum) and lenient filtering at low ranks (e.g., 40 for species). |
+| **deepest_rank_diagnostics** | false | true/false | When true, computes deepest-rank challenge diagnostics for deepest-rank threshold failures without changing the emitted classification. Useful for inspecting rescue behavior before enabling it. |
+| **deepest_rank_diagnostic_top_k** | 0 | 0-50 | Number of terminal-sibling challenge candidates to retain in the optional diagnostic payload. Zero disables top-k collection. |
+| **rank_trace_diagnostics** | false | true/false | When true, records a compact per-rank selected-confidence/threshold trace reconstructed after classification. Does not affect descent or final calls. |
+| **deepest_rank_margin_floor** | None | float in [0, 100] or None | Enables optional deepest-rank rescue. Rescue is considered only when the normal threshold walk fails at the deepest terminal rank, every shallower rank passed, no LCA clamp already capped the path, and this focused terminal-sibling challenge confidence clears the floor. |
+| **deepest_rank_margin_min_original_confidence** | None | float in [0, 100] or None | Optional ordinary deepest-rank confidence gate before rescue can change the emitted classification. This uses the original confidence from the normal threshold walk, before focused sibling rescoring. Diagnostics can still run when enabled even if this gate blocks final rescue. |
+| **deepest_rank_margin_min_delta** | 15.0 | 0-100 | Minimum focused challenge top-minus-runner confidence margin required for deepest-rank rescue. |
+| **deepest_rank_margin_min_ratio** | 2.0 | >= 1.0 | Minimum focused challenge top/runner confidence ratio required for deepest-rank rescue. A zero runner-up bypasses the ratio gate only when the selected top is positive and at least two candidates were scored. |
+| **max_deepest_rank_challenge_candidates** | None | integer >= 2 or None | Optional safety cap for broad terminal-sibling challenges. When set and the candidate set is larger than the cap, rescue is rejected instead of scoring a partial subset. |
 | **beam_width** | 1 | 1-10 | Number of candidate paths maintained during tree descent. At 1, classification uses greedy descent. At higher values, the classifier explores multiple paths at ambiguous nodes and picks the candidate with the highest leaf-phase similarity. Useful when the greedy path makes an early wrong turn. |
 | **descent_tie_margin** | 0.0 | 0.0-1.0 | **Stage 1 — beam descent runner-up relaxation.** When `beam_width > 1`, runner-up subtrees enter the beam if they clear `min_descend`; `descent_tie_margin` additionally admits below-threshold runner-ups within `(1 - descent_tie_margin)` of the winner's vote count. **Higher-risk knob** — widens the search space before final scoring, so loose values can grow runtime and surface false-positive subtrees. Inert at `beam_width = 1`. |
 | **leaf_tie_margin** | 0.0 | 0.0-1.0 | **Stage 2 — leaf-phase tied-set widening.** Two internal sub-stages share this knob: per-replicate share-split and post-bootstrap winners cutoff. Groups within `(1 - leaf_tie_margin)` of `max_tot` join `winners`, cap the lineage at the LCA, and surface in `alternatives`. **Lower-risk knob** — only widens uncertainty reporting among candidates Stage 1 already retained. |

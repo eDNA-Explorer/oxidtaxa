@@ -526,7 +526,7 @@
       </tr>
       <tr>
         <td><strong>N3</strong></td>
-        <td><code class="inline">deepest_rank_margin_floor</code> and challenge gates — optional rescue for a deepest-rank call that misses the normal threshold but beats terminal siblings decisively</td>
+        <td><code class="inline">deepest_rank_margin_floor</code>, <code class="inline">deepest_rank_margin_min_original_confidence</code>, and challenge gates — optional rescue for a deepest-rank call that has enough ordinary confidence and beats terminal siblings decisively</td>
         <td>Feature</td>
         <td>off</td>
         <td>§9b</td>
@@ -599,7 +599,7 @@
     <li><code class="inline">descent_tie_margin</code> (§7c) decides <em>whether near-runner-up child paths can enter a beam search</em>.</li>
     <li><code class="inline">leaf_tie_margin</code> (§8c) decides <em>whether the winner's lineage must be clamped at an LCA</em>.</li>
     <li><code class="inline">threshold</code> / <code class="inline">rank_thresholds</code> (§9a) decide <em>how much of that lineage is evidence-supported enough to report</em>.</li>
-    <li><code class="inline">deepest_rank_margin_floor</code> (§9b) can rescue only the deepest rank when a terminal-sibling challenge shows a decisive margin.</li>
+    <li><code class="inline">deepest_rank_margin_floor</code> plus <code class="inline">deepest_rank_margin_min_original_confidence</code> (§9b) can rescue only the deepest rank when ordinary confidence is high enough and a terminal-sibling challenge shows a decisive margin.</li>
   </ul>
 </div>
 
@@ -1284,15 +1284,17 @@ final conf    = [100, 72]</pre>
 
 <h3><span class="step-badge">9b</span>Optional deepest-rank margin rescue</h3>
 <div class="panel">
-  <p>The normal threshold walk is conservative: if the deepest rank fails its threshold, that rank is dropped. Oxidtaxa has an optional rescue path for the narrow case where the only failure is the deepest terminal rank, and the selected leaf beats its terminal siblings decisively in a direct challenge.</p>
+  <p>The normal threshold walk is conservative: if the deepest rank fails its threshold, that rank is dropped. Oxidtaxa has an optional rescue path for the narrow case where the only failure is the deepest terminal rank, the original deepest-rank confidence is still high enough, and the selected leaf beats its terminal siblings decisively in a direct challenge.</p>
 
   <div class="param-box">
-    <h4>deepest_rank_margin_floor + margin gates <span class="tag">default: disabled</span></h4>
+    <h4>ordinary confidence gate + focused margin gates <span class="tag">default: rescue disabled</span></h4>
     <pre class="ascii" style="font-size:0.8em;">Rescue is considered only if:
   1. predicted group is a deepest-rank leaf with references
   2. every shallower rank passed Stage 3
   3. no LCA clamp already stopped the path
   4. deepest_rank_margin_floor is not None
+  5. ordinary deepest-rank confidence clears
+     deepest_rank_margin_min_original_confidence, if set
 
 Then oxidtaxa scores a terminal-sibling challenge:
   candidates = deepest sibling leaves under the same parent
@@ -1307,11 +1309,12 @@ Accept deepest rank if:
       <thead><tr><th>Example</th><th>Normal threshold</th><th>Challenge</th><th>Result</th></tr></thead>
       <tbody>
         <tr><td>clear leaf</td><td>species confidence 52 &lt; 60</td><td>52 vs 18, delta 34, ratio 2.9</td><td><span class="kept">rescued</span></td></tr>
+        <tr><td>low ordinary confidence</td><td>species confidence 35 &lt; original floor 50</td><td>not needed for rescue</td><td>rejected</td></tr>
         <tr><td>near sibling</td><td>species confidence 52 &lt; 60</td><td>52 vs 45, delta 7, ratio 1.16</td><td>rejected</td></tr>
         <tr><td>LCA-capped tie</td><td>species already clamped away</td><td>not evaluated</td><td>rejected</td></tr>
       </tbody>
     </table>
-    <p style="margin:6px 0 0; font-size:0.9em;">Safety valve: <code class="inline">max_deepest_rank_challenge_candidates</code> rejects rescue when the sibling set is too broad. Diagnostics on <code class="inline">ClassificationResult</code> record the acceptance mode, effective confidence/threshold, runner-up confidence, delta, ratio, candidate count, and rejection reason.</p>
+    <p style="margin:6px 0 0; font-size:0.9em;">Safety valve: <code class="inline">max_deepest_rank_challenge_candidates</code> rejects rescue when the sibling set is too broad. Diagnostics on <code class="inline">ClassificationResult</code> record the acceptance mode, effective confidence/threshold, runner-up confidence, delta, ratio, candidate count, and rejection reason. When <code class="inline">deepest_rank_diagnostics</code> or <code class="inline">deepest_rank_diagnostic_top_k</code> is enabled, the focused challenge diagnostics still run even if <code class="inline">deepest_rank_margin_min_original_confidence</code> blocks final rescue.</p>
   </div>
 </div>
 
@@ -1818,6 +1821,7 @@ TTA(60)  →  [seq6]
       <tr><td><code class="inline">bootstraps</code>, <code class="inline">sample_exponent</code></td><td>classify</td><td>§7a</td><td>Bootstrap count &amp; per-replicate sample size (<code class="inline">S = L<sup>sample_exponent</sup></code>)</td></tr>
       <tr><td><code class="inline">correlation_aware_features</code></td><td>train</td><td>§6d</td><td>Greedy feature selection with Bhattacharyya redundancy penalty (well-defined for any split size)</td></tr>
       <tr><td><code class="inline">deepest_rank_margin_floor</code></td><td>classify</td><td>§9b</td><td>Enable optional rescue when only the deepest rank fails threshold but beats terminal siblings decisively</td></tr>
+      <tr><td><code class="inline">deepest_rank_margin_min_original_confidence</code></td><td>classify</td><td>§9b</td><td>Optional ordinary deepest-rank confidence floor required before deepest-rank rescue can change the emitted classification</td></tr>
       <tr><td><code class="inline">deepest_rank_margin_min_delta</code>, <code class="inline">deepest_rank_margin_min_ratio</code></td><td>classify</td><td>§9b</td><td>Minimum absolute and relative advantage required for deepest-rank rescue</td></tr>
       <tr><td><code class="inline">descendant_weighting</code></td><td>train</td><td>§6d</td><td>Count / Equal / Log weighting when building per-child profiles</td></tr>
       <tr><td><code class="inline">descent_tie_margin</code></td><td>classify</td><td>§7c</td><td>Near-runner-up admission margin for Stage-1 beam descent; only active when <code class="inline">beam_width &gt; 1</code></td></tr>

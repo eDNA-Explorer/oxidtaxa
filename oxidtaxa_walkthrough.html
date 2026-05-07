@@ -1004,8 +1004,8 @@ reject_reason = "below_threshold"</div>
 
 <div class="scenario stage3" id="s24">
   <h4><span class="tag">S24</span> Deepest-rank margin rescue accepts a clear species</h4>
-  <div class="knob-strip">knobs: <code class="inline">deepest_rank_margin_floor=10</code>, <code class="inline">deepest_rank_margin_min_delta=15</code>, <code class="inline">deepest_rank_margin_min_ratio=2.0</code></div>
-  <p>Normal Stage 3 rejects a species if its confidence is below the species threshold. Rescue only considers the special case where every shallower rank passed, no LCA clamp happened, and the failed rank is the deepest terminal leaf.</p>
+  <div class="knob-strip">knobs: <code class="inline">deepest_rank_margin_min_original_confidence=50</code>, <code class="inline">deepest_rank_margin_floor=10</code>, <code class="inline">deepest_rank_margin_min_delta=15</code>, <code class="inline">deepest_rank_margin_min_ratio=2.0</code></div>
+  <p>Normal Stage 3 rejects a species if its confidence is below the species threshold. Rescue only considers the special case where every shallower rank passed, no LCA clamp happened, the failed rank is the deepest terminal leaf, and the original deepest-rank confidence clears the rescue gate before the focused sibling challenge is allowed to change the call.</p>
   <table>
     <thead><tr><th>Rank / challenge</th><th>Confidence</th><th>Gate</th><th>Outcome</th></tr></thead>
     <tbody>
@@ -1014,6 +1014,7 @@ reject_reason = "below_threshold"</div>
       <tr><td>Canidae</td><td>96</td><td>≥ 60</td><td>pass</td></tr>
       <tr><td>Canis</td><td>91</td><td>≥ 60</td><td>pass</td></tr>
       <tr><td>Canis_lupus</td><td>52</td><td>&lt; 60</td><td>normal threshold would drop species</td></tr>
+      <tr><td>ordinary rescue gate</td><td>52</td><td>≥ 50</td><td>focused challenge may affect final call</td></tr>
       <tr><td>terminal sibling challenge</td><td>lupus 52 vs latrans 18</td><td>delta 34, ratio 2.9</td><td><span class="kept">species rescued</span></td></tr>
     </tbody>
   </table>
@@ -1023,7 +1024,7 @@ deepest_rank_acceptance_mode = "margin_rescue"
 deepest_rank_challenge_margin_delta = 34
 deepest_rank_challenge_margin_ratio = 2.9
 reject_reason = None</div>
-  <p class="hist-caption">Rescue does not override shallower-rank failures or LCA clamps. If the candidate set is too broad and <code class="inline">max_deepest_rank_challenge_candidates</code> is set below that size, rescue is rejected before scoring the challenge.</p>
+  <p class="hist-caption">Rescue does not override shallower-rank failures, LCA clamps, or the ordinary confidence gate. If diagnostics are enabled, the focused sibling challenge can still be recorded when the ordinary gate blocks final rescue.</p>
 </div>
 
 <div class="scenario stage3">
@@ -1351,7 +1352,7 @@ reject_reason = "below_threshold"</div>
       <tr><td>S23</td><td><code class="inline">leaf_top_m</code> aggregates several refs per group</td><td>2</td><td><code class="inline">leaf_top_m, leaf_aggregation_mode</code></td><td><a href="#s23">C3</a></td></tr>
       <tr><td>S12</td><td><code class="inline">too_few_kmers</code> abstention</td><td>3</td><td>defaults (tiny query)</td><td><a href="#s12">C4</a></td></tr>
       <tr><td>S13</td><td><code class="inline">below_threshold</code> truncation</td><td>3</td><td><code class="inline">threshold, rank_thresholds</code></td><td><a href="#s13">C4</a></td></tr>
-      <tr><td>S24</td><td>Deepest-rank margin rescue</td><td>3</td><td><code class="inline">deepest_rank_margin_floor</code> + gates</td><td><a href="#s24">C4</a></td></tr>
+      <tr><td>S24</td><td>Deepest-rank margin rescue</td><td>3</td><td><code class="inline">deepest_rank_margin_min_original_confidence</code>, <code class="inline">deepest_rank_margin_floor</code> + gates</td><td><a href="#s24">C4</a></td></tr>
       <tr><td>S14</td><td><code class="inline">use_idf_in_descent</code> changes convergence</td><td>train</td><td><code class="inline">use_idf_in_descent</code></td><td><a href="#s14">T4</a></td></tr>
       <tr><td>S15</td><td>Per-kmer LOO reshape (singletons → 0, conserved preserved)</td><td>train</td><td><code class="inline">leave_one_out</code></td><td><a href="#s15">T4</a></td></tr>
       <tr><td>S16</td><td>Spaced seed collapses a SNP</td><td>train</td><td><code class="inline">seed_pattern</code></td><td><a href="#s16">T1</a></td></tr>

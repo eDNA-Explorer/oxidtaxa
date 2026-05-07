@@ -753,8 +753,14 @@ pub struct ClassifyConfig {
     /// trace reconstructed after classification. Does not affect descent.
     pub rank_trace_diagnostics: bool,
     /// Experimental deepest-rank margin rescue floor on the 0-100 confidence
-    /// scale. `None` disables rescue.
+    /// scale for the focused terminal-sibling challenge. `None` disables rescue.
     pub deepest_rank_margin_floor: Option<f64>,
+    /// Optional ordinary deepest-rank confidence floor required before
+    /// deepest-rank margin rescue can change the emitted classification. This
+    /// uses the same confidence value as the normal threshold walk, before
+    /// focused sibling challenge rescoring. `None` preserves the existing
+    /// challenge-only rescue behavior.
+    pub deepest_rank_margin_min_original_confidence: Option<f64>,
     /// Minimum expanded-contest top-minus-runner confidence margin required
     /// for deepest-rank margin rescue, on the 0-100 confidence scale.
     pub deepest_rank_margin_min_delta: f64,
@@ -789,6 +795,7 @@ impl Default for ClassifyConfig {
             deepest_rank_diagnostic_top_k: 0,
             rank_trace_diagnostics: false,
             deepest_rank_margin_floor: None,
+            deepest_rank_margin_min_original_confidence: None,
             deepest_rank_margin_min_delta: 15.0,
             deepest_rank_margin_min_ratio: 2.0,
             max_deepest_rank_challenge_candidates: None,
@@ -802,6 +809,14 @@ impl ClassifyConfig {
             if !v.is_finite() || !(0.0..=100.0).contains(&v) {
                 return Err(format!(
                     "deepest_rank_margin_floor must be finite and in [0, 100], got {}",
+                    v
+                ));
+            }
+        }
+        if let Some(v) = self.deepest_rank_margin_min_original_confidence {
+            if !v.is_finite() || !(0.0..=100.0).contains(&v) {
+                return Err(format!(
+                    "deepest_rank_margin_min_original_confidence must be finite and in [0, 100], got {}",
                     v
                 ));
             }
